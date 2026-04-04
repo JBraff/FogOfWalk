@@ -92,23 +92,26 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     // `nonisolated`. They dispatch back to the main actor to mutate state.
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        let status = manager.authorizationStatus
         Task { @MainActor [weak self] in
-            self?.authorizationStatus = status
+            guard let self else { return }
+            // Read from self.manager (which may be a mock in tests) so the status
+            // reflects the injected manager, not the CLLocationManager delegate argument.
+            let status = self.manager.authorizationStatus
+            self.authorizationStatus = status
             switch status {
             case .authorizedAlways:
-                self?.isPermissionDenied = false
-                self?.startTracking()
+                self.isPermissionDenied = false
+                self.startTracking()
             #if os(iOS)
             case .authorizedWhenInUse:
                 // Foreground-only permission: start updates for now, but do not set
                 // allowsBackgroundLocationUpdates (requires Always auth).
-                self?.isPermissionDenied = false
-                self?.manager.startUpdatingLocation()
-                self?.manager.startMonitoringSignificantLocationChanges()
+                self.isPermissionDenied = false
+                self.manager.startUpdatingLocation()
+                self.manager.startMonitoringSignificantLocationChanges()
             #endif
             case .denied, .restricted:
-                self?.isPermissionDenied = true
+                self.isPermissionDenied = true
             default:
                 break
             }
