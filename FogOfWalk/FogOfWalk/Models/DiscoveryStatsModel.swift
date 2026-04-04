@@ -85,20 +85,46 @@ final class DiscoveryStatsModel {
 
         guard let cells = try? context.fetch(request) else { return }
 
-        let now = Date()
+        let now      = Date()
         let calendar = Calendar.current
 
-        // All-time
-        allTimeTotal = cells.count
-        firstWalkDate = cells.first?.firstVisited
+        // Cutoffs — use Calendar-safe arithmetic to correctly handle DST transitions.
+        let cutoff24h = calendar.date(byAdding: .hour, value: -24, to: now) ?? now
+        let cutoff7d  = calendar.startOfDay(
+            for: calendar.date(byAdding: .day, value: -6, to: now) ?? now
+        )
 
-        // Best day — group all cells by their calendar day
-        var allDayCounts: [Date: Int] = [:]
+        // Single pass: accumulate all stat buckets simultaneously.
+        var allDayCounts:      [Date: Int]       = [:]
+        var allLocalityCells:  [String: [CellID]] = [:]
+        var last24Count        = 0
+        var recentDayCounts:   [Date: Int]       = [:]
+        var recentLocalCells:  [String: [CellID]] = [:]
+
         for cell in cells {
             guard let visited = cell.firstVisited else { continue }
-            let day = calendar.startOfDay(for: visited)
+            let day      = calendar.startOfDay(for: visited)
+            let cellID   = CellID(x: cell.cellX, y: cell.cellY)
+            let locality = cell.locality ?? "Unknown"
+
+            // All-time buckets
             allDayCounts[day, default: 0] += 1
+            allLocalityCells[locality, default: []].append(cellID)
+
+            // Last 24 hours
+            if visited >= cutoff24h { last24Count += 1 }
+
+            // Last 7 days
+            if visited >= cutoff7d {
+                recentDayCounts[day, default: 0] += 1
+                recentLocalCells[locality, default: []].append(cellID)
+            }
         }
+
+        // All-time stats
+        allTimeTotal   = cells.count
+        firstWalkDate  = cells.first?.firstVisited
+
         if let best = allDayCounts.max(by: { $0.value < $1.value }) {
             bestDayCount = best.value
             bestDayDate  = best.key
@@ -107,10 +133,10 @@ final class DiscoveryStatsModel {
             bestDayDate  = nil
         }
 
-        // Total days active
-        totalDaysActive = allDayCounts.count
+        totalDaysActive        = allDayCounts.count
+        estimatedDistanceMeters = Double(allTimeTotal) * cellSizeMeters
 
-        // Streaks
+        // Streaks (computed from sorted day keys)
         let sortedDays = allDayCounts.keys.sorted()
         var longestRun = 0
         var currentRun = 0
@@ -144,15 +170,7 @@ final class DiscoveryStatsModel {
             currentStreak = 0
         }
 
-        // Estimated distance
-        estimatedDistanceMeters = Double(allTimeTotal) * cellSizeMeters
-
         // All-time locality breakdown
-        var allLocalityCells: [String: [CellID]] = [:]
-        for cell in cells {
-            let name = cell.locality ?? "Unknown"
-            allLocalityCells[name, default: []].append(CellID(x: cell.cellX, y: cell.cellY))
-        }
         allTimeByLocality = allLocalityCells
             .map { name, ids in
                 LocalityStats(
@@ -164,32 +182,19 @@ final class DiscoveryStatsModel {
             }
             .sorted { $0.count > $1.count }
 
-        // Last 24 hours
-        let cutoff24h = now.addingTimeInterval(-86400)
-        last24HourCount = cells.filter { ($0.firstVisited ?? .distantPast) >= cutoff24h }.count
+        // Last 24-hour count
+        last24HourCount = last24Count
 
         // Last 7 days — build 7 slots (index 0 = 6 days ago, index 6 = today)
-        let cutoff7d = calendar.startOfDay(for: now.addingTimeInterval(-6 * 86400))
-        let recentCells = cells.filter { ($0.firstVisited ?? .distantPast) >= cutoff7d }
-
-        var dayCounts: [Date: Int] = [:]
-        for cell in recentCells {
-            guard let visited = cell.firstVisited else { continue }
-            let day = calendar.startOfDay(for: visited)
-            dayCounts[day, default: 0] += 1
-        }
         last7DaysByDay = (0..<7).map { offset in
-            let date = calendar.startOfDay(for: now.addingTimeInterval(Double(offset - 6) * 86400))
-            return DailyCount(date: date, count: dayCounts[date] ?? 0)
+            let date = calendar.startOfDay(
+                for: calendar.date(byAdding: .day, value: offset - 6, to: now) ?? now
+            )
+            return DailyCount(date: date, count: recentDayCounts[date] ?? 0)
         }
 
-        // Locality breakdown for the last 7 days
-        var localityCells: [String: [CellID]] = [:]
-        for cell in recentCells {
-            let name = cell.locality ?? "Unknown"
-            localityCells[name, default: []].append(CellID(x: cell.cellX, y: cell.cellY))
-        }
-        last7DaysByLocality = localityCells
+        // Last 7 days locality breakdown
+        last7DaysByLocality = recentLocalCells
             .map { name, ids in
                 LocalityStats(
                     locality: name,

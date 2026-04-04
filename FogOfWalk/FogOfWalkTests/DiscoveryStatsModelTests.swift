@@ -201,6 +201,29 @@ final class DiscoveryStatsModelTests: XCTestCase {
         }
     }
 
+    func testLast7DaysSlotsAreConsecutiveCalendarDays() async {
+        // Regression test for DST-unsafe day arithmetic.
+        // Slots must be consecutive calendar days, not fixed 86400-second intervals.
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let model     = DiscoveryStatsModel()
+            model.refresh(context: container.viewContext, cellSizeMeters: 50)
+
+            let calendar = Calendar.current
+            let slots    = model.last7DaysByDay
+            XCTAssertEqual(slots.count, 7)
+            for i in 1..<slots.count {
+                let diff = calendar.dateComponents([.day], from: slots[i-1].date, to: slots[i].date).day
+                XCTAssertEqual(diff, 1,
+                    "Consecutive slots must be exactly 1 calendar day apart, got \(diff ?? -1) between \(slots[i-1].date) and \(slots[i].date)")
+            }
+            // Last slot must be today.
+            let today = calendar.startOfDay(for: Date())
+            XCTAssertEqual(slots.last?.date, today,
+                "Last slot must represent today (start of day)")
+        }
+    }
+
     func testLast7DaysByDayIsOrderedOldestFirst() async {
         await MainActor.run {
             let container = makeInMemoryContainer()
