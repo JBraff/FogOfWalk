@@ -13,13 +13,15 @@ struct ContentView: View {
     @Environment(LandmarkStore.self)     private var landmarkStore
     @State private var showSettings      = false
     @State private var showStats         = false
-    @State private var selectedLandmarkID: String?
+    @State private var selectedLandmark: Landmark?
     @State private var mapTarget: MapNavigationTarget?
 
     var body: some View {
         ZStack(alignment: .bottom) {
             MapContainerView(
-                onLandmarkTapped: { id in selectedLandmarkID = id },
+                onLandmarkTapped: { id in
+                    selectedLandmark = landmarkStore.allLandmarks.first(where: { $0.identifier == id })
+                },
                 navigateTo: mapTarget
             )
             .ignoresSafeArea()
@@ -36,14 +38,8 @@ struct ContentView: View {
                 showStats = false
             })
         }
-        .sheet(isPresented: Binding(
-            get: { selectedLandmarkID != nil },
-            set: { if !$0 { selectedLandmarkID = nil } }
-        )) {
-            if let id = selectedLandmarkID,
-               let landmark = landmarkStore.allLandmarks.first(where: { $0.identifier == id }) {
-                LandmarkDetailView(landmark: landmark)
-            }
+        .sheet(item: $selectedLandmark) { landmark in
+            LandmarkDetailView(landmark: landmark)
         }
         .onAppear {
             store.configure(cellSizeMeters: gridSettings.cellSizeMeters)

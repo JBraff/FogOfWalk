@@ -16,3 +16,7 @@ public class Landmark: NSManagedObject {
         NSFetchRequest<Landmark>(entityName: "Landmark")
     }
 }
+
+extension Landmark: Identifiable {
+    public var id: String { identifier }
+}

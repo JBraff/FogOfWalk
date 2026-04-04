@@ -142,6 +142,9 @@ final class LandmarkStore {
         } catch {
             print("LandmarkStore: discovery save failed: \(error)")
             ctx.rollback()
+            // After rollback the managed objects may have stale in-memory state.
+            // Reload from Core Data so allLandmarks reflects the persisted truth.
+            loadFromStore()
             return []
         }
 
