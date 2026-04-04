@@ -7,7 +7,7 @@ Usage:
 
 Options:
     --min-sitelinks N   Minimum number of Wikipedia language editions required
-                        (higher = more famous). Default: 5
+                        (higher = more famous). Default: 10
     --output FILE       Output JSON path. Default: landmarks.json
 
 The script queries Wikidata for items that have:

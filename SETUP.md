@@ -27,10 +27,10 @@ Delete Xcode's generated stubs and add the files from this repo:
 | Xcode group            | Files to add                                     |
 |------------------------|--------------------------------------------------|
 | `FogOfWalk/`           | `FogOfWalkApp.swift`, `ContentView.swift`        |
-| `FogOfWalk/Models/`    | `GridCell.swift`, `GridSettings.swift`, `ExplorationStore.swift`, `VisitedCell+CoreData.swift` |
-| `FogOfWalk/Services/`  | `LocationService.swift`                          |
-| `FogOfWalk/Views/`     | `MapContainerView.swift`, `FogView.swift`, `StatsView.swift`, `SettingsView.swift` |
-| `FogOfWalkTests/`      | `GridCellTests.swift`                            |
+| `FogOfWalk/Models/`    | `GridCell.swift`, `GridSettings.swift`, `ExplorationStore.swift`, `VisitedCell+CoreData.swift`, `CellSnapshot.swift`, `DiscoveryStatsModel.swift`, `Landmark+CoreData.swift`, `LandmarkStore.swift`, `LocalityGeocoder.swift`, `WikidataLandmark.swift` |
+| `FogOfWalk/Services/`  | `LocationService.swift`, `LandmarkSearchService.swift`, `BundledLandmarkSource.swift` |
+| `FogOfWalk/Views/`     | `MapContainerView.swift`, `FogOverlay.swift`, `StatsView.swift`, `SettingsView.swift`, `DiscoveryStatsView.swift`, `LandmarkDetailView.swift`, `LandmarkOverlayView.swift` |
+| `FogOfWalkTests/`      | `FogOfWalkTests.swift` (GridCell), `ExplorationStoreTests.swift`, `FogOverlayRendererTests.swift`, `GestureTransformTests.swift`, `HighlightPeriodTests.swift`, `BundledLandmarkSourceTests.swift`, `CellSnapshotTests.swift`, `DiscoveryStatsModelTests.swift`, `LandmarkOverlayViewTests.swift`, `LandmarkSearchServiceTests.swift`, `LandmarkStoreTests.swift`, `LocalityGeocoderTests.swift`, `LocationServiceTests.swift` |
 
 To add files: **right-click group → Add Files to "FogOfWalk"** (or drag-and-drop).
 Make sure **"Copy items if needed"** is unchecked if files are already in the right folder.
@@ -84,5 +84,6 @@ Set **Minimum Deployments → iOS 17.0** (required for `@Observable`).
 
 ## Testing
 
-Run **FogOfWalkTests** — the `GridCellTests` suite validates coordinate math
-at NYC, London, Paris, Sydney, and the equator across all four cell sizes.
+Run **FogOfWalkTests** — the suite covers grid math, Core Data persistence,
+fog overlay rendering, landmark discovery, stats computation, geocoding,
+and location service authorization across all four cell sizes.
