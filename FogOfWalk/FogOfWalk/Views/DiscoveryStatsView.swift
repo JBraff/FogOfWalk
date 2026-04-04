@@ -12,6 +12,7 @@ struct DiscoveryStatsView: View {
     var onNavigate: ((MapNavigationTarget) -> Void)?
 
     @State private var model = DiscoveryStatsModel()
+    @State private var localityPeriod: LocalityPeriod = .thisWeek
 
     var body: some View {
         NavigationStack {
@@ -19,13 +20,8 @@ struct DiscoveryStatsView: View {
                 VStack(spacing: 24) {
                     summaryCards
                     weeklyChart
-                    if !model.last7DaysByLocality.isEmpty {
-                        localitySection
-                    }
+                    localitySection
                     allTimeSection
-                    if !model.allTimeByLocality.isEmpty {
-                        allTimeLocalitySection
-                    }
                     landmarksSection
                 }
                 .padding(.horizontal, 16)
@@ -84,25 +80,41 @@ struct DiscoveryStatsView: View {
     // MARK: - By location
 
     private var localitySection: some View {
-        GroupBox {
-            VStack(spacing: 0) {
-                ForEach(model.last7DaysByLocality) { stat in
-                    LocalityRow(
-                        stat: stat,
-                        maxCount: model.last7DaysByLocality.first?.count ?? 1,
-                        action: onNavigate.map { navigate in {
-                            navigate(MapNavigationTarget(center: stat.center, span: stat.span))
-                            dismiss()
-                        }}
-                    )
-                    if stat.id != model.last7DaysByLocality.last?.id {
-                        Divider()
+        let data = model.locality(for: localityPeriod)
+        return GroupBox {
+            if data.isEmpty {
+                Text("No areas explored \(localityPeriod.emptyStateLabel).")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(data) { stat in
+                        LocalityRow(
+                            stat: stat,
+                            maxCount: data.first?.count ?? 1,
+                            action: onNavigate.map { navigate in {
+                                navigate(MapNavigationTarget(center: stat.center, span: stat.span))
+                                dismiss()
+                            }}
+                        )
+                        if stat.id != data.last?.id {
+                            Divider()
+                        }
                     }
                 }
             }
         } label: {
-            Text("This Week by Location")
-                .font(.headline)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("By Location")
+                    .font(.headline)
+                Picker("Period", selection: $localityPeriod) {
+                    ForEach(LocalityPeriod.allCases) { period in
+                        Text(period.displayName).tag(period)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
         }
     }
 
@@ -214,30 +226,6 @@ struct DiscoveryStatsView: View {
         }
     }
 
-    // MARK: - All time by location
-
-    private var allTimeLocalitySection: some View {
-        GroupBox {
-            VStack(spacing: 0) {
-                ForEach(model.allTimeByLocality) { stat in
-                    LocalityRow(
-                        stat: stat,
-                        maxCount: model.allTimeByLocality.first?.count ?? 1,
-                        action: onNavigate.map { navigate in {
-                            navigate(MapNavigationTarget(center: stat.center, span: stat.span))
-                            dismiss()
-                        }}
-                    )
-                    if stat.id != model.allTimeByLocality.last?.id {
-                        Divider()
-                    }
-                }
-            }
-        } label: {
-            Text("All Time by Location")
-                .font(.headline)
-        }
-    }
 }
 
 // MARK: - StatCard

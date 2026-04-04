@@ -9,7 +9,7 @@ struct StatsView: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            Text("\(store.totalVisitedCount) areas explored")
+            Text("\(store.todayVisitedCount) new today")
                 .font(.headline)
 
             if landmarkStore.totalDiscovered > 0 {

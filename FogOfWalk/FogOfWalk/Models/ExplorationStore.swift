@@ -17,6 +17,7 @@ final class ExplorationStore {
     /// In-memory cache of recently visited cells for the active highlight period.
     private(set) var recentCellsCache: Set<CellID> = []
     private(set) var totalVisitedCount: Int = 0
+    private(set) var todayVisitedCount: Int = 0
     private var cachedCellSize: Double = 0
 
     /// Called after a new cell is successfully persisted. Used by LocalityGeocoder.
@@ -76,6 +77,14 @@ final class ExplorationStore {
             visitedCellsCache = Set(cells.map { CellID(x: $0.cellX, y: $0.cellY) })
             totalVisitedCount = visitedCellsCache.count
             cachedCellSize    = cellSizeMeters  // only set on successful fetch
+
+            let startOfToday = Calendar.current.startOfDay(for: Date())
+            let todayRequest = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
+            todayRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+                NSPredicate(format: "cellSizeMeters == %f", cellSizeMeters),
+                NSPredicate(format: "firstVisited >= %@", startOfToday as NSDate)
+            ])
+            todayVisitedCount = (try? container.viewContext.count(for: todayRequest)) ?? 0
         } catch {
             print("ExplorationStore: cache reload failed: \(error)")
         }
@@ -135,6 +144,7 @@ final class ExplorationStore {
             if matchesCache {
                 visitedCellsCache.insert(cell)
                 totalVisitedCount = visitedCellsCache.count
+                todayVisitedCount += 1
                 // A newly walked cell is always "recent" while the highlight is active.
                 if !recentCellsCache.isEmpty {
                     recentCellsCache.insert(cell)
@@ -232,6 +242,7 @@ final class ExplorationStore {
         visitedCellsCache.removeAll()
         recentCellsCache.removeAll()
         totalVisitedCount = 0
+        todayVisitedCount = 0
         cachedCellSize    = 0
     }
 }

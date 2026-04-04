@@ -5,6 +5,33 @@ import Observation
 
 // MARK: - Supporting types
 
+enum LocalityPeriod: String, CaseIterable, Identifiable {
+    case today     = "today"
+    case thisWeek  = "thisWeek"
+    case thisMonth = "thisMonth"
+    case allTime   = "allTime"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .today:     return "Today"
+        case .thisWeek:  return "This Week"
+        case .thisMonth: return "This Month"
+        case .allTime:   return "All Time"
+        }
+    }
+
+    var emptyStateLabel: String {
+        switch self {
+        case .today:     return "today"
+        case .thisWeek:  return "this week"
+        case .thisMonth: return "this month"
+        case .allTime:   return "yet"
+        }
+    }
+}
+
 struct DailyCount: Identifiable {
     let date: Date   // midnight of the day (Calendar.current.startOfDay)
     let count: Int
@@ -64,8 +91,6 @@ final class DiscoveryStatsModel {
     var last24HourCount: Int = 0
     /// Always exactly 7 entries, oldest-to-newest, zero-filled for empty days.
     var last7DaysByDay: [DailyCount] = []
-    /// Sorted by count descending. Cells with nil locality appear as "Unknown".
-    var last7DaysByLocality: [LocalityStats] = []
     var allTimeTotal: Int = 0
     var firstWalkDate: Date? = nil
     var bestDayCount: Int = 0
@@ -74,7 +99,12 @@ final class DiscoveryStatsModel {
     var longestStreak: Int = 0
     var totalDaysActive: Int = 0
     var estimatedDistanceMeters: Double = 0
-    var allTimeByLocality: [LocalityStats] = []
+    /// Sorted by count descending for each period. Cells with nil locality appear as "Unknown".
+    var localityByPeriod: [LocalityPeriod: [LocalityStats]] = [:]
+
+    func locality(for period: LocalityPeriod) -> [LocalityStats] {
+        localityByPeriod[period] ?? []
+    }
 
     // MARK: - Refresh
 
@@ -89,17 +119,22 @@ final class DiscoveryStatsModel {
         let calendar = Calendar.current
 
         // Cutoffs — use Calendar-safe arithmetic to correctly handle DST transitions.
-        let cutoff24h = calendar.date(byAdding: .hour, value: -24, to: now) ?? now
-        let cutoff7d  = calendar.startOfDay(
+        let cutoff24h   = calendar.startOfDay(for: now)
+        let cutoff7d    = calendar.startOfDay(
             for: calendar.date(byAdding: .day, value: -6, to: now) ?? now
         )
+        let cutoffToday = calendar.startOfDay(for: now)
+        let cutoffMonth = calendar.dateInterval(of: .month, for: now)?.start
+                          ?? calendar.startOfDay(for: calendar.date(byAdding: .month, value: -1, to: now) ?? now)
 
         // Single pass: accumulate all stat buckets simultaneously.
-        var allDayCounts:      [Date: Int]       = [:]
+        var allDayCounts:      [Date: Int]        = [:]
         var allLocalityCells:  [String: [CellID]] = [:]
         var last24Count        = 0
-        var recentDayCounts:   [Date: Int]       = [:]
+        var recentDayCounts:   [Date: Int]        = [:]
         var recentLocalCells:  [String: [CellID]] = [:]
+        var todayLocalCells:   [String: [CellID]] = [:]
+        var monthLocalCells:   [String: [CellID]] = [:]
 
         for cell in cells {
             guard let visited = cell.firstVisited else { continue }
@@ -118,6 +153,16 @@ final class DiscoveryStatsModel {
             if visited >= cutoff7d {
                 recentDayCounts[day, default: 0] += 1
                 recentLocalCells[locality, default: []].append(cellID)
+            }
+
+            // Today
+            if visited >= cutoffToday {
+                todayLocalCells[locality, default: []].append(cellID)
+            }
+
+            // This month
+            if visited >= cutoffMonth {
+                monthLocalCells[locality, default: []].append(cellID)
             }
         }
 
@@ -170,18 +215,6 @@ final class DiscoveryStatsModel {
             currentStreak = 0
         }
 
-        // All-time locality breakdown
-        allTimeByLocality = allLocalityCells
-            .map { name, ids in
-                LocalityStats(
-                    locality: name,
-                    count: ids.count,
-                    center: localityCentroid(ids, cellSizeMeters: cellSizeMeters),
-                    span: localitySpan(ids, cellSizeMeters: cellSizeMeters)
-                )
-            }
-            .sorted { $0.count > $1.count }
-
         // Last 24-hour count
         last24HourCount = last24Count
 
@@ -193,9 +226,9 @@ final class DiscoveryStatsModel {
             return DailyCount(date: date, count: recentDayCounts[date] ?? 0)
         }
 
-        // Last 7 days locality breakdown
-        last7DaysByLocality = recentLocalCells
-            .map { name, ids in
+        // Locality breakdown by period
+        func buildStats(_ dict: [String: [CellID]]) -> [LocalityStats] {
+            dict.map { name, ids in
                 LocalityStats(
                     locality: name,
                     count: ids.count,
@@ -204,5 +237,13 @@ final class DiscoveryStatsModel {
                 )
             }
             .sorted { $0.count > $1.count }
+        }
+
+        localityByPeriod = [
+            .today:     buildStats(todayLocalCells),
+            .thisWeek:  buildStats(recentLocalCells),
+            .thisMonth: buildStats(monthLocalCells),
+            .allTime:   buildStats(allLocalityCells),
+        ]
     }
 }

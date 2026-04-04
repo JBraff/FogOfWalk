@@ -439,6 +439,66 @@ final class ExplorationStoreTests: XCTestCase {
         }
     }
 
+    // MARK: - Today count
+
+    func testTodayVisitedCountStartsAtZero() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            store.configure(cellSizeMeters: 50)
+            XCTAssertEqual(store.todayVisitedCount, 0)
+        }
+    }
+
+    func testAddCellIncrementsTodayCount() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            store.configure(cellSizeMeters: 50)
+            store.addCell(CellID(x: 0, y: 0), cellSizeMeters: 50)
+            store.addCell(CellID(x: 1, y: 0), cellSizeMeters: 50)
+            XCTAssertEqual(store.todayVisitedCount, 2)
+        }
+    }
+
+    func testAddCellDoesNotIncrementTodayCountForDuplicate() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            store.configure(cellSizeMeters: 50)
+            let cell = CellID(x: 0, y: 0)
+            store.addCell(cell, cellSizeMeters: 50)
+            store.addCell(cell, cellSizeMeters: 50)
+            XCTAssertEqual(store.todayVisitedCount, 1)
+        }
+    }
+
+    func testDeleteAllCellsResetsTodayCount() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            store.configure(cellSizeMeters: 50)
+            store.addCell(CellID(x: 0, y: 0), cellSizeMeters: 50)
+            XCTAssertEqual(store.todayVisitedCount, 1)
+            store.deleteAllCells()
+            XCTAssertEqual(store.todayVisitedCount, 0)
+        }
+    }
+
+    func testConfigureLoadsTodayCountFromCoreData() async {
+        let container = makeInMemoryContainer()
+
+        await MainActor.run {
+            let store1 = ExplorationStore(container: container)
+            store1.configure(cellSizeMeters: 50)
+            store1.addCell(CellID(x: 0, y: 0), cellSizeMeters: 50)
+            store1.addCell(CellID(x: 1, y: 0), cellSizeMeters: 50)
+        }
+
+        await MainActor.run {
+            let store2 = ExplorationStore(container: container)
+            store2.configure(cellSizeMeters: 50)
+            XCTAssertEqual(store2.todayVisitedCount, 2,
+                "todayVisitedCount should be restored from Core Data on configure()")
+        }
+    }
+
     func testDeleteAllCellsClearsRecentCache() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
