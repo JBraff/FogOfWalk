@@ -34,12 +34,12 @@ final class LocationServiceTests: XCTestCase {
 
     // MARK: Initialization
 
-    func testInitConfiguresAutoPauseDisabled() async {
+    func testInitConfiguresAutoPauseEnabled() async {
         await MainActor.run {
             let mock = MockLocationManager()
             _ = LocationService(manager: mock)
-            XCTAssertFalse(mock.pausesLocationUpdatesAutomatically,
-                           "Auto-pause must be disabled so iOS doesn't silently stop background updates")
+            XCTAssertTrue(mock.pausesLocationUpdatesAutomatically,
+                          "Auto-pause should be enabled so iOS can save battery when the user is stationary")
         }
     }
 
@@ -106,6 +106,64 @@ final class LocationServiceTests: XCTestCase {
             XCTAssertTrue(mock.didCallStartMonitoringSignificantLocationChanges,
                           "Significant location monitoring allows iOS to relaunch the app after termination")
         }
+    }
+
+    // MARK: requestPermissionAndStart — .authorizedWhenInUse
+
+    func testRequestPermissionWhenInUseOnlyRequestsUpgrade() async {
+        await MainActor.run {
+            let mock = MockLocationManager()
+            mock.authorizationStatus = .authorizedWhenInUse
+            let service = LocationService(manager: mock)
+            service.requestPermissionAndStart()
+            // Must request Always upgrade, but NOT call startUpdatingLocation — background
+            // location updates crash if enabled before Always auth is granted.
+            XCTAssertTrue(mock.didCallRequestAlwaysAuthorization,
+                          "Should request Always upgrade from WhenInUse")
+            XCTAssertFalse(mock.didCallStartUpdatingLocation,
+                           "Must not start background updates before Always auth is granted")
+            XCTAssertFalse(mock.allowsBackgroundLocationUpdates,
+                           "allowsBackgroundLocationUpdates must not be set with WhenInUse auth")
+        }
+    }
+
+    // MARK: requestPermissionAndStart — .denied / .restricted
+
+    func testPermissionDeniedSetsIsPermissionDenied() async {
+        await MainActor.run {
+            let mock = MockLocationManager()
+            mock.authorizationStatus = .denied
+            let service = LocationService(manager: mock)
+            service.requestPermissionAndStart()
+            XCTAssertTrue(service.isPermissionDenied,
+                          "isPermissionDenied should be true when authorization is denied")
+        }
+    }
+
+    func testPermissionGrantedClearsIsPermissionDenied() async {
+        let expectation = XCTestExpectation(description: "isPermissionDenied cleared on grant")
+        var service: LocationService?
+
+        await MainActor.run {
+            let mock = MockLocationManager()
+            mock.authorizationStatus = .denied
+            service = LocationService(manager: mock)
+            service?.requestPermissionAndStart()
+            XCTAssertTrue(service?.isPermissionDenied ?? false)
+            // Simulate the user granting Always auth via the prompt.
+            mock.authorizationStatus = .authorizedAlways
+            service?.locationManagerDidChangeAuthorization(CLLocationManager())
+        }
+
+        try? await Task.sleep(for: .milliseconds(100))
+
+        await MainActor.run {
+            XCTAssertFalse(service?.isPermissionDenied ?? true,
+                           "isPermissionDenied should clear when Always auth is granted")
+            expectation.fulfill()
+        }
+
+        await fulfillment(of: [expectation], timeout: 2)
     }
 
     // MARK: Delegate — isPaused

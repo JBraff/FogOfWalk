@@ -43,6 +43,9 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
     private(set) var currentLocation: CLLocation?
     private(set) var isPaused: Bool = false
+    /// True when the user has denied or restricted location permission.
+    /// The UI can observe this to show an actionable prompt.
+    private(set) var isPermissionDenied: Bool = false
 
     /// Called on the main actor on every significant location update.
     var onLocationUpdate: ((CLLocation) -> Void)?
@@ -53,7 +56,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager.delegate                           = self
         manager.desiredAccuracy                    = kCLLocationAccuracyNearestTenMeters
         manager.distanceFilter                     = 15   // metres
-        manager.pausesLocationUpdatesAutomatically = false
+        manager.pausesLocationUpdatesAutomatically = true
         manager.activityType                       = .fitness
         manager.enableBackgroundLocationIndicator()
         authorizationStatus                        = manager.authorizationStatus
@@ -67,11 +70,14 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
             startTracking()
         #if os(iOS)
         case .authorizedWhenInUse:
+            // Request upgrade to Always. Do NOT call startTracking() here — background
+            // location updates require Always permission, which isn't granted yet at this
+            // point. startTracking() is called from locationManagerDidChangeAuthorization
+            // once the user responds to the upgrade prompt.
             manager.requestAlwaysAuthorization()
-            startTracking()
         #endif
         default:
-            break
+            isPermissionDenied = true
         }
     }
 
@@ -89,14 +95,22 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         let status = manager.authorizationStatus
         Task { @MainActor [weak self] in
             self?.authorizationStatus = status
-            let authorized: Bool
-            #if os(iOS)
-            authorized = status == .authorizedAlways || status == .authorizedWhenInUse
-            #else
-            authorized = status == .authorizedAlways
-            #endif
-            if authorized {
+            switch status {
+            case .authorizedAlways:
+                self?.isPermissionDenied = false
                 self?.startTracking()
+            #if os(iOS)
+            case .authorizedWhenInUse:
+                // Foreground-only permission: start updates for now, but do not set
+                // allowsBackgroundLocationUpdates (requires Always auth).
+                self?.isPermissionDenied = false
+                self?.manager.startUpdatingLocation()
+                self?.manager.startMonitoringSignificantLocationChanges()
+            #endif
+            case .denied, .restricted:
+                self?.isPermissionDenied = true
+            default:
+                break
             }
         }
     }
