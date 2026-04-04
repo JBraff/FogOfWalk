@@ -1,0 +1,284 @@
+import XCTest
+import UIKit
+import MapKit
+import CoreLocation
+@testable import FogOfWalk
+
+@MainActor
+final class FogOverlayRendererTests: XCTestCase {
+
+    let viewSize   = CGSize(width: 400, height: 400)
+    let testCenter = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
+    let cellSize   = 50.0
+
+    // Region used for the deterministic coordinate mock (300 m × 300 m)
+    var region: MKCoordinateRegion {
+        MKCoordinateRegion(center: testCenter, latitudinalMeters: 300, longitudinalMeters: 300)
+    }
+
+    var drawRect: CGRect { CGRect(origin: .zero, size: viewSize) }
+
+    // MARK: - Helpers
+
+    /// Linear lat/lon → CGPoint projection that maps `region` onto `viewSize`.
+    func makeCoordinateConverter() -> (CLLocationCoordinate2D) -> CGPoint {
+        let r       = region
+        let latMin  = r.center.latitude  - r.span.latitudeDelta  / 2
+        let lonMin  = r.center.longitude - r.span.longitudeDelta / 2
+        let latSpan = r.span.latitudeDelta
+        let lonSpan = r.span.longitudeDelta
+        let w = viewSize.width
+        let h = viewSize.height
+        return { coord in
+            let xFrac = (coord.longitude - lonMin) / lonSpan
+            let yFrac = (coord.latitude  - latMin) / latSpan
+            // UIKit y-axis: latitude increases upward → invert yFrac
+            return CGPoint(x: xFrac * w, y: (1 - yFrac) * h)
+        }
+    }
+
+    /// Renders fog using FogRenderer directly into a CGImage.
+    func renderFog(cells: [CellID],
+                   recentCells: [CellID] = [],
+                   coordinateConverter: ((CLLocationCoordinate2D) -> CGPoint)? = nil) -> CGImage {
+        let converter = coordinateConverter ?? makeCoordinateConverter()
+        let fogRenderer = FogRenderer()
+        let format      = UIGraphicsImageRendererFormat()
+        format.scale    = 1
+        let imgRenderer = UIGraphicsImageRenderer(size: viewSize, format: format)
+        let uiImage = imgRenderer.image { _ in
+            guard let ctx = UIGraphicsGetCurrentContext() else { return }
+            fogRenderer.render(cells: cells, recentCells: recentCells, cellSizeMeters: cellSize,
+                               drawRect: drawRect, coordinateConverter: converter, in: ctx)
+        }
+        return uiImage.cgImage!
+    }
+
+    /// Reads the RGBA of a single pixel from a CGImage.
+    func pixelColor(at point: CGPoint, in image: CGImage)
+        -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8)
+    {
+        let w = image.width, h = image.height
+        let x = Int(point.x.rounded()), y = Int(point.y.rounded())
+        guard x >= 0, x < w, y >= 0, y < h else { return (0, 0, 0, 0) }
+
+        let bpp = 4, bpr = w * bpp
+        var data = [UInt8](repeating: 0, count: h * bpr)
+
+        guard let ctx = CGContext(
+            data: &data, width: w, height: h,
+            bitsPerComponent: 8, bytesPerRow: bpr,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return (0, 0, 0, 0) }
+
+        ctx.translateBy(x: 0, y: CGFloat(h))
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+        let offset = (h - 1 - y) * bpr + x * bpp
+        return (data[offset], data[offset+1], data[offset+2], data[offset+3])
+    }
+
+    func cellForTestCenter() -> CellID {
+        GridMath.cellID(for: testCenter, cellSizeMeters: cellSize)
+    }
+
+    func viewPoint(for coord: CLLocationCoordinate2D) -> CGPoint {
+        makeCoordinateConverter()(coord)
+    }
+
+    func holeRadius(for cell: CellID) -> CGFloat {
+        let b     = GridMath.bounds(for: cell, cellSizeMeters: cellSize)
+        let converter = makeCoordinateConverter()
+        let minPt = converter(b.min)
+        let maxPt = converter(b.max)
+        return max(abs(maxPt.x - minPt.x), abs(maxPt.y - minPt.y)) * 0.9
+    }
+
+    // MARK: - FogOverlay tests
+
+    func testFogOverlayBoundingRectIsWorld() {
+        let overlay = FogOverlay()
+        let rect    = overlay.boundingMapRect
+        XCTAssertEqual(rect.origin.x,    MKMapRect.world.origin.x,    accuracy: 0.001)
+        XCTAssertEqual(rect.origin.y,    MKMapRect.world.origin.y,    accuracy: 0.001)
+        XCTAssertEqual(rect.size.width,  MKMapRect.world.size.width,  accuracy: 0.001)
+        XCTAssertEqual(rect.size.height, MKMapRect.world.size.height, accuracy: 0.001)
+    }
+
+    // MARK: - Rendering tests
+
+    func testFogCoversEntireViewWhenNoCellsVisited() {
+        let image = renderFog(cells: [])
+
+        for pt in [CGPoint(x: 200, y: 200), CGPoint(x: 50, y: 50), CGPoint(x: 350, y: 350)] {
+            let pixel = pixelColor(at: pt, in: image)
+            XCTAssertGreaterThan(Int(pixel.a), 200,
+                "No visited cells — fog should be opaque at \(pt), got alpha=\(pixel.a)")
+        }
+    }
+
+    func testHoleAppearsAtVisitedCellCenter() {
+        let cell  = cellForTestCenter()
+        let image = renderFog(cells: [cell])
+
+        let coord = GridMath.center(for: cell, cellSizeMeters: cellSize)
+        let pt    = viewPoint(for: coord)
+
+        guard pt.x >= 0, pt.x < CGFloat(viewSize.width),
+              pt.y >= 0, pt.y < CGFloat(viewSize.height) else {
+            XCTFail("Cell center is outside view: \(pt)"); return
+        }
+
+        let pixel = pixelColor(at: pt, in: image)
+        XCTAssertLessThan(Int(pixel.a), 30,
+            "Visited cell center should be nearly transparent, got alpha=\(pixel.a)")
+    }
+
+    func testHoleCenterIsFullyTransparent() {
+        let cell  = cellForTestCenter()
+        let image = renderFog(cells: [cell])
+
+        let coord = GridMath.center(for: cell, cellSizeMeters: cellSize)
+        let pt    = viewPoint(for: coord)
+        let pixel = pixelColor(at: pt, in: image)
+
+        XCTAssertLessThan(Int(pixel.a), 10,
+            "Hole center must be fully transparent, got alpha=\(pixel.a)")
+    }
+
+    func testHoleEdgeHasGradientFalloff() {
+        let cell   = cellForTestCenter()
+        let image  = renderFog(cells: [cell])
+
+        let coord  = GridMath.center(for: cell, cellSizeMeters: cellSize)
+        let center = viewPoint(for: coord)
+        let radius = holeRadius(for: cell)
+
+        // Sample at 85% of radius — inside the 70–100% gradient fade zone.
+        let edgePt = CGPoint(x: center.x + radius * 0.85, y: center.y)
+        guard edgePt.x >= 0, edgePt.x < CGFloat(viewSize.width),
+              edgePt.y >= 0, edgePt.y < CGFloat(viewSize.height) else { return }
+
+        let pixel = pixelColor(at: edgePt, in: image)
+        XCTAssertGreaterThan(Int(pixel.a), 50,
+            "Edge should still carry some fog, got alpha=\(pixel.a)")
+        XCTAssertLessThan(Int(pixel.a), 220,
+            "Edge should not be fully opaque (gradient fade), got alpha=\(pixel.a)")
+    }
+
+    func testFogRemainsOutsideHoleRadius() {
+        let cell  = cellForTestCenter()
+        let image = renderFog(cells: [cell])
+
+        let pixel = pixelColor(at: CGPoint(x: 10, y: 10), in: image)
+        XCTAssertGreaterThan(Int(pixel.a), 200,
+            "Fog must remain fully opaque far from any visited cell, got alpha=\(pixel.a)")
+    }
+
+    func testMultipleAdjacentHolesMerge() {
+        let cell1 = cellForTestCenter()
+        let cell2 = CellID(x: cell1.x + 1, y: cell1.y)
+        let image = renderFog(cells: [cell1, cell2])
+
+        let converter = makeCoordinateConverter()
+        let c1 = GridMath.center(for: cell1, cellSizeMeters: cellSize)
+        let c2 = GridMath.center(for: cell2, cellSizeMeters: cellSize)
+        let midCoord = CLLocationCoordinate2D(
+            latitude:  (c1.latitude  + c2.latitude)  / 2,
+            longitude: (c1.longitude + c2.longitude) / 2
+        )
+        let midPt = converter(midCoord)
+
+        guard midPt.x >= 0, midPt.x < CGFloat(viewSize.width),
+              midPt.y >= 0, midPt.y < CGFloat(viewSize.height) else {
+            XCTFail("Midpoint is outside view: \(midPt)"); return
+        }
+
+        let pixel = pixelColor(at: midPt, in: image)
+        XCTAssertLessThan(Int(pixel.a), 30,
+            "Midpoint between adjacent cells should be transparent, got alpha=\(pixel.a)")
+    }
+
+    func testBlendModeIsDestinationOut() {
+        let cell  = cellForTestCenter()
+        let image = renderFog(cells: [cell])
+
+        // Far corner must still be fully foggy.
+        let corner = pixelColor(at: CGPoint(x: 5, y: 5), in: image)
+        XCTAssertGreaterThan(Int(corner.a), 200,
+            ".destinationOut: far fog must stay opaque, got alpha=\(corner.a)")
+
+        // Cell center must be transparent.
+        let coord    = GridMath.center(for: cell, cellSizeMeters: cellSize)
+        let centerPt = viewPoint(for: coord)
+        let center   = pixelColor(at: centerPt, in: image)
+        XCTAssertLessThan(Int(center.a), 30,
+            ".destinationOut: hole center must be transparent, got alpha=\(center.a)")
+    }
+
+    func testRenderWithNoCellsProducesFullFog() {
+        let image       = renderFog(cells: [])
+        let centerPixel = pixelColor(at: CGPoint(x: 200, y: 200), in: image)
+        XCTAssertGreaterThan(Int(centerPixel.a), 200,
+            "No cells: center should be fully fogged, got alpha=\(centerPixel.a)")
+    }
+
+    // MARK: - Highlight tests
+
+    func testHighlightTintAppearsAtRecentCellCenter() {
+        let cell  = cellForTestCenter()
+        let image = renderFog(cells: [cell], recentCells: [cell])
+
+        let coord = GridMath.center(for: cell, cellSizeMeters: cellSize)
+        let pt    = viewPoint(for: coord)
+
+        guard pt.x >= 0, pt.x < CGFloat(viewSize.width),
+              pt.y >= 0, pt.y < CGFloat(viewSize.height) else {
+            XCTFail("Cell center is outside view: \(pt)"); return
+        }
+
+        // The gold gradient is drawn on top of the transparent hole.
+        // The center should have low alpha (hole is punched) but a warm color (gold tint).
+        let pixel = pixelColor(at: pt, in: image)
+        // Red channel should be higher than blue (gold tint).
+        XCTAssertGreaterThan(Int(pixel.r), Int(pixel.b),
+            "Recent cell center should have warm tint (r>\(pixel.b)), got r=\(pixel.r) b=\(pixel.b)")
+        // Should have some alpha from the gold gradient.
+        XCTAssertGreaterThan(Int(pixel.a), 5,
+            "Recent cell center should have some alpha from gold tint, got alpha=\(pixel.a)")
+    }
+
+    func testNoHighlightTintOnNonRecentVisitedCell() {
+        let cell  = cellForTestCenter()
+        // Visited but NOT recent — no highlight.
+        let image = renderFog(cells: [cell], recentCells: [])
+
+        let coord = GridMath.center(for: cell, cellSizeMeters: cellSize)
+        let pt    = viewPoint(for: coord)
+
+        guard pt.x >= 0, pt.x < CGFloat(viewSize.width),
+              pt.y >= 0, pt.y < CGFloat(viewSize.height) else {
+            XCTFail("Cell center is outside view: \(pt)"); return
+        }
+
+        let pixel = pixelColor(at: pt, in: image)
+        // Hole is punched — should be nearly transparent with no strong color bias.
+        XCTAssertLessThan(Int(pixel.a), 30,
+            "Non-recent visited cell center should be transparent, got alpha=\(pixel.a)")
+    }
+
+    func testEmptyRecentCellsMatchesBaseRendering() {
+        let cell     = cellForTestCenter()
+        let baseline = renderFog(cells: [cell], recentCells: [])
+        let withEmpty = renderFog(cells: [cell], recentCells: [])
+
+        // Sample several pixels — both images should be identical.
+        for pt in [CGPoint(x: 200, y: 200), CGPoint(x: 50, y: 50), CGPoint(x: 10, y: 10)] {
+            let b = pixelColor(at: pt, in: baseline)
+            let w = pixelColor(at: pt, in: withEmpty)
+            XCTAssertEqual(b.a, w.a, "Alpha should match at \(pt) with empty recent cells")
+        }
+    }
+}

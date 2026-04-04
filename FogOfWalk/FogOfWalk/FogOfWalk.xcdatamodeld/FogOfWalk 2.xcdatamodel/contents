@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="22222" systemVersion="23G93" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithSwiftData="NO" userDefinedModelVersionIdentifier="">
+    <entity name="Landmark" representedClassName="Landmark" syncable="YES" codeGenerationType="none">
+        <attribute name="category" optional="NO" attributeType="String"/>
+        <attribute name="discoveryRadiusMeters" optional="NO" attributeType="Double" defaultValueString="100" usesScalarValueType="YES"/>
+        <attribute name="firstDiscovered" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="firstSeen" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="identifier" optional="NO" attributeType="String"/>
+        <attribute name="isDiscovered" optional="NO" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="latitude" optional="NO" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="longitude" optional="NO" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="name" optional="NO" attributeType="String"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="identifier"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
+    </entity>
+    <entity name="VisitedCell" representedClassName="VisitedCell" syncable="YES" codeGenerationType="none">
+        <attribute name="cellSizeMeters" optional="NO" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="cellX" optional="NO" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="cellY" optional="NO" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="firstVisited" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="locality" optional="YES" attributeType="String"/>
+    </entity>
+</model>
