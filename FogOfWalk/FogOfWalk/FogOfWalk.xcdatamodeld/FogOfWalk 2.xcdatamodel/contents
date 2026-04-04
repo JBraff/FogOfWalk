@@ -22,5 +22,10 @@
         <attribute name="cellY" optional="NO" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="firstVisited" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="locality" optional="YES" attributeType="String"/>
+        <fetchIndex name="byCellSizeAndCoords">
+            <fetchIndexElement property="cellSizeMeters" type="Binary" order="ascending"/>
+            <fetchIndexElement property="cellX" type="Binary" order="ascending"/>
+            <fetchIndexElement property="cellY" type="Binary" order="ascending"/>
+        </fetchIndex>
     </entity>
 </model>
