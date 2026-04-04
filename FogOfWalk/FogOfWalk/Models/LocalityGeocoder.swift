@@ -34,6 +34,12 @@ final class LocalityGeocoder {
 
     private var queue: [PendingCluster] = []
     private var isProcessing = false
+    /// Guards against re-enqueuing untagged cells on every app foreground.
+    private var hasBackfilled = false
+
+    /// Maximum number of pending clusters. New enqueues beyond this limit are dropped
+    /// to prevent the queue from growing unboundedly when many cells are untagged.
+    static let maxQueueSize = 200
 
     // MARK: - Dependencies
 
@@ -57,12 +63,16 @@ final class LocalityGeocoder {
             for: CellID(x: cell.cellX, y: cell.cellY),
             cellSizeMeters: cell.cellSizeMeters
         )
+        guard queue.count < Self.maxQueueSize else { return }
         queue.append(PendingCluster(coord: coord, objectIDs: [cell.objectID], context: ctx))
         processNext()
     }
 
     /// Backfill all untagged cells for the given cell size, clustering nearby cells to minimise geocode requests.
+    /// Runs at most once per app lifecycle — repeated calls (e.g. on app foreground) are no-ops.
     func geocodeUntaggedCells(context: NSManagedObjectContext, cellSizeMeters: Double) {
+        guard !hasBackfilled else { return }
+        hasBackfilled = true
         let request = VisitedCell.fetchRequest()
         request.predicate = NSPredicate(
             format: "cellSizeMeters == %f AND locality == nil",
@@ -86,6 +96,7 @@ final class LocalityGeocoder {
 
         for (_, group) in buckets {
             guard let rep = group.first else { continue }
+            guard queue.count < Self.maxQueueSize else { break }
             let coord = GridMath.center(
                 for: CellID(x: rep.cellX, y: rep.cellY),
                 cellSizeMeters: rep.cellSizeMeters
