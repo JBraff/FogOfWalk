@@ -28,6 +28,13 @@ final class ExplorationStoreTests: XCTestCase {
 
     // MARK: - Tests
 
+    func testLoadErrorIsNilOnSuccess() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            XCTAssertNil(store.loadError, "loadError should be nil when Core Data loads successfully")
+        }
+    }
+
     func testAddCellReturnsTrueForNewCell() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())

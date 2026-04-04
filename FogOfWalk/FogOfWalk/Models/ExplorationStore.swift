@@ -8,6 +8,10 @@ import Observation
 final class ExplorationStore {
     private(set) var container: NSPersistentContainer
 
+    /// Set if Core Data failed to load and could not recover. The app remains usable
+    /// but exploration history will be empty until the user reinstalls.
+    private(set) var loadError: Error?
+
     /// In-memory cache of visited cells for the active cell size — O(1) fog lookups.
     private(set) var visitedCellsCache: Set<CellID> = []
     /// In-memory cache of recently visited cells for the active highlight period.
@@ -28,15 +32,22 @@ final class ExplorationStore {
         description.shouldInferMappingModelAutomatically = true
         c.persistentStoreDescriptions = [description]
         container = c
-        c.loadPersistentStores { storeDescription, error in
+        c.loadPersistentStores { [weak self] storeDescription, error in
             guard let error else { return }
             print("Core Data failed to load: \(error.localizedDescription). Attempting recovery.")
+
             if let url = storeDescription.url {
+                // Back up the corrupt store before removing it so data is not
+                // permanently destroyed by a transient failure (e.g. disk full).
+                let backupURL = url.appendingPathExtension("bak")
+                try? FileManager.default.copyItem(at: url, to: backupURL)
                 try? FileManager.default.removeItem(at: url)
             }
+
             c.loadPersistentStores { _, retryError in
                 if let retryError {
                     print("Core Data recovery failed: \(retryError.localizedDescription)")
+                    self?.loadError = retryError
                 }
             }
         }
