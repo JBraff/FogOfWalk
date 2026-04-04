@@ -185,8 +185,20 @@ final class LandmarkStore {
                                       radius: Double,
                                       cells: Set<CellID>,
                                       cellSizeMeters: Double) -> Bool {
+        // Pre-filter to the CellID bounding box for the discovery radius. This avoids
+        // O(all_visited_cells) geodesic math — only the small set of cells near the
+        // landmark are checked precisely.
+        let step = cellSizeMeters / GridMath.metersPerDegree
+        // Add one cell of padding to account for cells that overlap the radius boundary.
+        let latPad = (radius / GridMath.metersPerDegree) + step
+        let lonPad = (radius / GridMath.metersPerDegree) + step
+        let minX = Int32(floor((coord.longitude - lonPad) / step))
+        let maxX = Int32(floor((coord.longitude + lonPad) / step))
+        let minY = Int32(floor((coord.latitude  - latPad) / step))
+        let maxY = Int32(floor((coord.latitude  + latPad) / step))
+
         let landmarkLoc = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
-        for cell in cells {
+        for cell in cells where cell.x >= minX && cell.x <= maxX && cell.y >= minY && cell.y <= maxY {
             let cellCenter = GridMath.center(for: cell, cellSizeMeters: cellSizeMeters)
             let cellLoc = CLLocation(latitude: cellCenter.latitude, longitude: cellCenter.longitude)
             if cellLoc.distance(from: landmarkLoc) <= radius {

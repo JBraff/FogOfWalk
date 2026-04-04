@@ -216,6 +216,31 @@ final class LandmarkStoreTests: XCTestCase {
         }
     }
 
+    func testCheckDiscoveryWithLargeCellSetOnlyChecksNearby() async {
+        // Regression test for the O(cells * landmarks) performance fix.
+        // Discovery should still work correctly when there are many visited cells,
+        // most of which are far from the undiscovered landmark.
+        await MainActor.run {
+            let store    = makeStore()
+            let cellSize = 50.0
+            let coord    = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
+            store.addLandmarks([makeWikidataLandmark(id: "QPERF", lat: coord.latitude,
+                                                     lon: coord.longitude, category: "landmark")])
+
+            // Build a large set: the target cell plus 500 far-away cells.
+            var cells: Set<CellID> = []
+            let targetCell = GridMath.cellID(for: coord, cellSizeMeters: cellSize)
+            cells.insert(targetCell)
+            for i in Int32(1)...500 {
+                cells.insert(CellID(x: targetCell.x + i * 200, y: targetCell.y + i * 200))
+            }
+
+            let discovered = store.checkDiscovery(visitedCells: cells, cellSizeMeters: cellSize)
+            XCTAssertEqual(discovered.count, 1,
+                "Landmark should be discovered even with many far-away cells in the set")
+        }
+    }
+
     func testCheckDiscoveryMultipleLandmarks() async {
         await MainActor.run {
             let store    = makeStore()
