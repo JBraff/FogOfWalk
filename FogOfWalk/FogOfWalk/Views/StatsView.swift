@@ -30,11 +30,13 @@ struct StatsView: View {
                 Image(systemName: "chart.bar.xaxis")
                     .font(.title2)
             }
+            .accessibilityLabel("Discovery statistics")
 
             Button { showSettings = true } label: {
                 Image(systemName: "slider.horizontal.3")
                     .font(.title2)
             }
+            .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

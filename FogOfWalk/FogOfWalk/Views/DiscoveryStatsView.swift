@@ -64,6 +64,7 @@ struct DiscoveryStatsView: View {
                 )
                 .foregroundStyle(Color.accentColor)
             }
+            .accessibilityLabel("Bar chart showing areas explored each day for the past 7 days")
             .chartXAxis {
                 AxisMarks(values: .stride(by: .day)) { value in
                     AxisGridLine()

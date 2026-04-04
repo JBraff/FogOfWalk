@@ -77,6 +77,7 @@ struct LandmarkDetailView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .accessibilityHint("Opens Apple Maps")
                 .padding(.horizontal)
                 .padding(.bottom, 8)
             }
@@ -87,6 +88,6 @@ struct LandmarkDetailView: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 }
