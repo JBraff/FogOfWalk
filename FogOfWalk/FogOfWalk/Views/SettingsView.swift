@@ -5,9 +5,14 @@ struct SettingsView: View {
     @Environment(ExplorationStore.self) private var store
     @Environment(\.dismiss)            private var dismiss
 
-    @State private var selectedSize          = CellSizeMeters.normal.rawValue
-    @State private var selectedHighlight     = HighlightPeriod.today
-    @State private var showDeleteAlert       = false
+    @State private var selectedSize:      Double
+    @State private var selectedHighlight: HighlightPeriod
+    @State private var showDeleteAlert    = false
+
+    init(initialSize: Double, initialHighlight: HighlightPeriod) {
+        _selectedSize      = State(initialValue: initialSize)
+        _selectedHighlight = State(initialValue: initialHighlight)
+    }
 
     var body: some View {
         NavigationStack {
@@ -30,10 +35,6 @@ struct SettingsView: View {
                             dismiss()
                         }
                     }
-                }
-                .onAppear {
-                    selectedSize      = gridSettings.cellSizeMeters
-                    selectedHighlight = gridSettings.highlightPeriod
                 }
                 .confirmationDialog(
                     "Delete All Data?",

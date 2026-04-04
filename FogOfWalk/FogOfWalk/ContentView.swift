@@ -30,7 +30,8 @@ struct ContentView: View {
                 .padding(.bottom, 8)
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView()
+            SettingsView(initialSize: gridSettings.cellSizeMeters,
+                         initialHighlight: gridSettings.highlightPeriod)
         }
         .sheet(isPresented: $showStats) {
             DiscoveryStatsView(onNavigate: { target in
