@@ -24,7 +24,7 @@ enum CellSizeMeters: Double, CaseIterable, Identifiable {
 // MARK: - Cell ID
 
 /// Integer grid coordinates identifying one fog cell.
-struct CellID: Hashable, Equatable {
+struct CellID: Hashable, Equatable, Sendable {
     let x: Int32
     let y: Int32
 }
