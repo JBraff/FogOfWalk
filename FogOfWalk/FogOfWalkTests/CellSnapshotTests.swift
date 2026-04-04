@@ -59,6 +59,25 @@ final class CellSnapshotTests: XCTestCase {
         XCTAssertTrue(result.isEmpty, "Empty recent set must return empty result")
     }
 
+    func testBucketedFilterOnlyReturnsInViewCellsWithLargeDataset() {
+        // Build a large snapshot with cells scattered across a wide area.
+        var allCells: Set<CellID> = []
+        let targetCell = CellID(x: 0, y: 0)
+        allCells.insert(targetCell)
+        // Add 1000 far-away cells that should never appear in the small query window.
+        for i in Int32(1)...1000 {
+            allCells.insert(CellID(x: i * 50, y: i * 50))
+        }
+        let snap = CellSnapshot(cells: allCells, cellSizeMeters: cellSize)
+
+        // Query a small window that only contains (0,0).
+        let step = cellSize / GridMath.metersPerDegree
+        let result = snap.visitedCells(inLatRange: -step...step, lonRange: -step...step)
+
+        XCTAssertEqual(result.count, 1, "Only the one in-range cell should be returned")
+        XCTAssertTrue(result.contains(targetCell), "The in-range cell must be present")
+    }
+
     func testRecentCellsIsSubsetOfVisitedCells() {
         let all    = CellID(x: 0, y: 0)
         let recent = CellID(x: 0, y: 0)
