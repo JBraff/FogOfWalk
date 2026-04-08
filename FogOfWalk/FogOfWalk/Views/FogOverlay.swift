@@ -51,7 +51,6 @@ struct FogRenderer {
     func render(
         cells: [CellID],
         recentCells: [CellID] = [],
-        cellSizeMeters: Double,
         drawRect: CGRect,
         coordinateConverter: (CLLocationCoordinate2D) -> CGPoint,
         in context: CGContext
@@ -65,8 +64,7 @@ struct FogRenderer {
         // 2. Punch holes for each visited cell.
         context.setBlendMode(.destinationOut)
         for cell in cells {
-            drawHole(for: cell, cellSizeMeters: cellSizeMeters,
-                     drawRect: drawRect, coordinateConverter: coordinateConverter,
+            drawHole(for: cell, drawRect: drawRect, coordinateConverter: coordinateConverter,
                      in: context)
         }
         context.setBlendMode(.normal)
@@ -74,18 +72,16 @@ struct FogRenderer {
         // 3. Overlay golden tint on recently visited cells.
         guard !recentCells.isEmpty else { return }
         for cell in recentCells {
-            drawHighlight(for: cell, cellSizeMeters: cellSizeMeters,
-                          drawRect: drawRect, coordinateConverter: coordinateConverter,
+            drawHighlight(for: cell, drawRect: drawRect, coordinateConverter: coordinateConverter,
                           in: context)
         }
     }
 
     private func cellGeometry(
         for cell: CellID,
-        cellSizeMeters: Double,
         coordinateConverter: (CLLocationCoordinate2D) -> CGPoint
     ) -> (center: CGPoint, radius: CGFloat) {
-        let b = GridMath.bounds(for: cell, cellSizeMeters: cellSizeMeters)
+        let b = GridMath.bounds(for: cell)
         let minPt = coordinateConverter(CLLocationCoordinate2D(latitude: b.min.latitude,
                                                                 longitude: b.min.longitude))
         let maxPt = coordinateConverter(CLLocationCoordinate2D(latitude: b.max.latitude,
@@ -99,13 +95,11 @@ struct FogRenderer {
 
     private func drawHole(
         for cell: CellID,
-        cellSizeMeters: Double,
         drawRect: CGRect,
         coordinateConverter: (CLLocationCoordinate2D) -> CGPoint,
         in context: CGContext
     ) {
-        let (center, radius) = cellGeometry(for: cell, cellSizeMeters: cellSizeMeters,
-                                            coordinateConverter: coordinateConverter)
+        let (center, radius) = cellGeometry(for: cell, coordinateConverter: coordinateConverter)
         guard radius > 0.5 else { return }  // skip sub-pixel cells
         let gradientRect = CGRect(x: center.x - radius, y: center.y - radius,
                                   width: radius * 2,    height: radius * 2)
@@ -121,13 +115,11 @@ struct FogRenderer {
 
     private func drawHighlight(
         for cell: CellID,
-        cellSizeMeters: Double,
         drawRect: CGRect,
         coordinateConverter: (CLLocationCoordinate2D) -> CGPoint,
         in context: CGContext
     ) {
-        let (center, radius) = cellGeometry(for: cell, cellSizeMeters: cellSizeMeters,
-                                            coordinateConverter: coordinateConverter)
+        let (center, radius) = cellGeometry(for: cell, coordinateConverter: coordinateConverter)
         guard radius > 0.5 else { return }
         let gradientRect = CGRect(x: center.x - radius, y: center.y - radius,
                                   width: radius * 2,    height: radius * 2)
@@ -176,7 +168,7 @@ final class FogOverlayRenderer: MKOverlayRenderer {
         let drawRect = rect(for: mapRect)   // CGRect in renderer space — set up by MapKit
 
         let region  = MKCoordinateRegion(mapRect)
-        let margin  = snap.cellSizeMeters / GridMath.metersPerDegree
+        let margin  = kCellSizeMeters / GridMath.metersPerDegree
         let halfLat = region.span.latitudeDelta  / 2.0
         let halfLon = region.span.longitudeDelta / 2.0
         let latRange = (region.center.latitude  - halfLat - margin)...(region.center.latitude  + halfLat + margin)
@@ -187,7 +179,6 @@ final class FogOverlayRenderer: MKOverlayRenderer {
         fogRenderer.render(
             cells: cells,
             recentCells: recent,
-            cellSizeMeters: snap.cellSizeMeters,
             drawRect: drawRect,
             coordinateConverter: { [weak self] coord in
                 self?.point(for: MKMapPoint(coord)) ?? .zero

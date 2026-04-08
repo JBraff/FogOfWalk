@@ -44,7 +44,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
         await MainActor.run {
             let container = makeInMemoryContainer()
             let model     = DiscoveryStatsModel()
-            model.refresh(context: container.viewContext, cellSizeMeters: 50)
+            model.refresh(context: container.viewContext)
 
             XCTAssertEqual(model.last24HourCount, 0)
             XCTAssertEqual(model.last7DaysByDay.count, 7)
@@ -69,25 +69,9 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 2, y: 0, firstVisited: now.addingTimeInterval(-1000000))
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.allTimeTotal, 3)
-        }
-    }
-
-    func testAllTimeTotalFiltersOnCellSize() async {
-        await MainActor.run {
-            let container = makeInMemoryContainer()
-            let ctx       = container.viewContext
-            let now       = Date()
-
-            insertCell(in: ctx, x: 0, y: 0, cellSizeMeters: 50, firstVisited: now)
-            insertCell(in: ctx, x: 1, y: 0, cellSizeMeters: 100, firstVisited: now)
-
-            let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
-
-            XCTAssertEqual(model.allTimeTotal, 1, "Should only count cells for the requested cell size")
         }
     }
 
@@ -104,7 +88,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 1, y: 0, firstVisited: oldest)
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.firstWalkDate?.timeIntervalSinceReferenceDate ?? 0,
                            oldest.timeIntervalSinceReferenceDate,
@@ -131,7 +115,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 3, y: 0, firstVisited: twoDaysAgo)
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.bestDayCount, 3)
             XCTAssertNotNil(model.bestDayDate)
@@ -157,7 +141,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 2, y: 0, firstVisited: startOfToday)                    // exactly midnight — in
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.last24HourCount, 2)
         }
@@ -169,7 +153,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
         await MainActor.run {
             let container = makeInMemoryContainer()
             let model     = DiscoveryStatsModel()
-            model.refresh(context: container.viewContext, cellSizeMeters: 50)
+            model.refresh(context: container.viewContext)
 
             XCTAssertEqual(model.last7DaysByDay.count, 7)
         }
@@ -193,7 +177,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 4, y: 0, firstVisited: now.addingTimeInterval(-8 * 86400))
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.last7DaysByDay.count, 7)
             let todayEntry = model.last7DaysByDay.last
@@ -209,7 +193,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
         await MainActor.run {
             let container = makeInMemoryContainer()
             let model     = DiscoveryStatsModel()
-            model.refresh(context: container.viewContext, cellSizeMeters: 50)
+            model.refresh(context: container.viewContext)
 
             let calendar = Calendar.current
             let slots    = model.last7DaysByDay
@@ -235,7 +219,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 0, y: 0, firstVisited: now)
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             let dates = model.last7DaysByDay.map { $0.date }
             XCTAssertEqual(dates, dates.sorted(), "Days should be ordered oldest to newest")
@@ -255,7 +239,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 2, y: 0, firstVisited: now, locality: "Shelbyville")
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             let localities = model.locality(for: .thisWeek)
             XCTAssertEqual(localities.count, 2)
@@ -275,7 +259,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 0, y: 0, firstVisited: now, locality: nil)
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.locality(for: .thisWeek).first?.locality, "Unknown")
         }
@@ -294,7 +278,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
                        locality: "OldTown")
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             let names = model.locality(for: .thisWeek).map { $0.locality }
             XCTAssertTrue(names.contains("Recentville"))
@@ -318,7 +302,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 3, y: 0, firstVisited: now.addingTimeInterval(-86400))
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.totalDaysActive, 2)
         }
@@ -328,7 +312,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
         await MainActor.run {
             let container = makeInMemoryContainer()
             let model     = DiscoveryStatsModel()
-            model.refresh(context: container.viewContext, cellSizeMeters: 50)
+            model.refresh(context: container.viewContext)
             XCTAssertEqual(model.totalDaysActive, 0)
         }
     }
@@ -346,7 +330,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 2, y: 0, firstVisited: now.addingTimeInterval(-2 * 86400))
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.currentStreak, 3)
         }
@@ -363,7 +347,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 1, y: 0, firstVisited: now.addingTimeInterval(-3 * 86400))
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.currentStreak, 1)
         }
@@ -378,7 +362,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 0, y: 0, firstVisited: now.addingTimeInterval(-2 * 86400))
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.currentStreak, 0)
         }
@@ -398,7 +382,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 0, y: 0, firstVisited: now)
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.longestStreak, 4)
             XCTAssertEqual(model.currentStreak, 1)
@@ -413,7 +397,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 0, y: 0, firstVisited: Date())
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.currentStreak, 1,
                 "Single cell visited today should produce a streak of 1")
@@ -430,7 +414,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 0, y: 0, firstVisited: yesterday)
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.currentStreak, 1,
                 "Last walk yesterday (no walk today) should still count as streak of 1")
@@ -441,7 +425,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
         await MainActor.run {
             let container = makeInMemoryContainer()
             let model     = DiscoveryStatsModel()
-            model.refresh(context: container.viewContext, cellSizeMeters: 50)
+            model.refresh(context: container.viewContext)
             XCTAssertEqual(model.currentStreak, 0)
             XCTAssertEqual(model.longestStreak, 0)
         }
@@ -460,7 +444,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             }
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.estimatedDistanceMeters, 500.0, accuracy: 0.01)
         }
@@ -470,7 +454,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
         await MainActor.run {
             let container = makeInMemoryContainer()
             let model     = DiscoveryStatsModel()
-            model.refresh(context: container.viewContext, cellSizeMeters: 50)
+            model.refresh(context: container.viewContext)
             XCTAssertEqual(model.estimatedDistanceMeters, 0)
         }
     }
@@ -487,7 +471,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 1, y: 0, firstVisited: now, locality: "NewTown")
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             let names = model.locality(for: .allTime).map { $0.locality }
             XCTAssertTrue(names.contains("OldTown"), "Old cells should appear in all-time locality breakdown")
@@ -507,7 +491,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 3, y: 0, firstVisited: now, locality: "B")
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertEqual(model.locality(for: .allTime).first?.locality, "A")
             XCTAssertEqual(model.locality(for: .allTime).first?.count, 3)
@@ -518,7 +502,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
         await MainActor.run {
             let container = makeInMemoryContainer()
             let model     = DiscoveryStatsModel()
-            model.refresh(context: container.viewContext, cellSizeMeters: 50)
+            model.refresh(context: container.viewContext)
             XCTAssertTrue(model.locality(for: .allTime).isEmpty)
         }
     }
@@ -537,9 +521,9 @@ final class DiscoveryStatsModelTests: XCTestCase {
                        firstVisited: Date(), locality: "Solo")
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: cellSizeMeters)
+            model.refresh(context: ctx)
 
-            let expected = GridMath.center(for: CellID(x: x, y: y), cellSizeMeters: cellSizeMeters)
+            let expected = GridMath.center(for: CellID(x: x, y: y))
             let stat = model.locality(for: .allTime).first(where: { $0.locality == "Solo" })
             XCTAssertNotNil(stat)
             XCTAssertEqual(stat!.center.latitude,  expected.latitude,  accuracy: 1e-9)
@@ -558,10 +542,10 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 2, y: 2, cellSizeMeters: cellSizeMeters, firstVisited: now, locality: "Avg")
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: cellSizeMeters)
+            model.refresh(context: ctx)
 
-            let c0 = GridMath.center(for: CellID(x: 0, y: 0), cellSizeMeters: cellSizeMeters)
-            let c2 = GridMath.center(for: CellID(x: 2, y: 2), cellSizeMeters: cellSizeMeters)
+            let c0 = GridMath.center(for: CellID(x: 0, y: 0))
+            let c2 = GridMath.center(for: CellID(x: 2, y: 2))
             let expectedLat = (c0.latitude  + c2.latitude)  / 2
             let expectedLon = (c0.longitude + c2.longitude) / 2
 
@@ -582,7 +566,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
                        firstVisited: Date(), locality: "Tiny")
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: cellSizeMeters)
+            model.refresh(context: ctx)
 
             let stat = model.locality(for: .allTime).first(where: { $0.locality == "Tiny" })
             XCTAssertNotNil(stat)
@@ -606,7 +590,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             }
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: cellSizeMeters)
+            model.refresh(context: ctx)
 
             let stat = model.locality(for: .allTime).first(where: { $0.locality == "Wide" })
             XCTAssertNotNil(stat)
@@ -629,11 +613,11 @@ final class DiscoveryStatsModelTests: XCTestCase {
                        firstVisited: Date(), locality: "Recent")
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: cellSizeMeters)
+            model.refresh(context: ctx)
 
             let stat = model.locality(for: .thisWeek).first(where: { $0.locality == "Recent" })
             XCTAssertNotNil(stat)
-            let expected = GridMath.center(for: CellID(x: x, y: y), cellSizeMeters: cellSizeMeters)
+            let expected = GridMath.center(for: CellID(x: x, y: y))
             XCTAssertEqual(stat!.center.latitude,  expected.latitude,  accuracy: 1e-9)
             XCTAssertEqual(stat!.center.longitude, expected.longitude, accuracy: 1e-9)
         }
@@ -652,7 +636,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 1, y: 0, firstVisited: yesterday, locality: "Yesterdayton")
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             let names = model.locality(for: .today).map { $0.locality }
             XCTAssertTrue(names.contains("Todayville"), "Cell from today should appear in .today")
@@ -672,7 +656,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             insertCell(in: ctx, x: 1, y: 0, firstVisited: twoMonthsAgo, locality: "Oldmonthton")
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             let thisMonthNames = model.locality(for: .thisMonth).map { $0.locality }
             XCTAssertTrue(thisMonthNames.contains("Thismonthburg"))
@@ -715,7 +699,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
                        locality: "OldTown")
 
             let model = DiscoveryStatsModel()
-            model.refresh(context: ctx, cellSizeMeters: 50)
+            model.refresh(context: ctx)
 
             XCTAssertTrue(model.locality(for: .today).isEmpty,
                 "No cells visited today — .today should return empty array, not nil")

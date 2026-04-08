@@ -38,8 +38,8 @@ final class ExplorationStoreTests: XCTestCase {
     func testAddCellReturnsTrueForNewCell() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
-            let result = store.addCell(CellID(x: 0, y: 0), cellSizeMeters: 50)
+            store.configure()
+            let result = store.addCell(CellID(x: 0, y: 0))
             XCTAssertTrue(result, "addCell should return true for a new cell")
         }
     }
@@ -47,10 +47,10 @@ final class ExplorationStoreTests: XCTestCase {
     func testAddCellReturnsFalseForDuplicate() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
             let cell = CellID(x: 1, y: 2)
-            store.addCell(cell, cellSizeMeters: 50)
-            let second = store.addCell(cell, cellSizeMeters: 50)
+            store.addCell(cell)
+            let second = store.addCell(cell)
             XCTAssertFalse(second, "addCell should return false for a duplicate")
         }
     }
@@ -58,9 +58,9 @@ final class ExplorationStoreTests: XCTestCase {
     func testAddCellUpdatesCacheAndCount() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
             let cell = CellID(x: 5, y: 7)
-            store.addCell(cell, cellSizeMeters: 50)
+            store.addCell(cell)
             XCTAssertTrue(store.visitedCellsCache.contains(cell))
             XCTAssertEqual(store.totalVisitedCount, 1)
         }
@@ -69,18 +69,18 @@ final class ExplorationStoreTests: XCTestCase {
     func testVisitedCellsInRegionReturnsOnlyIntersection() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
 
             let nyc  = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
-            let cell = GridMath.cellID(for: nyc, cellSizeMeters: 50)
+            let cell = GridMath.cellID(for: nyc)
             let far  = CellID(x: cell.x + 1000, y: cell.y + 1000)
 
-            store.addCell(cell, cellSizeMeters: 50)
-            store.addCell(far,  cellSizeMeters: 50)
+            store.addCell(cell)
+            store.addCell(far)
 
             let region  = MKCoordinateRegion(center: nyc, latitudinalMeters: 300,
                                              longitudinalMeters: 300)
-            let visible = store.visitedCells(in: region, cellSizeMeters: 50)
+            let visible = store.visitedCells(in: region)
 
             XCTAssertTrue(visible.contains(cell), "Nearby cell must be included")
             XCTAssertFalse(visible.contains(far), "Far cell must be excluded")
@@ -90,16 +90,16 @@ final class ExplorationStoreTests: XCTestCase {
     func testVisitedCellsInRegionReturnsEmptyWhenNoneMatch() async {
         await MainActor.run {
             let store  = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
 
             let sydney = CLLocationCoordinate2D(latitude: -33.8688, longitude: 151.2093)
             let nyc    = CLLocationCoordinate2D(latitude:  40.7128, longitude: -74.0060)
 
-            store.addCell(GridMath.cellID(for: sydney, cellSizeMeters: 50), cellSizeMeters: 50)
+            store.addCell(GridMath.cellID(for: sydney))
 
             let region  = MKCoordinateRegion(center: nyc, latitudinalMeters: 300,
                                              longitudinalMeters: 300)
-            let visible = store.visitedCells(in: region, cellSizeMeters: 50)
+            let visible = store.visitedCells(in: region)
 
             XCTAssertTrue(visible.isEmpty, "Should return empty when no visited cells in region")
         }
@@ -108,9 +108,9 @@ final class ExplorationStoreTests: XCTestCase {
     func testDeleteAllCellsClearsEverything() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
-            store.addCell(CellID(x: 0, y: 0), cellSizeMeters: 50)
-            store.addCell(CellID(x: 1, y: 1), cellSizeMeters: 50)
+            store.configure()
+            store.addCell(CellID(x: 0, y: 0))
+            store.addCell(CellID(x: 1, y: 1))
             XCTAssertEqual(store.totalVisitedCount, 2)
 
             store.deleteAllCells()
@@ -120,29 +120,13 @@ final class ExplorationStoreTests: XCTestCase {
         }
     }
 
-    func testDifferentCellSizesAreIndependent() async {
-        await MainActor.run {
-            let store = ExplorationStore(container: makeInMemoryContainer())
-            let cell  = CellID(x: 0, y: 0)
-
-            store.configure(cellSizeMeters: 50)
-            store.addCell(cell, cellSizeMeters: 50)
-            XCTAssertEqual(store.totalVisitedCount, 1)
-
-            // Switching to a different cell size must show an empty cache.
-            store.configure(cellSizeMeters: 100)
-            XCTAssertEqual(store.totalVisitedCount, 0,
-                "100 m cache must not include cells stored under 50 m")
-        }
-    }
-
     func testIsVisitedReflectsCache() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
             let cell  = CellID(x: 3, y: 4)
             XCTAssertFalse(store.isVisited(cell))
-            store.addCell(cell, cellSizeMeters: 50)
+            store.addCell(cell)
             XCTAssertTrue(store.isVisited(cell))
         }
     }
@@ -150,7 +134,7 @@ final class ExplorationStoreTests: XCTestCase {
     func testTotalCellCountAccountsForLongitudeScaling() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
 
             // Cupertino: ~37.3°N. cos(37.3°) ≈ 0.795.
             // A circle at this latitude should contain more cells in longitude
@@ -159,7 +143,7 @@ final class ExplorationStoreTests: XCTestCase {
             let radius: CLLocationDistance = 500
             let circle = CLCircularRegion(center: cupertino, radius: radius, identifier: "test")
 
-            let total = store.totalCellCount(in: circle, cellSizeMeters: 50)
+            let total = store.totalCellCount(in: circle)
 
             // At the equator, the circle would be symmetric: roughly π*(500/50)² ≈ 314 cells.
             // At 37.3°N, cells are narrower in real meters (by cos(lat)), so more cells fit
@@ -174,13 +158,13 @@ final class ExplorationStoreTests: XCTestCase {
     func testTotalCellCountSymmetricAtEquator() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
 
             // At the equator, cos(0°)=1, so no longitude correction is needed.
             let equator = CLLocationCoordinate2D(latitude: 0.0, longitude: 0.0)
             let circle = CLCircularRegion(center: equator, radius: 500, identifier: "eq")
 
-            let total = store.totalCellCount(in: circle, cellSizeMeters: 50)
+            let total = store.totalCellCount(in: circle)
 
             // π * (500/50)² ≈ 314. Allow a range for grid discretization.
             XCTAssertGreaterThan(total, 280, "Equator total too low: \(total)")
@@ -191,20 +175,20 @@ final class ExplorationStoreTests: XCTestCase {
     func testVisitedCellCountUsesGeodesicDistance() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
 
             let cupertino = CLLocationCoordinate2D(latitude: 37.3230, longitude: -122.0322)
             let circle = CLCircularRegion(center: cupertino, radius: 500, identifier: "test")
 
             // Add a cell at the center — should be counted.
-            let centerCell = GridMath.cellID(for: cupertino, cellSizeMeters: 50)
-            store.addCell(centerCell, cellSizeMeters: 50)
+            let centerCell = GridMath.cellID(for: cupertino)
+            store.addCell(centerCell)
 
             // Add a cell far away — should NOT be counted.
             let farCell = CellID(x: centerCell.x + 1000, y: centerCell.y + 1000)
-            store.addCell(farCell, cellSizeMeters: 50)
+            store.addCell(farCell)
 
-            let visited = store.visitedCellCount(in: circle, cellSizeMeters: 50)
+            let visited = store.visitedCellCount(in: circle)
             XCTAssertEqual(visited, 1, "Only the nearby cell should be inside the circle")
         }
     }
@@ -212,21 +196,21 @@ final class ExplorationStoreTests: XCTestCase {
     func testCityPercentageIsReasonable() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
 
             let cupertino = CLLocationCoordinate2D(latitude: 37.3230, longitude: -122.0322)
             let circle = CLCircularRegion(center: cupertino, radius: 500, identifier: "test")
 
             // Add 12 cells near center.
-            let baseCell = GridMath.cellID(for: cupertino, cellSizeMeters: 50)
+            let baseCell = GridMath.cellID(for: cupertino)
             for dx in Int32(0)..<4 {
                 for dy in Int32(0)..<3 {
-                    store.addCell(CellID(x: baseCell.x + dx, y: baseCell.y + dy), cellSizeMeters: 50)
+                    store.addCell(CellID(x: baseCell.x + dx, y: baseCell.y + dy))
                 }
             }
 
-            let visited = store.visitedCellCount(in: circle, cellSizeMeters: 50)
-            let total   = store.totalCellCount(in: circle, cellSizeMeters: 50)
+            let visited = store.visitedCellCount(in: circle)
+            let total   = store.totalCellCount(in: circle)
             let percent = Double(visited) / Double(total)
 
             // 12 cells out of ~395 should be roughly 3%, definitely under 5%.
@@ -240,13 +224,13 @@ final class ExplorationStoreTests: XCTestCase {
     func testOnNewCellCallbackFiresForNewCell() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
 
             var received: VisitedCell?
             store.onNewCell = { received = $0 }
 
             let cell = CellID(x: 10, y: 20)
-            store.addCell(cell, cellSizeMeters: 50)
+            store.addCell(cell)
 
             XCTAssertNotNil(received, "onNewCell should fire for a new cell")
             XCTAssertEqual(received?.cellX, 10)
@@ -257,70 +241,16 @@ final class ExplorationStoreTests: XCTestCase {
     func testOnNewCellCallbackNotFiredForDuplicate() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
 
             var callCount = 0
             store.onNewCell = { _ in callCount += 1 }
 
             let cell = CellID(x: 1, y: 2)
-            store.addCell(cell, cellSizeMeters: 50)
-            store.addCell(cell, cellSizeMeters: 50)
+            store.addCell(cell)
+            store.addCell(cell)
 
             XCTAssertEqual(callCount, 1, "onNewCell should not fire for a duplicate")
-        }
-    }
-
-    func testOnNewCellCallbackFiresEvenWhenSizeMismatchesCache() async {
-        await MainActor.run {
-            let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
-
-            var received: VisitedCell?
-            store.onNewCell = { received = $0 }
-
-            // Add a cell under a different size than the active cache.
-            store.addCell(CellID(x: 5, y: 5), cellSizeMeters: 100)
-
-            XCTAssertNotNil(received,
-                "onNewCell must fire for cells that don't match the active cache size")
-            XCTAssertEqual(received?.cellSizeMeters, 100)
-        }
-    }
-
-    // MARK: - Issue #3: cache consistency
-
-    func testAddCellWithMismatchedSizeDoesNotCorruptCache() async {
-        await MainActor.run {
-            let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
-
-            // Add a cell tagged as 100 m while the active cache is for 50 m.
-            let result = store.addCell(CellID(x: 7, y: 8), cellSizeMeters: 100)
-
-            XCTAssertTrue(result, "addCell should return true for a genuinely new cell")
-            XCTAssertEqual(store.totalVisitedCount, 0,
-                "50 m cache must not be contaminated by a 100 m cell")
-            XCTAssertTrue(store.visitedCellsCache.isEmpty,
-                "50 m cache must remain empty")
-
-            // Switching to 100 m should reveal the persisted cell.
-            store.configure(cellSizeMeters: 100)
-            XCTAssertEqual(store.totalVisitedCount, 1,
-                "100 m cache should contain the persisted cell")
-        }
-    }
-
-    func testAddCellWithMismatchedSizeIsDeduplicated() async {
-        await MainActor.run {
-            let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
-
-            let cell = CellID(x: 3, y: 3)
-            let first  = store.addCell(cell, cellSizeMeters: 100)
-            let second = store.addCell(cell, cellSizeMeters: 100)
-
-            XCTAssertTrue(first,  "First insert should succeed")
-            XCTAssertFalse(second, "Duplicate insert should return false even when size mismatches cache")
         }
     }
 
@@ -331,9 +261,9 @@ final class ExplorationStoreTests: XCTestCase {
 
         await MainActor.run {
             let store1 = ExplorationStore(container: container)
-            store1.configure(cellSizeMeters: 50)
-            store1.addCell(CellID(x: 0, y: 0), cellSizeMeters: 50)
-            store1.addCell(CellID(x: 1, y: 1), cellSizeMeters: 50)
+            store1.configure()
+            store1.addCell(CellID(x: 0, y: 0))
+            store1.addCell(CellID(x: 1, y: 1))
             XCTAssertEqual(store1.totalVisitedCount, 2)
             store1.deleteAllCells()
             XCTAssertEqual(store1.totalVisitedCount, 0)
@@ -342,7 +272,7 @@ final class ExplorationStoreTests: XCTestCase {
         // A new instance on the same container must also see zero cells.
         await MainActor.run {
             let store2 = ExplorationStore(container: container)
-            store2.configure(cellSizeMeters: 50)
+            store2.configure()
             XCTAssertEqual(store2.totalVisitedCount, 0,
                 "Deleted cells must not reappear in a new store instance")
             XCTAssertTrue(store2.visitedCellsCache.isEmpty)
@@ -355,16 +285,16 @@ final class ExplorationStoreTests: XCTestCase {
         await MainActor.run {
             // Populate via one store instance.
             let store1 = ExplorationStore(container: container)
-            store1.configure(cellSizeMeters: 50)
-            store1.addCell(CellID(x: 0, y: 0), cellSizeMeters: 50)
-            store1.addCell(CellID(x: 1, y: 0), cellSizeMeters: 50)
+            store1.configure()
+            store1.addCell(CellID(x: 0, y: 0))
+            store1.addCell(CellID(x: 1, y: 0))
         }
 
         // New instance on the same container should load from Core Data.
         await MainActor.run {
             let store2 = ExplorationStore(container: container)
             XCTAssertEqual(store2.totalVisitedCount, 0, "Cache should be empty before configure()")
-            store2.configure(cellSizeMeters: 50)
+            store2.configure()
             XCTAssertEqual(store2.totalVisitedCount, 2, "Cache should be restored from Core Data")
         }
     }
@@ -374,8 +304,8 @@ final class ExplorationStoreTests: XCTestCase {
     func testLoadRecentCellsWithNilCutoffClearsCache() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
-            store.addCell(CellID(x: 0, y: 0), cellSizeMeters: 50)
+            store.configure()
+            store.addCell(CellID(x: 0, y: 0))
             // Prime the cache with a non-nil cutoff first.
             store.loadRecentCells(since: Date.distantPast)
             XCTAssertFalse(store.recentCellsCache.isEmpty, "Should have recent cells")
@@ -389,9 +319,9 @@ final class ExplorationStoreTests: XCTestCase {
     func testLoadRecentCellsPopulatesFromCoreData() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
             let cell = CellID(x: 3, y: 7)
-            store.addCell(cell, cellSizeMeters: 50)
+            store.addCell(cell)
             // Load with a past cutoff that includes the just-added cell.
             store.loadRecentCells(since: Date.distantPast)
             XCTAssertTrue(store.recentCellsCache.contains(cell),
@@ -402,8 +332,8 @@ final class ExplorationStoreTests: XCTestCase {
     func testLoadRecentCellsExcludesOldCells() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
-            store.addCell(CellID(x: 1, y: 1), cellSizeMeters: 50)
+            store.configure()
+            store.addCell(CellID(x: 1, y: 1))
             // Use a cutoff in the far future — nothing should qualify.
             store.loadRecentCells(since: Date.distantFuture)
             XCTAssertTrue(store.recentCellsCache.isEmpty,
@@ -414,14 +344,14 @@ final class ExplorationStoreTests: XCTestCase {
     func testAddCellUpdatesRecentCacheWhenActive() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
             // Add a seed cell so loadRecentCells returns a non-empty set.
-            store.addCell(CellID(x: 0, y: 0), cellSizeMeters: 50)
+            store.addCell(CellID(x: 0, y: 0))
             store.loadRecentCells(since: Date.distantPast)
             XCTAssertFalse(store.recentCellsCache.isEmpty, "Seed cell should populate recent cache")
             // Now adding a new cell should also update the recent cache.
             let cell = CellID(x: 9, y: 9)
-            store.addCell(cell, cellSizeMeters: 50)
+            store.addCell(cell)
             XCTAssertTrue(store.recentCellsCache.contains(cell),
                           "addCell should insert into recentCellsCache when it is non-empty")
         }
@@ -430,12 +360,59 @@ final class ExplorationStoreTests: XCTestCase {
     func testAddCellDoesNotPopulateRecentCacheWhenEmpty() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
             // Do not call loadRecentCells — cache remains empty.
             let cell = CellID(x: 2, y: 2)
-            store.addCell(cell, cellSizeMeters: 50)
+            store.addCell(cell)
             XCTAssertTrue(store.recentCellsCache.isEmpty,
                           "addCell should not populate recentCellsCache when highlight is off")
+        }
+    }
+
+    /// Regression test for the isHighlightActive bug: before the fix, addCell checked
+    /// `recentCellsCache.isEmpty` instead of `isHighlightActive`, so cells walked early
+    /// in the day (before any cells matched the cutoff) were never added to recentCellsCache.
+    func testAddCellUpdatesRecentCacheWhenActiveButInitiallyEmpty() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            store.configure()
+            // Enable highlight for today — cache starts empty (no cells walked yet today).
+            store.loadRecentCells(since: Calendar.current.startOfDay(for: Date()))
+            XCTAssertTrue(store.recentCellsCache.isEmpty,
+                          "Cache starts empty with no cells walked today")
+            // Walk a new cell — it should be added to recentCellsCache because isHighlightActive is true.
+            let cell = CellID(x: 9, y: 9)
+            store.addCell(cell)
+            XCTAssertTrue(store.recentCellsCache.contains(cell),
+                          "addCell should insert into recentCellsCache when highlight is active, even if cache was initially empty")
+        }
+    }
+
+    func testRecentCellsGenerationIncrementsOnLoadRecentCells() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            store.configure()
+            let gen0 = store.recentCellsGeneration
+            store.loadRecentCells(since: Date.distantPast)
+            XCTAssertGreaterThan(store.recentCellsGeneration, gen0,
+                                 "recentCellsGeneration should increment after loadRecentCells with a date")
+            let gen1 = store.recentCellsGeneration
+            store.loadRecentCells(since: nil)
+            XCTAssertGreaterThan(store.recentCellsGeneration, gen1,
+                                 "recentCellsGeneration should increment even when clearing via nil cutoff")
+        }
+    }
+
+    func testRecentCellsGenerationIncrementsOnDeleteAll() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            store.configure()
+            store.addCell(CellID(x: 0, y: 0))
+            store.loadRecentCells(since: Date.distantPast)
+            let gen = store.recentCellsGeneration
+            store.deleteAllCells()
+            XCTAssertGreaterThan(store.recentCellsGeneration, gen,
+                                 "recentCellsGeneration should increment on deleteAllCells")
         }
     }
 
@@ -444,7 +421,7 @@ final class ExplorationStoreTests: XCTestCase {
     func testTodayVisitedCountStartsAtZero() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
             XCTAssertEqual(store.todayVisitedCount, 0)
         }
     }
@@ -452,9 +429,9 @@ final class ExplorationStoreTests: XCTestCase {
     func testAddCellIncrementsTodayCount() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
-            store.addCell(CellID(x: 0, y: 0), cellSizeMeters: 50)
-            store.addCell(CellID(x: 1, y: 0), cellSizeMeters: 50)
+            store.configure()
+            store.addCell(CellID(x: 0, y: 0))
+            store.addCell(CellID(x: 1, y: 0))
             XCTAssertEqual(store.todayVisitedCount, 2)
         }
     }
@@ -462,10 +439,10 @@ final class ExplorationStoreTests: XCTestCase {
     func testAddCellDoesNotIncrementTodayCountForDuplicate() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
+            store.configure()
             let cell = CellID(x: 0, y: 0)
-            store.addCell(cell, cellSizeMeters: 50)
-            store.addCell(cell, cellSizeMeters: 50)
+            store.addCell(cell)
+            store.addCell(cell)
             XCTAssertEqual(store.todayVisitedCount, 1)
         }
     }
@@ -473,8 +450,8 @@ final class ExplorationStoreTests: XCTestCase {
     func testDeleteAllCellsResetsTodayCount() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
-            store.addCell(CellID(x: 0, y: 0), cellSizeMeters: 50)
+            store.configure()
+            store.addCell(CellID(x: 0, y: 0))
             XCTAssertEqual(store.todayVisitedCount, 1)
             store.deleteAllCells()
             XCTAssertEqual(store.todayVisitedCount, 0)
@@ -486,14 +463,14 @@ final class ExplorationStoreTests: XCTestCase {
 
         await MainActor.run {
             let store1 = ExplorationStore(container: container)
-            store1.configure(cellSizeMeters: 50)
-            store1.addCell(CellID(x: 0, y: 0), cellSizeMeters: 50)
-            store1.addCell(CellID(x: 1, y: 0), cellSizeMeters: 50)
+            store1.configure()
+            store1.addCell(CellID(x: 0, y: 0))
+            store1.addCell(CellID(x: 1, y: 0))
         }
 
         await MainActor.run {
             let store2 = ExplorationStore(container: container)
-            store2.configure(cellSizeMeters: 50)
+            store2.configure()
             XCTAssertEqual(store2.todayVisitedCount, 2,
                 "todayVisitedCount should be restored from Core Data on configure()")
         }
@@ -502,8 +479,8 @@ final class ExplorationStoreTests: XCTestCase {
     func testDeleteAllCellsClearsRecentCache() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure(cellSizeMeters: 50)
-            store.addCell(CellID(x: 0, y: 0), cellSizeMeters: 50)
+            store.configure()
+            store.addCell(CellID(x: 0, y: 0))
             store.loadRecentCells(since: Date.distantPast)
             XCTAssertFalse(store.recentCellsCache.isEmpty)
             store.deleteAllCells()

@@ -112,7 +112,7 @@ final class LandmarkStore {
     /// Check whether any undiscovered landmarks fall within the given visited cells.
     /// Returns newly discovered landmarks so the caller can trigger haptics.
     @discardableResult
-    func checkDiscovery(visitedCells: Set<CellID>, cellSizeMeters: Double) -> [Landmark] {
+    func checkDiscovery(visitedCells: Set<CellID>) -> [Landmark] {
         let undiscovered = allLandmarks.filter { !$0.isDiscovered }
         guard !undiscovered.isEmpty else { return [] }
 
@@ -126,8 +126,7 @@ final class LandmarkStore {
             )
             if isWithinVisitedCells(coord: coord,
                                     radius: landmark.discoveryRadiusMeters,
-                                    cells: visitedCells,
-                                    cellSizeMeters: cellSizeMeters) {
+                                    cells: visitedCells) {
                 landmark.isDiscovered    = true
                 landmark.firstDiscovered = Date()
                 newlyDiscovered.append(landmark)
@@ -186,12 +185,11 @@ final class LandmarkStore {
 
     private func isWithinVisitedCells(coord: CLLocationCoordinate2D,
                                       radius: Double,
-                                      cells: Set<CellID>,
-                                      cellSizeMeters: Double) -> Bool {
+                                      cells: Set<CellID>) -> Bool {
         // Pre-filter to the CellID bounding box for the discovery radius. This avoids
         // O(all_visited_cells) geodesic math — only the small set of cells near the
         // landmark are checked precisely.
-        let step = cellSizeMeters / GridMath.metersPerDegree
+        let step = kCellSizeMeters / GridMath.metersPerDegree
         // Add one cell of padding to account for cells that overlap the radius boundary.
         let latPad = (radius / GridMath.metersPerDegree) + step
         let lonPad = (radius / GridMath.metersPerDegree) + step
@@ -202,7 +200,7 @@ final class LandmarkStore {
 
         let landmarkLoc = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
         for cell in cells where cell.x >= minX && cell.x <= maxX && cell.y >= minY && cell.y <= maxY {
-            let cellCenter = GridMath.center(for: cell, cellSizeMeters: cellSizeMeters)
+            let cellCenter = GridMath.center(for: cell)
             let cellLoc = CLLocation(latitude: cellCenter.latitude, longitude: cellCenter.longitude)
             if cellLoc.distance(from: landmarkLoc) <= radius {
                 return true

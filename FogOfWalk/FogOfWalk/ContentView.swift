@@ -8,13 +8,18 @@ struct MapNavigationTarget {
 }
 
 struct ContentView: View {
-    @Environment(ExplorationStore.self)  private var store
-    @Environment(GridSettings.self)      private var gridSettings
-    @Environment(LandmarkStore.self)     private var landmarkStore
-    @State private var showSettings      = false
-    @State private var showStats         = false
+    @Environment(ExplorationStore.self)   private var store
+    @Environment(GridSettings.self)       private var gridSettings
+    @Environment(LandmarkStore.self)      private var landmarkStore
+    @Environment(LocationService.self)    private var locationService
+    @State private var showStats          = false
     @State private var selectedLandmark: Landmark?
     @State private var mapTarget: MapNavigationTarget?
+    @State private var upgradeBannerDismissed = false
+
+    private var showUpgradeBanner: Bool {
+        locationService.needsAlwaysUpgrade && !upgradeBannerDismissed
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -26,12 +31,18 @@ struct ContentView: View {
             )
             .ignoresSafeArea()
 
-            StatsView(showSettings: $showSettings, showStats: $showStats)
-                .padding(.bottom, 8)
-        }
-        .sheet(isPresented: $showSettings) {
-            SettingsView(initialSize: gridSettings.cellSizeMeters,
-                         initialHighlight: gridSettings.highlightPeriod)
+            VStack(spacing: 0) {
+                if showUpgradeBanner {
+                    AlwaysLocationBanner {
+                        upgradeBannerDismissed = true
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+                Spacer()
+                StatsView(showStats: $showStats)
+                    .padding(.bottom, 8)
+            }
+            .animation(.easeInOut, value: showUpgradeBanner)
         }
         .sheet(isPresented: $showStats) {
             DiscoveryStatsView(onNavigate: { target in
@@ -43,15 +54,12 @@ struct ContentView: View {
             LandmarkDetailView(landmark: landmark)
         }
         .onAppear {
-            store.configure(cellSizeMeters: gridSettings.cellSizeMeters)
-            store.loadRecentCells(since: gridSettings.highlightPeriod.cutoffDate)
+            store.configure()
+            store.loadRecentCells(since: gridSettings.highlightCutoffDate)
         }
-        .onChange(of: gridSettings.cellSizeMeters) { _, newSize in
-            store.configure(cellSizeMeters: newSize)
-            store.loadRecentCells(since: gridSettings.highlightPeriod.cutoffDate)
-        }
-        .onChange(of: gridSettings.highlightPeriod) { _, newPeriod in
-            store.loadRecentCells(since: newPeriod.cutoffDate)
+        .onChange(of: gridSettings.highlightToday) { _, newValue in
+            let cutoff = newValue ? Calendar.current.startOfDay(for: Date()) : nil
+            store.loadRecentCells(since: cutoff)
         }
     }
 }

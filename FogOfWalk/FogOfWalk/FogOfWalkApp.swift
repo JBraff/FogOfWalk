@@ -12,7 +12,7 @@ struct FogOfWalkApp: App {
     init() {
         let g = GridSettings()
         let s = ExplorationStore()
-        s.configure(cellSizeMeters: g.cellSizeMeters)
+        s.configure()
         _store         = State(initialValue: s)
         _gridSettings  = State(initialValue: g)
         _landmarkStore = State(initialValue: LandmarkStore(container: s.container))
@@ -39,10 +39,7 @@ struct FogOfWalkApp: App {
                         geocoder.enqueue(cell)
                     }
                     // Backfill any existing cells that don't have a locality yet.
-                    geocoder.geocodeUntaggedCells(
-                        context: store.viewContext,
-                        cellSizeMeters: gridSettings.cellSizeMeters
-                    )
+                    geocoder.geocodeUntaggedCells(context: store.viewContext)
                 }
         }
     }

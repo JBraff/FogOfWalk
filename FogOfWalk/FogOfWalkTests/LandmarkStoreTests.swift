@@ -153,8 +153,8 @@ final class LandmarkStoreTests: XCTestCase {
                                                      lat: coord.latitude, lon: coord.longitude,
                                                      category: "landmark")])
 
-            let cell         = GridMath.cellID(for: coord, cellSizeMeters: cellSize)
-            let discovered   = store.checkDiscovery(visitedCells: [cell], cellSizeMeters: cellSize)
+            let cell         = GridMath.cellID(for: coord)
+            let discovered   = store.checkDiscovery(visitedCells: [cell])
 
             XCTAssertEqual(discovered.count, 1, "Landmark should be discovered when its cell is visited")
             XCTAssertTrue(discovered.first?.isDiscovered ?? false)
@@ -173,8 +173,8 @@ final class LandmarkStoreTests: XCTestCase {
 
             // Visit a cell ~10 km away
             let farCoord = CLLocationCoordinate2D(latitude: 40.8000, longitude: -74.0060)
-            let farCell  = GridMath.cellID(for: farCoord, cellSizeMeters: cellSize)
-            let discovered = store.checkDiscovery(visitedCells: [farCell], cellSizeMeters: cellSize)
+            let farCell  = GridMath.cellID(for: farCoord)
+            let discovered = store.checkDiscovery(visitedCells: [farCell])
 
             XCTAssertEqual(discovered.count, 0)
             XCTAssertFalse(store.allLandmarks.first?.isDiscovered ?? true)
@@ -188,9 +188,9 @@ final class LandmarkStoreTests: XCTestCase {
             let coord    = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
             store.addLandmarks([makeWikidataLandmark(lat: coord.latitude, lon: coord.longitude)])
 
-            let cell   = GridMath.cellID(for: coord, cellSizeMeters: cellSize)
-            let first  = store.checkDiscovery(visitedCells: [cell], cellSizeMeters: cellSize)
-            let second = store.checkDiscovery(visitedCells: [cell], cellSizeMeters: cellSize)
+            let cell   = GridMath.cellID(for: coord)
+            let first  = store.checkDiscovery(visitedCells: [cell])
+            let second = store.checkDiscovery(visitedCells: [cell])
 
             XCTAssertEqual(first.count,  1, "Should discover landmark on first check")
             XCTAssertEqual(second.count, 0, "Should not re-discover already-discovered landmark")
@@ -209,8 +209,8 @@ final class LandmarkStoreTests: XCTestCase {
 
             // Visit a cell 300 m from the airport — within 500 m radius
             let nearCoord = CLLocationCoordinate2D(latitude: 40.6440, longitude: -73.7781)
-            let nearCell  = GridMath.cellID(for: nearCoord, cellSizeMeters: cellSize)
-            let discovered = store.checkDiscovery(visitedCells: [nearCell], cellSizeMeters: cellSize)
+            let nearCell  = GridMath.cellID(for: nearCoord)
+            let discovered = store.checkDiscovery(visitedCells: [nearCell])
 
             XCTAssertEqual(discovered.count, 1, "Airport with 500 m radius should be discoverable at 300 m")
         }
@@ -229,13 +229,13 @@ final class LandmarkStoreTests: XCTestCase {
 
             // Build a large set: the target cell plus 500 far-away cells.
             var cells: Set<CellID> = []
-            let targetCell = GridMath.cellID(for: coord, cellSizeMeters: cellSize)
+            let targetCell = GridMath.cellID(for: coord)
             cells.insert(targetCell)
             for i in Int32(1)...500 {
                 cells.insert(CellID(x: targetCell.x + i * 200, y: targetCell.y + i * 200))
             }
 
-            let discovered = store.checkDiscovery(visitedCells: cells, cellSizeMeters: cellSize)
+            let discovered = store.checkDiscovery(visitedCells: cells)
             XCTAssertEqual(discovered.count, 1,
                 "Landmark should be discovered even with many far-away cells in the set")
         }
@@ -252,8 +252,8 @@ final class LandmarkStoreTests: XCTestCase {
                 makeWikidataLandmark(id: "Q2", lat: coord.latitude, lon: coord.longitude, category: "library"),
             ])
 
-            let cell       = GridMath.cellID(for: coord, cellSizeMeters: cellSize)
-            let discovered = store.checkDiscovery(visitedCells: [cell], cellSizeMeters: cellSize)
+            let cell       = GridMath.cellID(for: coord)
+            let discovered = store.checkDiscovery(visitedCells: [cell])
 
             XCTAssertEqual(discovered.count, 2, "Both nearby landmarks should be discovered at once")
         }
@@ -270,8 +270,8 @@ final class LandmarkStoreTests: XCTestCase {
 
             XCTAssertEqual(store.totalDiscovered, 0)
 
-            let cell = GridMath.cellID(for: coord, cellSizeMeters: cellSize)
-            store.checkDiscovery(visitedCells: [cell], cellSizeMeters: cellSize)
+            let cell = GridMath.cellID(for: coord)
+            store.checkDiscovery(visitedCells: [cell])
 
             XCTAssertEqual(store.totalDiscovered, 1)
         }
@@ -288,8 +288,8 @@ final class LandmarkStoreTests: XCTestCase {
             store1.addLandmarks([makeWikidataLandmark(id: "QPERSIST", lat: coord.latitude, lon: coord.longitude)])
             XCTAssertEqual(store1.allLandmarks.count, 1)
 
-            let cell = GridMath.cellID(for: coord, cellSizeMeters: 50)
-            store1.checkDiscovery(visitedCells: [cell], cellSizeMeters: 50)
+            let cell = GridMath.cellID(for: coord)
+            store1.checkDiscovery(visitedCells: [cell])
             XCTAssertEqual(store1.totalDiscovered, 1)
         }
 
@@ -334,8 +334,8 @@ final class LandmarkStoreTests: XCTestCase {
             ])
 
             // Discover only Q1
-            let cell = GridMath.cellID(for: coord, cellSizeMeters: cellSize)
-            store.checkDiscovery(visitedCells: [cell], cellSizeMeters: cellSize)
+            let cell = GridMath.cellID(for: coord)
+            store.checkDiscovery(visitedCells: [cell])
 
             let region = MKCoordinateRegion(
                 center: coord,

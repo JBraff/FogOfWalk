@@ -7,7 +7,7 @@ final class CellSnapshotTests: XCTestCase {
 
     func testSnapshotIsImmutableAfterOriginalSetMutates() {
         var original: Set<CellID> = [CellID(x: 0, y: 0)]
-        let snap = CellSnapshot(cells: original, cellSizeMeters: cellSize)
+        let snap = CellSnapshot(cells: original)
         original.insert(CellID(x: 1, y: 1))   // mutate the original
 
         XCTAssertEqual(snap.cells.count, 1,
@@ -17,7 +17,7 @@ final class CellSnapshotTests: XCTestCase {
     func testSnapshotBoundsFilterExcludesOutOfBoundsCells() {
         let inRange  = CellID(x: 0, y: 0)
         let outRange = CellID(x: 100, y: 100)
-        let snap = CellSnapshot(cells: [inRange, outRange], cellSizeMeters: cellSize)
+        let snap = CellSnapshot(cells: [inRange, outRange])
 
         let step = cellSize / GridMath.metersPerDegree
         let result = snap.visitedCells(inLatRange: -step...step, lonRange: -step...step)
@@ -26,7 +26,7 @@ final class CellSnapshotTests: XCTestCase {
     }
 
     func testSnapshotBoundsFilterReturnsEmptyForEmptySnapshot() {
-        let snap = CellSnapshot(cells: [], cellSizeMeters: cellSize)
+        let snap = CellSnapshot(cells: [])
         let result = snap.visitedCells(inLatRange: -1...1, lonRange: -1...1)
         XCTAssertTrue(result.isEmpty, "Empty snapshot must return empty result")
     }
@@ -34,7 +34,7 @@ final class CellSnapshotTests: XCTestCase {
     // MARK: - Recent cells
 
     func testRecentCellsDefaultsToEmpty() {
-        let snap = CellSnapshot(cells: [CellID(x: 0, y: 0)], cellSizeMeters: cellSize)
+        let snap = CellSnapshot(cells: [CellID(x: 0, y: 0)])
         XCTAssertTrue(snap.recentCells.isEmpty, "recentCells should default to empty")
     }
 
@@ -42,8 +42,7 @@ final class CellSnapshotTests: XCTestCase {
         let inRange  = CellID(x: 0, y: 0)
         let outRange = CellID(x: 100, y: 100)
         let snap = CellSnapshot(cells: [inRange, outRange],
-                                recentCells: [inRange, outRange],
-                                cellSizeMeters: cellSize)
+                                recentCells: [inRange, outRange])
 
         let step = cellSize / GridMath.metersPerDegree
         let result = snap.recentCells(inLatRange: -step...step, lonRange: -step...step)
@@ -53,8 +52,7 @@ final class CellSnapshotTests: XCTestCase {
 
     func testRecentCellsFilterReturnsEmptyForEmptySet() {
         let snap = CellSnapshot(cells: [CellID(x: 0, y: 0)],
-                                recentCells: [],
-                                cellSizeMeters: cellSize)
+                                recentCells: [])
         let result = snap.recentCells(inLatRange: -1...1, lonRange: -1...1)
         XCTAssertTrue(result.isEmpty, "Empty recent set must return empty result")
     }
@@ -68,7 +66,7 @@ final class CellSnapshotTests: XCTestCase {
         for i in Int32(1)...1000 {
             allCells.insert(CellID(x: i * 50, y: i * 50))
         }
-        let snap = CellSnapshot(cells: allCells, cellSizeMeters: cellSize)
+        let snap = CellSnapshot(cells: allCells)
 
         // Query a small window that only contains (0,0).
         let step = cellSize / GridMath.metersPerDegree
@@ -82,8 +80,7 @@ final class CellSnapshotTests: XCTestCase {
         let all    = CellID(x: 0, y: 0)
         let recent = CellID(x: 0, y: 0)
         let snap = CellSnapshot(cells: [all, CellID(x: 1, y: 1)],
-                                recentCells: [recent],
-                                cellSizeMeters: cellSize)
+                                recentCells: [recent])
         let step = cellSize / GridMath.metersPerDegree
         let recentResult  = snap.recentCells(inLatRange: -step * 10...step * 10,
                                              lonRange: -step * 10...step * 10)

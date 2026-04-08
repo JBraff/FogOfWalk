@@ -48,12 +48,12 @@ struct LocalityStats: Identifiable {
 
 // MARK: - LocalityStats geometry helpers
 
-private func localityCentroid(_ cells: [CellID], cellSizeMeters: Double) -> CLLocationCoordinate2D {
+private func localityCentroid(_ cells: [CellID]) -> CLLocationCoordinate2D {
     guard !cells.isEmpty else { return CLLocationCoordinate2D() }
     var sumLat = 0.0
     var sumLon = 0.0
     for cell in cells {
-        let c = GridMath.center(for: cell, cellSizeMeters: cellSizeMeters)
+        let c = GridMath.center(for: cell)
         sumLat += c.latitude
         sumLon += c.longitude
     }
@@ -61,14 +61,14 @@ private func localityCentroid(_ cells: [CellID], cellSizeMeters: Double) -> CLLo
                                   longitude: sumLon / Double(cells.count))
 }
 
-private func localitySpan(_ cells: [CellID], cellSizeMeters: Double) -> MKCoordinateSpan {
+private func localitySpan(_ cells: [CellID]) -> MKCoordinateSpan {
     guard !cells.isEmpty else {
         return MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
     }
     var minLat = Double.infinity, maxLat = -Double.infinity
     var minLon = Double.infinity, maxLon = -Double.infinity
     for cell in cells {
-        let b = GridMath.bounds(for: cell, cellSizeMeters: cellSizeMeters)
+        let b = GridMath.bounds(for: cell)
         minLat = min(minLat, b.min.latitude)
         maxLat = max(maxLat, b.max.latitude)
         minLon = min(minLon, b.min.longitude)
@@ -108,9 +108,9 @@ final class DiscoveryStatsModel {
 
     // MARK: - Refresh
 
-    func refresh(context: NSManagedObjectContext, cellSizeMeters: Double) {
+    func refresh(context: NSManagedObjectContext) {
         let request = VisitedCell.fetchRequest()
-        request.predicate = NSPredicate(format: "cellSizeMeters == %f", cellSizeMeters)
+        request.predicate = NSPredicate(format: "cellSizeMeters == %f", kCellSizeMeters)
         request.sortDescriptors = [NSSortDescriptor(key: "firstVisited", ascending: true)]
 
         guard let cells = try? context.fetch(request) else { return }
@@ -179,7 +179,7 @@ final class DiscoveryStatsModel {
         }
 
         totalDaysActive        = allDayCounts.count
-        estimatedDistanceMeters = Double(allTimeTotal) * cellSizeMeters
+        estimatedDistanceMeters = Double(allTimeTotal) * kCellSizeMeters
 
         // Streaks (computed from sorted day keys)
         let sortedDays = allDayCounts.keys.sorted()
@@ -232,8 +232,8 @@ final class DiscoveryStatsModel {
                 LocalityStats(
                     locality: name,
                     count: ids.count,
-                    center: localityCentroid(ids, cellSizeMeters: cellSizeMeters),
-                    span: localitySpan(ids, cellSizeMeters: cellSizeMeters)
+                    center: localityCentroid(ids),
+                    span: localitySpan(ids)
                 )
             }
             .sorted { $0.count > $1.count }

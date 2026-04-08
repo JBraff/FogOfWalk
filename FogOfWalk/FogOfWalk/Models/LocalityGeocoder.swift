@@ -59,10 +59,7 @@ final class LocalityGeocoder {
     func enqueue(_ cell: VisitedCell) {
         guard cell.locality == nil else { return }
         guard let ctx = cell.managedObjectContext else { return }
-        let coord = GridMath.center(
-            for: CellID(x: cell.cellX, y: cell.cellY),
-            cellSizeMeters: cell.cellSizeMeters
-        )
+        let coord = GridMath.center(for: CellID(x: cell.cellX, y: cell.cellY))
         guard queue.count < Self.maxQueueSize else { return }
         queue.append(PendingCluster(coord: coord, objectIDs: [cell.objectID], context: ctx))
         processNext()
@@ -70,23 +67,20 @@ final class LocalityGeocoder {
 
     /// Backfill all untagged cells for the given cell size, clustering nearby cells to minimise geocode requests.
     /// Runs at most once per app lifecycle — repeated calls (e.g. on app foreground) are no-ops.
-    func geocodeUntaggedCells(context: NSManagedObjectContext, cellSizeMeters: Double) {
+    func geocodeUntaggedCells(context: NSManagedObjectContext) {
         guard !hasBackfilled else { return }
         hasBackfilled = true
         let request = VisitedCell.fetchRequest()
         request.predicate = NSPredicate(
             format: "cellSizeMeters == %f AND locality == nil",
-            cellSizeMeters
+            kCellSizeMeters
         )
         guard let cells = try? context.fetch(request), !cells.isEmpty else { return }
 
         // Group cells into ~0.5° geographic buckets (~55 km) to minimise CLGeocoder requests.
         var buckets: [BucketKey: [VisitedCell]] = [:]
         for cell in cells {
-            let coord = GridMath.center(
-                for: CellID(x: cell.cellX, y: cell.cellY),
-                cellSizeMeters: cell.cellSizeMeters
-            )
+            let coord = GridMath.center(for: CellID(x: cell.cellX, y: cell.cellY))
             let key = BucketKey(
                 lat: Int(floor(coord.latitude / 0.5)),
                 lon: Int(floor(coord.longitude / 0.5))
@@ -97,10 +91,7 @@ final class LocalityGeocoder {
         for (_, group) in buckets {
             guard let rep = group.first else { continue }
             guard queue.count < Self.maxQueueSize else { break }
-            let coord = GridMath.center(
-                for: CellID(x: rep.cellX, y: rep.cellY),
-                cellSizeMeters: rep.cellSizeMeters
-            )
+            let coord = GridMath.center(for: CellID(x: rep.cellX, y: rep.cellY))
             queue.append(PendingCluster(
                 coord: coord,
                 objectIDs: group.map { $0.objectID },

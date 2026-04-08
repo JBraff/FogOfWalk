@@ -133,8 +133,8 @@ final class LocalityGeocoderTests: XCTestCase {
             let ctx       = container.viewContext
             insertCell(in: ctx, x: 0, locality: nil)
             let geocoder = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
-            geocoder.geocodeUntaggedCells(context: ctx, cellSizeMeters: 50)
-            geocoder.geocodeUntaggedCells(context: ctx, cellSizeMeters: 50) // second call — should be ignored
+            geocoder.geocodeUntaggedCells(context: ctx)
+            geocoder.geocodeUntaggedCells(context: ctx) // second call — should be ignored
         }
 
         try? await Task.sleep(for: .milliseconds(200))
@@ -180,7 +180,7 @@ final class LocalityGeocoderTests: XCTestCase {
             let cell      = insertCell(in: context!, locality: nil)
             cellID        = cell.objectID
             let geocoder  = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
-            geocoder.geocodeUntaggedCells(context: context!, cellSizeMeters: 50)
+            geocoder.geocodeUntaggedCells(context: context!)
         }
 
         await fulfillment(of: [expectation], timeout: 5)
@@ -204,7 +204,7 @@ final class LocalityGeocoderTests: XCTestCase {
             let ctx       = container.viewContext
             insertCell(in: ctx, x: 0, locality: "ExistingLocality")
             let geocoder = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
-            geocoder.geocodeUntaggedCells(context: ctx, cellSizeMeters: 50)
+            geocoder.geocodeUntaggedCells(context: ctx)
         }
 
         // Give tasks time to run
@@ -231,7 +231,7 @@ final class LocalityGeocoderTests: XCTestCase {
             insertCell(in: ctx, x: 0, y: 0, locality: nil)
             insertCell(in: ctx, x: 1, y: 1, locality: nil)
             let geocoder = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
-            geocoder.geocodeUntaggedCells(context: ctx, cellSizeMeters: 50)
+            geocoder.geocodeUntaggedCells(context: ctx)
         }
 
         await fulfillment(of: [geocodeExpectation], timeout: 5)

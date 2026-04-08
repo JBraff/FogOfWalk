@@ -15,8 +15,8 @@ FogOfWalk/
     Info.plist                  # Location permission strings, UIBackgroundModes: [location], single-scene
     FogOfWalk.xcdatamodeld/     # Core Data model (single VisitedCell entity, codeGenerationType="none")
     Models/
-      GridCell.swift            # CellID, CellSizeMeters enum, GridMath namespace
-      GridSettings.swift        # @MainActor @Observable — persists cell size to UserDefaults
+      GridCell.swift            # CellID, kCellSizeMeters constant (50m), GridMath namespace
+      GridSettings.swift        # @MainActor @Observable — persists highlight period to UserDefaults
       ExplorationStore.swift    # @MainActor @Observable — Core Data + in-memory cache
       VisitedCell+CoreData.swift # NSManagedObject subclass (cellX, cellY, cellSizeMeters, firstVisited)
     Services/
@@ -25,7 +25,7 @@ FogOfWalk/
       MapContainerView.swift    # UIViewRepresentable: MKMapView + FogView sibling
       FogView.swift             # UIView: grey fog with radial-gradient holes per visited cell
       StatsView.swift           # HUD: cell count, city %, pause indicator, settings button
-      SettingsView.swift        # Sheet: cell size picker, delete-all action
+      SettingsView.swift        # Sheet: highlight period picker, delete-all action
   FogOfWalkTests/
     FogOfWalkTests.swift        # GridCellTests — CellID arithmetic, GridMath edge cases
     ExplorationStoreTests.swift # Core Data add/delete/count via in-memory store
@@ -44,7 +44,7 @@ SETUP.md                        # One-time Xcode project setup instructions
 ```
 CLLocationManager → LocationService.onLocationUpdate closure
   → Coordinator.handle(location:)
-    → ExplorationStore.addCell(_:cellSizeMeters:)   [Core Data + in-memory Set]
+    → ExplorationStore.addCell(_:)                   [Core Data + in-memory Set]
       → FogView.update(cells:cellSize:)              [calls setNeedsDisplay]
 ```
 
@@ -54,13 +54,13 @@ All three are injected at the `WindowGroup` level via `.environment(...)` and ac
 | Type | Role |
 |------|------|
 | `ExplorationStore` | Source of truth for visited cells; wraps Core Data |
-| `GridSettings` | Single setting: `cellSizeMeters` (25 / 50 / 100 / 200) |
+| `GridSettings` | Single setting: `highlightPeriod` (recent-walk highlight window) |
 | `LocationService` | Location permission + streaming; exposes `onLocationUpdate` closure |
 
 ### Coordinate system
 `GridMath` divides the globe into a uniform rectangular grid. `CellID(x: Int32, y: Int32)` is the grid address. Converting a `CLLocationCoordinate2D` to a `CellID` and back is pure arithmetic — no map SDK required. The grid is always aligned to `(0,0)` at (0°, 0°).
 
-Key invariant: **one `CellID` namespace per `cellSizeMeters` value.** Changing cell size doesn't migrate data; `ExplorationStore` keeps a separate cache and Core Data rows per size.
+Cell size is fixed at `kCellSizeMeters = 50.0` (defined in `GridCell.swift`). The `VisitedCell` Core Data entity retains the `cellSizeMeters` column for existing data; all new rows are written with 50.0.
 
 ### Fog rendering
 `FogView` is a plain `UIView` sibling of `MKMapView` (not an `MKOverlay`). On each `draw(_:)`:
@@ -74,7 +74,7 @@ Key invariant: **one `CellID` namespace per `cellSizeMeters` value.** Changing c
 
 ## Key constraints and gotchas
 
-- **Cell count cap:** `GridMath.cells(in:cellSizeMeters:)` returns `[]` when a region would produce >10 000 cells. At world zoom the fog stays fully opaque — this is intentional and correct.
+- **Cell count cap:** `GridMath.cells(in:)` returns `[]` when a region would produce >10 000 cells. At world zoom the fog stays fully opaque — this is intentional and correct.
 - **`@MainActor` everywhere:** `ExplorationStore`, `GridSettings`, and `LocationService` are all `@MainActor`. `CLLocationManagerDelegate` methods on `LocationService` are `nonisolated` and dispatch back via `Task { @MainActor in ... }`.
 - **Closure rewiring:** `locationService.onLocationUpdate` is reassigned in `updateUIView` (not just `makeUIView`) so it always captures the live coordinator after SwiftUI rebuilds.
 - **Core Data context:** Always use `container.viewContext` (main-queue context). `automaticallyMergesChangesFromParent = true` is set. `NSBatchDeleteRequest` results are merged back manually via `NSManagedObjectContext.mergeChanges(fromRemoteContextSave:into:)`.

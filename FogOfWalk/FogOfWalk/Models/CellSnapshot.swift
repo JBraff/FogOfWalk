@@ -12,9 +12,8 @@ struct CellSnapshot: Sendable {
     // are Sendable (Int32 is Sendable; Set<CellID> is Sendable when CellID is Sendable).
     private let cellBuckets:   [Int32: Set<CellID>]
     private let recentBuckets: [Int32: Set<CellID>]
-    let cellSizeMeters: Double
 
-    init(cells: Set<CellID>, recentCells: Set<CellID> = [], cellSizeMeters: Double) {
+    init(cells: Set<CellID>, recentCells: Set<CellID> = []) {
         var cb: [Int32: Set<CellID>] = [:]
         for cell in cells {
             cb[cell.y, default: []].insert(cell)
@@ -23,9 +22,8 @@ struct CellSnapshot: Sendable {
         for cell in recentCells {
             rb[cell.y, default: []].insert(cell)
         }
-        self.cellBuckets    = cb
-        self.recentBuckets  = rb
-        self.cellSizeMeters = cellSizeMeters
+        self.cellBuckets   = cb
+        self.recentBuckets = rb
     }
 
     /// All visited cells (flattened from buckets). Used by tests; production code
@@ -41,7 +39,7 @@ struct CellSnapshot: Sendable {
     }
 
     /// Visited cells whose grid-coordinate bounds intersect the given lat/lon rectangle.
-    /// Unlike GridMath.cellBounds(in:cellSizeMeters:), there is no cell-count cap here —
+    /// Unlike GridMath.cellBounds(in:), there is no cell-count cap here —
     /// this is safe because each tile query covers only a small geographic area.
     func visitedCells(
         inLatRange latRange: ClosedRange<Double>,
@@ -63,7 +61,7 @@ struct CellSnapshot: Sendable {
         latRange: ClosedRange<Double>,
         lonRange: ClosedRange<Double>
     ) -> [CellID] {
-        let step = cellSizeMeters / GridMath.metersPerDegree
+        let step = kCellSizeMeters / GridMath.metersPerDegree
         let minX = Int32(floor(lonRange.lowerBound / step))
         let maxX = Int32(floor(lonRange.upperBound / step))
         let minY = Int32(floor(latRange.lowerBound / step))

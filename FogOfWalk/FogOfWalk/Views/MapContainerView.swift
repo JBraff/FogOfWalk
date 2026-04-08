@@ -72,24 +72,17 @@ struct MapContainerView: UIViewRepresentable {
             coordinator.lastNavigationTargetID = target.id
         }
 
-        let currentCellSize = gridSettings.cellSizeMeters
-        if currentCellSize != coordinator.lastRenderedCellSize {
-            // Cell size changed — swap out the overlay entirely so all tiles
-            // re-render at the new grid granularity.
-            coordinator.replaceFogOverlay(mapView: mapView)
-        } else {
-            // If the cache was populated after the renderer was created (e.g.
-            // initial Core Data load completing after makeUIView), push the
-            // updated cells to the fog renderer.
-            let currentCount = store.visitedCellsCache.count
-            let currentRecentCount = store.recentCellsCache.count
-            if currentCount != coordinator.lastSnapshotCellCount
-                || currentRecentCount != coordinator.lastRecentCellCount {
-                coordinator.invalidateFogTiles()
-            }
-            coordinator.refreshLandmarks(in: mapView.region, mapView: mapView)
-            coordinator.landmarkOverlayView?.setNeedsDisplay()
+        // If the cache was populated after the renderer was created (e.g.
+        // initial Core Data load completing after makeUIView), push the
+        // updated cells to the fog renderer.
+        let currentCount = store.visitedCellsCache.count
+        let currentRecentGen = store.recentCellsGeneration
+        if currentCount != coordinator.lastSnapshotCellCount
+            || currentRecentGen != coordinator.lastRecentCellGeneration {
+            coordinator.invalidateFogTiles()
         }
+        coordinator.refreshLandmarks(in: mapView.region, mapView: mapView)
+        coordinator.landmarkOverlayView?.setNeedsDisplay()
     }
 
     // MARK: - Coordinator
@@ -109,16 +102,13 @@ struct MapContainerView: UIViewRepresentable {
         /// the gesture transform for LandmarkOverlayView during panning.
         private var referenceRegion: MKCoordinateRegion?
 
-        /// Tracks the cell size at the last fog-overlay creation so `updateUIView`
-        /// can detect when a cell-size change requires a full overlay replacement.
-        var lastRenderedCellSize: Double = -1
-
         /// Tracks the cell count at the last fog snapshot push so `updateUIView`
         /// can detect when the cache was populated after the renderer was created.
         var lastSnapshotCellCount: Int = -1
 
-        /// Tracks the recent-cell count so `updateUIView` can detect highlight changes.
-        var lastRecentCellCount: Int = -1
+        /// Tracks the recent-cell generation so `updateUIView` can detect highlight changes
+        /// even when the cell count is unchanged (e.g., toggling on/off with 0 cells today).
+        var lastRecentCellGeneration: UInt64 = 0
 
         /// Tracks the last navigation target ID applied so `updateUIView` only animates once per tap.
         var lastNavigationTargetID: UUID?
@@ -134,10 +124,9 @@ struct MapContainerView: UIViewRepresentable {
         // MARK: - Location handling
 
         func handle(location: CLLocation) {
-            let size = gridSettings.cellSizeMeters
-            store.configure(cellSizeMeters: size)
-            let cell  = GridMath.cellID(for: location.coordinate, cellSizeMeters: size)
-            let isNew = store.addCell(cell, cellSizeMeters: size)
+            store.configure()
+            let cell  = GridMath.cellID(for: location.coordinate)
+            let isNew = store.addCell(cell)
             if isNew {
                 // Push the updated cell set into the renderer; MapKit re-renders
                 // only the affected visible tiles asynchronously.
@@ -145,8 +134,7 @@ struct MapContainerView: UIViewRepresentable {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
 
                 let discovered = landmarkStore.checkDiscovery(
-                    visitedCells: store.visitedCellsCache,
-                    cellSizeMeters: size
+                    visitedCells: store.visitedCellsCache
                 )
                 if !discovered.isEmpty {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -161,16 +149,14 @@ struct MapContainerView: UIViewRepresentable {
         /// no-ops gracefully if the renderer hasn't been created yet.
         func invalidateFogTiles() {
             let snap = CellSnapshot(cells: store.visitedCellsCache,
-                                    recentCells: store.recentCellsCache,
-                                    cellSizeMeters: gridSettings.cellSizeMeters)
+                                    recentCells: store.recentCellsCache)
             fogRenderer?.snapshot = snap
             fogRenderer?.setNeedsDisplay()
-            lastSnapshotCellCount = store.visitedCellsCache.count
-            lastRecentCellCount   = store.recentCellsCache.count
+            lastSnapshotCellCount    = store.visitedCellsCache.count
+            lastRecentCellGeneration = store.recentCellsGeneration
         }
 
-        /// Removes the current FogOverlay and adds a new one with a fresh snapshot
-        /// for the current cell size. Use when cellSizeMeters changes.
+        /// Removes the current FogOverlay and adds a new one with a fresh snapshot.
         func replaceFogOverlay(mapView: MKMapView) {
             if let old = fogOverlay {
                 mapView.removeOverlay(old)
@@ -230,13 +216,11 @@ struct MapContainerView: UIViewRepresentable {
                 return MKOverlayRenderer(overlay: overlay)
             }
             let snap = CellSnapshot(cells: store.visitedCellsCache,
-                                    recentCells: store.recentCellsCache,
-                                    cellSizeMeters: gridSettings.cellSizeMeters)
+                                    recentCells: store.recentCellsCache)
             let renderer = FogOverlayRenderer(overlay: fogOverlay, snapshot: snap)
-            fogRenderer           = renderer
-            lastRenderedCellSize  = gridSettings.cellSizeMeters
-            lastSnapshotCellCount = store.visitedCellsCache.count
-            lastRecentCellCount   = store.recentCellsCache.count
+            fogRenderer              = renderer
+            lastSnapshotCellCount    = store.visitedCellsCache.count
+            lastRecentCellGeneration = store.recentCellsGeneration
             return renderer
         }
 

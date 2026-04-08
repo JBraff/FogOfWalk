@@ -12,13 +12,21 @@ final class ExplorationStore {
     /// but exploration history will be empty until the user reinstalls.
     private(set) var loadError: Error?
 
-    /// In-memory cache of visited cells for the active cell size — O(1) fog lookups.
+    /// In-memory cache of visited cells — O(1) fog lookups.
     private(set) var visitedCellsCache: Set<CellID> = []
     /// In-memory cache of recently visited cells for the active highlight period.
     private(set) var recentCellsCache: Set<CellID> = []
+    /// Monotonically increasing counter — increments on every `loadRecentCells` call
+    /// so `MapContainerView.updateUIView` can detect highlight changes even when the
+    /// cell count is unchanged (e.g., toggling on/off with 0 cells today).
+    private(set) var recentCellsGeneration: UInt64 = 0
     private(set) var totalVisitedCount: Int = 0
     private(set) var todayVisitedCount: Int = 0
-    private var cachedCellSize: Double = 0
+    private var hasConfigured = false
+    /// True when highlighting is active (loadRecentCells was called with a non-nil date).
+    /// Used by addCell to insert new cells into recentCellsCache even when the cache is
+    /// currently empty (e.g., early in the day before any cells are visited).
+    private var isHighlightActive = false
 
     /// Called after a new cell is successfully persisted. Used by LocalityGeocoder.
     var onNewCell: ((VisitedCell) -> Void)?
@@ -63,25 +71,25 @@ final class ExplorationStore {
 
     // MARK: - Cache Management
 
-    /// Call on app launch and whenever the user changes cell size.
-    func configure(cellSizeMeters: Double) {
-        guard cellSizeMeters != cachedCellSize else { return }
-        reloadCache(for: cellSizeMeters)
+    /// Call on app launch to populate the in-memory cache from Core Data.
+    func configure() {
+        guard !hasConfigured else { return }
+        reloadCache()
     }
 
-    private func reloadCache(for cellSizeMeters: Double) {
+    private func reloadCache() {
         let request = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
-        request.predicate = NSPredicate(format: "cellSizeMeters == %f", cellSizeMeters)
+        request.predicate = NSPredicate(format: "cellSizeMeters == %f", kCellSizeMeters)
         do {
             let cells = try container.viewContext.fetch(request)
             visitedCellsCache = Set(cells.map { CellID(x: $0.cellX, y: $0.cellY) })
             totalVisitedCount = visitedCellsCache.count
-            cachedCellSize    = cellSizeMeters  // only set on successful fetch
+            hasConfigured     = true
 
             let startOfToday = Calendar.current.startOfDay(for: Date())
             let todayRequest = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
             todayRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-                NSPredicate(format: "cellSizeMeters == %f", cellSizeMeters),
+                NSPredicate(format: "cellSizeMeters == %f", kCellSizeMeters),
                 NSPredicate(format: "firstVisited >= %@", startOfToday as NSDate)
             ])
             todayVisitedCount = (try? container.viewContext.count(for: todayRequest)) ?? 0
@@ -97,20 +105,26 @@ final class ExplorationStore {
     func loadRecentCells(since cutoffDate: Date?) {
         guard let cutoff = cutoffDate else {
             recentCellsCache = []
+            isHighlightActive = false
+            recentCellsGeneration &+= 1
             return
         }
-        guard cachedCellSize > 0 else { return }
+        guard hasConfigured else { return }
         let request = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
         request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-            NSPredicate(format: "cellSizeMeters == %f", cachedCellSize),
+            NSPredicate(format: "cellSizeMeters == %f", kCellSizeMeters),
             NSPredicate(format: "firstVisited >= %@", cutoff as NSDate)
         ])
         do {
             let cells = try container.viewContext.fetch(request)
             recentCellsCache = Set(cells.map { CellID(x: $0.cellX, y: $0.cellY) })
+            isHighlightActive = true
+            recentCellsGeneration &+= 1
         } catch {
             print("ExplorationStore: recent cells load failed: \(error)")
             recentCellsCache = []
+            isHighlightActive = false
+            recentCellsGeneration &+= 1
         }
     }
 
@@ -118,37 +132,26 @@ final class ExplorationStore {
 
     /// Idempotent insert. Returns true when a new cell was recorded.
     @discardableResult
-    func addCell(_ cell: CellID, cellSizeMeters: Double) -> Bool {
-        let matchesCache = cellSizeMeters == cachedCellSize
-
-        if matchesCache {
-            guard !visitedCellsCache.contains(cell) else { return false }
-        } else {
-            // Cache tracks a different size; check Core Data directly for this size.
-            let req = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
-            req.predicate = NSPredicate(
-                format: "cellX == %d AND cellY == %d AND cellSizeMeters == %f",
-                cell.x, cell.y, cellSizeMeters)
-            if (try? container.viewContext.count(for: req)) ?? 0 > 0 { return false }
-        }
+    func addCell(_ cell: CellID) -> Bool {
+        guard !visitedCellsCache.contains(cell) else { return false }
 
         let ctx    = container.viewContext
         let entity = VisitedCell(context: ctx)
         entity.cellX          = cell.x
         entity.cellY          = cell.y
-        entity.cellSizeMeters = cellSizeMeters
+        entity.cellSizeMeters = kCellSizeMeters
         entity.firstVisited   = Date()
 
         do {
             try ctx.save()
-            if matchesCache {
-                visitedCellsCache.insert(cell)
-                totalVisitedCount = visitedCellsCache.count
-                todayVisitedCount += 1
-                // A newly walked cell is always "recent" while the highlight is active.
-                if !recentCellsCache.isEmpty {
-                    recentCellsCache.insert(cell)
-                }
+            visitedCellsCache.insert(cell)
+            totalVisitedCount = visitedCellsCache.count
+            todayVisitedCount += 1
+            // A newly walked cell is always "recent" while the highlight is active.
+            // Use the isHighlightActive flag rather than recentCellsCache.isEmpty so that
+            // cells are tracked even when the cache is empty (e.g., early in the day).
+            if isHighlightActive {
+                recentCellsCache.insert(cell)
             }
             onNewCell?(entity)
             return true
@@ -165,10 +168,10 @@ final class ExplorationStore {
 
     // MARK: - Query
 
-    func visitedCells(in region: MKCoordinateRegion, cellSizeMeters: Double) -> Set<CellID> {
+    func visitedCells(in region: MKCoordinateRegion) -> Set<CellID> {
         // Filter the in-memory cache directly by bounds instead of materialising all
         // region cells into a [CellID] array (which can reach 10,000 elements per call).
-        guard let b = GridMath.cellBounds(in: region, cellSizeMeters: cellSizeMeters) else {
+        guard let b = GridMath.cellBounds(in: region) else {
             return []
         }
         return visitedCellsCache.filter { $0.x >= b.minX && $0.x <= b.maxX &&
@@ -176,17 +179,17 @@ final class ExplorationStore {
     }
 
     /// Visited cells inside a circle (city % numerator).
-    func visitedCellCount(in circle: CLCircularRegion, cellSizeMeters: Double) -> Int {
+    func visitedCellCount(in circle: CLCircularRegion) -> Int {
         let center = CLLocation(latitude: circle.center.latitude, longitude: circle.center.longitude)
         return visitedCellsCache.lazy.filter { cell in
-            let coord = GridMath.center(for: cell, cellSizeMeters: cellSizeMeters)
+            let coord = GridMath.center(for: cell)
             return CLLocation(latitude: coord.latitude, longitude: coord.longitude)
                 .distance(from: center) <= circle.radius
         }.count
     }
 
     /// Total grid cells that fit inside a circle (city % denominator).
-    func totalCellCount(in circle: CLCircularRegion, cellSizeMeters: Double) -> Int {
+    func totalCellCount(in circle: CLCircularRegion) -> Int {
         let cosLat = cos(circle.center.latitude * .pi / 180)
         let span = MKCoordinateSpan(
             latitudeDelta:  (circle.radius / GridMath.metersPerDegree) * 2,
@@ -194,8 +197,8 @@ final class ExplorationStore {
         )
         let region    = MKCoordinateRegion(center: circle.center, span: span)
         let circleLoc = CLLocation(latitude: circle.center.latitude, longitude: circle.center.longitude)
-        return GridMath.cells(in: region, cellSizeMeters: cellSizeMeters).filter { cell in
-            let coord = GridMath.center(for: cell, cellSizeMeters: cellSizeMeters)
+        return GridMath.cells(in: region).filter { cell in
+            let coord = GridMath.center(for: cell)
             return CLLocation(latitude: coord.latitude, longitude: coord.longitude)
                 .distance(from: circleLoc) <= circle.radius
         }.count
@@ -241,8 +244,10 @@ final class ExplorationStore {
         guard deleteSucceeded else { return }
         visitedCellsCache.removeAll()
         recentCellsCache.removeAll()
+        isHighlightActive = false
+        recentCellsGeneration &+= 1
         totalVisitedCount = 0
         todayVisitedCount = 0
-        cachedCellSize    = 0
+        hasConfigured     = false
     }
 }

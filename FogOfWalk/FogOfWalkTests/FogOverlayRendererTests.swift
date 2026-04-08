@@ -48,7 +48,7 @@ final class FogOverlayRendererTests: XCTestCase {
         let imgRenderer = UIGraphicsImageRenderer(size: viewSize, format: format)
         let uiImage = imgRenderer.image { _ in
             guard let ctx = UIGraphicsGetCurrentContext() else { return }
-            fogRenderer.render(cells: cells, recentCells: recentCells, cellSizeMeters: cellSize,
+            fogRenderer.render(cells: cells, recentCells: recentCells,
                                drawRect: drawRect, coordinateConverter: converter, in: ctx)
         }
         return uiImage.cgImage!
@@ -81,7 +81,7 @@ final class FogOverlayRendererTests: XCTestCase {
     }
 
     func cellForTestCenter() -> CellID {
-        GridMath.cellID(for: testCenter, cellSizeMeters: cellSize)
+        GridMath.cellID(for: testCenter)
     }
 
     func viewPoint(for coord: CLLocationCoordinate2D) -> CGPoint {
@@ -89,7 +89,7 @@ final class FogOverlayRendererTests: XCTestCase {
     }
 
     func holeRadius(for cell: CellID) -> CGFloat {
-        let b     = GridMath.bounds(for: cell, cellSizeMeters: cellSize)
+        let b     = GridMath.bounds(for: cell)
         let converter = makeCoordinateConverter()
         let minPt = converter(b.min)
         let maxPt = converter(b.max)
@@ -123,7 +123,7 @@ final class FogOverlayRendererTests: XCTestCase {
         let cell  = cellForTestCenter()
         let image = renderFog(cells: [cell])
 
-        let coord = GridMath.center(for: cell, cellSizeMeters: cellSize)
+        let coord = GridMath.center(for: cell)
         let pt    = viewPoint(for: coord)
 
         guard pt.x >= 0, pt.x < CGFloat(viewSize.width),
@@ -140,7 +140,7 @@ final class FogOverlayRendererTests: XCTestCase {
         let cell  = cellForTestCenter()
         let image = renderFog(cells: [cell])
 
-        let coord = GridMath.center(for: cell, cellSizeMeters: cellSize)
+        let coord = GridMath.center(for: cell)
         let pt    = viewPoint(for: coord)
         let pixel = pixelColor(at: pt, in: image)
 
@@ -152,7 +152,7 @@ final class FogOverlayRendererTests: XCTestCase {
         let cell   = cellForTestCenter()
         let image  = renderFog(cells: [cell])
 
-        let coord  = GridMath.center(for: cell, cellSizeMeters: cellSize)
+        let coord  = GridMath.center(for: cell)
         let center = viewPoint(for: coord)
         let radius = holeRadius(for: cell)
 
@@ -183,8 +183,8 @@ final class FogOverlayRendererTests: XCTestCase {
         let image = renderFog(cells: [cell1, cell2])
 
         let converter = makeCoordinateConverter()
-        let c1 = GridMath.center(for: cell1, cellSizeMeters: cellSize)
-        let c2 = GridMath.center(for: cell2, cellSizeMeters: cellSize)
+        let c1 = GridMath.center(for: cell1)
+        let c2 = GridMath.center(for: cell2)
         let midCoord = CLLocationCoordinate2D(
             latitude:  (c1.latitude  + c2.latitude)  / 2,
             longitude: (c1.longitude + c2.longitude) / 2
@@ -211,7 +211,7 @@ final class FogOverlayRendererTests: XCTestCase {
             ".destinationOut: far fog must stay opaque, got alpha=\(corner.a)")
 
         // Cell center must be transparent.
-        let coord    = GridMath.center(for: cell, cellSizeMeters: cellSize)
+        let coord    = GridMath.center(for: cell)
         let centerPt = viewPoint(for: coord)
         let center   = pixelColor(at: centerPt, in: image)
         XCTAssertLessThan(Int(center.a), 30,
@@ -231,7 +231,7 @@ final class FogOverlayRendererTests: XCTestCase {
         let cell  = cellForTestCenter()
         let image = renderFog(cells: [cell], recentCells: [cell])
 
-        let coord = GridMath.center(for: cell, cellSizeMeters: cellSize)
+        let coord = GridMath.center(for: cell)
         let pt    = viewPoint(for: coord)
 
         guard pt.x >= 0, pt.x < CGFloat(viewSize.width),
@@ -255,7 +255,7 @@ final class FogOverlayRendererTests: XCTestCase {
         // Visited but NOT recent — no highlight.
         let image = renderFog(cells: [cell], recentCells: [])
 
-        let coord = GridMath.center(for: cell, cellSizeMeters: cellSize)
+        let coord = GridMath.center(for: cell)
         let pt    = viewPoint(for: coord)
 
         guard pt.x >= 0, pt.x < CGFloat(viewSize.width),

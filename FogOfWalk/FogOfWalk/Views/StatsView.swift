@@ -4,13 +4,22 @@ struct StatsView: View {
     @Environment(ExplorationStore.self)  private var store
     @Environment(LandmarkStore.self)     private var landmarkStore
     @Environment(LocationService.self)   private var locationService
-    @Binding var showSettings: Bool
+    @Environment(GridSettings.self)      private var gridSettings
     @Binding var showStats: Bool
 
     var body: some View {
         HStack(spacing: 16) {
-            Text("\(store.todayVisitedCount) new today")
-                .font(.headline)
+            Button {
+                gridSettings.highlightToday.toggle()
+            } label: {
+                Text("\(store.todayVisitedCount) new today")
+                    .font(.headline)
+                    .foregroundStyle(gridSettings.highlightToday ? Color.yellow : Color.primary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(gridSettings.highlightToday
+                ? "Highlighting today's areas. Tap to turn off."
+                : "\(store.todayVisitedCount) new today. Tap to highlight today's areas.")
 
             if landmarkStore.totalDiscovered > 0 {
                 Label("\(landmarkStore.totalDiscovered)", systemImage: "star.fill")
@@ -31,12 +40,6 @@ struct StatsView: View {
                     .font(.title2)
             }
             .accessibilityLabel("Discovery statistics")
-
-            Button { showSettings = true } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.title2)
-            }
-            .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

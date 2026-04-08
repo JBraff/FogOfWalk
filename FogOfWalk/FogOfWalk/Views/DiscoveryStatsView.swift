@@ -5,7 +5,6 @@ import SwiftUI
 
 struct DiscoveryStatsView: View {
     @Environment(ExplorationStore.self)  private var store
-    @Environment(GridSettings.self)      private var gridSettings
     @Environment(LandmarkStore.self)     private var landmarkStore
     @Environment(\.dismiss)              private var dismiss
 
@@ -35,7 +34,7 @@ struct DiscoveryStatsView: View {
                 }
             }
             .task {
-                model.refresh(context: store.viewContext, cellSizeMeters: gridSettings.cellSizeMeters)
+                model.refresh(context: store.viewContext)
             }
         }
     }

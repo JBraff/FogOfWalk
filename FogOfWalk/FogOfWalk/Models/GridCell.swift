@@ -1,25 +1,10 @@
 import CoreLocation
 import MapKit
 
-// MARK: - Cell Size Options
+// MARK: - Cell Size Constant
 
-enum CellSizeMeters: Double, CaseIterable, Identifiable {
-    case fine       = 25
-    case normal     = 50
-    case coarse     = 100
-    case veryCoarse = 200
-
-    var id: Double { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .fine:       return "25m – Fine"
-        case .normal:     return "50m – Normal"
-        case .coarse:     return "100m – Coarse"
-        case .veryCoarse: return "200m – Very Coarse"
-        }
-    }
-}
+/// The fixed cell size used for all grid calculations.
+let kCellSizeMeters: Double = 50.0
 
 // MARK: - Cell ID
 
@@ -36,8 +21,8 @@ enum GridMath {
     static let metersPerDegree: Double = 111_111.0
 
     /// Convert a GPS coordinate to the CellID for the given cell size.
-    static func cellID(for coord: CLLocationCoordinate2D, cellSizeMeters: Double) -> CellID {
-        let step = cellSizeMeters / metersPerDegree
+    static func cellID(for coord: CLLocationCoordinate2D) -> CellID {
+        let step = kCellSizeMeters / metersPerDegree
         return CellID(
             x: Int32(floor(coord.longitude / step)),
             y: Int32(floor(coord.latitude  / step))
@@ -45,11 +30,8 @@ enum GridMath {
     }
 
     /// Min/max corners of a cell's bounding box.
-    static func bounds(
-        for cell: CellID,
-        cellSizeMeters: Double
-    ) -> (min: CLLocationCoordinate2D, max: CLLocationCoordinate2D) {
-        let step   = cellSizeMeters / metersPerDegree
+    static func bounds(for cell: CellID) -> (min: CLLocationCoordinate2D, max: CLLocationCoordinate2D) {
+        let step   = kCellSizeMeters / metersPerDegree
         let minLon = Double(cell.x) * step
         let minLat = Double(cell.y) * step
         return (
@@ -59,8 +41,8 @@ enum GridMath {
     }
 
     /// Center coordinate of a cell.
-    static func center(for cell: CellID, cellSizeMeters: Double) -> CLLocationCoordinate2D {
-        let b = bounds(for: cell, cellSizeMeters: cellSizeMeters)
+    static func center(for cell: CellID) -> CLLocationCoordinate2D {
+        let b = bounds(for: cell)
         return CLLocationCoordinate2D(
             latitude:  (b.min.latitude  + b.max.latitude)  / 2,
             longitude: (b.min.longitude + b.max.longitude) / 2
@@ -70,10 +52,9 @@ enum GridMath {
     /// Grid-coordinate bounding box for a map region. Returns nil when the region
     /// would produce more than 10,000 cells (fog stays fully opaque at those scales).
     static func cellBounds(
-        in region: MKCoordinateRegion,
-        cellSizeMeters: Double
+        in region: MKCoordinateRegion
     ) -> (minX: Int32, maxX: Int32, minY: Int32, maxY: Int32)? {
-        let step    = cellSizeMeters / metersPerDegree
+        let step    = kCellSizeMeters / metersPerDegree
         let halfLat = region.span.latitudeDelta  / 2
         let halfLon = region.span.longitudeDelta / 2
 
@@ -97,8 +78,8 @@ enum GridMath {
     }
 
     /// All CellIDs whose bounding boxes intersect the given map region.
-    static func cells(in region: MKCoordinateRegion, cellSizeMeters: Double) -> [CellID] {
-        guard let b = cellBounds(in: region, cellSizeMeters: cellSizeMeters) else { return [] }
+    static func cells(in region: MKCoordinateRegion) -> [CellID] {
+        guard let b = cellBounds(in: region) else { return [] }
 
         let countX = Int(b.maxX) - Int(b.minX) + 1
         let countY = Int(b.maxY) - Int(b.minY) + 1
