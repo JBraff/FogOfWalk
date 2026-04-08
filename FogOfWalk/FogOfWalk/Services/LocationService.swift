@@ -46,6 +46,15 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     /// True when the user has denied or restricted location permission.
     /// The UI can observe this to show an actionable prompt.
     private(set) var isPermissionDenied: Bool = false
+    /// True when the user granted "While Using" but not "Always".
+    /// The UI can observe this to prompt the user to upgrade in Settings.
+    var needsAlwaysUpgrade: Bool {
+        #if os(iOS)
+        return authorizationStatus == .authorizedWhenInUse
+        #else
+        return false
+        #endif
+    }
 
     /// Called on the main actor on every significant location update.
     var onLocationUpdate: ((CLLocation) -> Void)?
@@ -109,6 +118,8 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
                 self.isPermissionDenied = false
                 self.manager.startUpdatingLocation()
                 self.manager.startMonitoringSignificantLocationChanges()
+                // Request upgrade to Always so iOS shows the "Change to Always Allow?" prompt.
+                self.manager.requestAlwaysAuthorization()
             #endif
             case .denied, .restricted:
                 self.isPermissionDenied = true

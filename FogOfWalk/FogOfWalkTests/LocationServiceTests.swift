@@ -127,6 +127,36 @@ final class LocationServiceTests: XCTestCase {
         }
     }
 
+    // MARK: locationManagerDidChangeAuthorization — .authorizedWhenInUse upgrade
+
+    func testDelegateWhenInUseRequestsAlwaysUpgrade() async {
+        let expectation = XCTestExpectation(description: "requestAlwaysAuthorization called on WhenInUse delegate change")
+        var capturedMock: MockLocationManager?
+        var service: LocationService?
+
+        await MainActor.run {
+            let mock = MockLocationManager()
+            mock.authorizationStatus = .notDetermined
+            capturedMock = mock
+            service = LocationService(manager: mock)
+            // Simulate user picking "Allow While Using App"
+            mock.authorizationStatus = .authorizedWhenInUse
+            service?.locationManagerDidChangeAuthorization(CLLocationManager())
+        }
+
+        try? await Task.sleep(for: .milliseconds(100))
+
+        await MainActor.run {
+            XCTAssertTrue(capturedMock?.didCallRequestAlwaysAuthorization ?? false,
+                          "Should request Always upgrade when WhenInUse is granted so iOS shows 'Change to Always Allow?' prompt")
+            XCTAssertFalse(service?.isPermissionDenied ?? true,
+                           "WhenInUse should not set isPermissionDenied")
+            expectation.fulfill()
+        }
+
+        await fulfillment(of: [expectation], timeout: 2)
+    }
+
     // MARK: requestPermissionAndStart — .denied / .restricted
 
     func testPermissionDeniedSetsIsPermissionDenied() async {
