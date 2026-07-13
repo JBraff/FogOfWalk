@@ -65,7 +65,11 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager.delegate                           = self
         manager.desiredAccuracy                    = kCLLocationAccuracyNearestTenMeters
         manager.distanceFilter                     = 15   // metres
-        manager.pausesLocationUpdatesAutomatically = true
+        // Auto-pause combined with `.fitness` lets iOS pause standard location updates
+        // whenever it decides the user is stationary, and doesn't reliably resume delivery
+        // while the app is backgrounded — updates only restart once the user reopens the
+        // app. Disable auto-pause so tracking keeps running continuously in the background.
+        manager.pausesLocationUpdatesAutomatically = false
         manager.activityType                       = .fitness
         manager.enableBackgroundLocationIndicator()
         authorizationStatus                        = manager.authorizationStatus
@@ -94,6 +98,15 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager.allowsBackgroundLocationUpdates = true
         manager.startMonitoringSignificantLocationChanges()
         manager.startUpdatingLocation()
+    }
+
+    /// Re-arms tracking when the app returns to the foreground. This is a safety net for
+    /// cases where location updates silently stopped while backgrounded (e.g. a transient
+    /// `didFailWithError`) without an authorization change to trigger a restart. Does
+    /// nothing beyond re-asserting existing "Always" tracking — never requests permission.
+    func restartIfAuthorized() {
+        guard manager.authorizationStatus == .authorizedAlways else { return }
+        startTracking()
     }
 
     // MARK: - CLLocationManagerDelegate

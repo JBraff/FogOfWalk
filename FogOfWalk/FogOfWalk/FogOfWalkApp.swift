@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct FogOfWalkApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var store:          ExplorationStore
     @State private var gridSettings:    GridSettings
     @State private var locationService = LocationService()
@@ -40,6 +41,15 @@ struct FogOfWalkApp: App {
                     }
                     // Backfill any existing cells that don't have a locality yet.
                     geocoder.geocodeUntaggedCells(context: store.viewContext)
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    // Safety net: re-arm tracking whenever the app returns to the
+                    // foreground, in case location updates silently stopped while
+                    // backgrounded. `.task` above only fires once per process launch,
+                    // so it won't catch this on a warm foreground.
+                    if newPhase == .active {
+                        locationService.restartIfAuthorized()
+                    }
                 }
         }
     }

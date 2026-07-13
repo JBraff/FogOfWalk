@@ -34,12 +34,13 @@ final class LocationServiceTests: XCTestCase {
 
     // MARK: Initialization
 
-    func testInitConfiguresAutoPauseEnabled() async {
+    func testInitConfiguresAutoPauseDisabled() async {
         await MainActor.run {
             let mock = MockLocationManager()
             _ = LocationService(manager: mock)
-            XCTAssertTrue(mock.pausesLocationUpdatesAutomatically,
-                          "Auto-pause should be enabled so iOS can save battery when the user is stationary")
+            XCTAssertFalse(mock.pausesLocationUpdatesAutomatically,
+                           "Auto-pause must stay disabled — combined with .fitness, iOS pauses standard " +
+                           "updates while stationary and doesn't reliably resume them in the background")
         }
     }
 
@@ -242,6 +243,33 @@ final class LocationServiceTests: XCTestCase {
         }
 
         await fulfillment(of: [expectation], timeout: 2)
+    }
+
+    // MARK: restartIfAuthorized — foreground re-arm safety net
+
+    func testRestartIfAuthorizedRestartsTrackingWhenAlwaysAuthorized() async {
+        await MainActor.run {
+            let mock = MockLocationManager()
+            mock.authorizationStatus = .authorizedAlways
+            let service = LocationService(manager: mock)
+            service.restartIfAuthorized()
+            XCTAssertTrue(mock.allowsBackgroundLocationUpdates)
+            XCTAssertTrue(mock.didCallStartMonitoringSignificantLocationChanges)
+            XCTAssertTrue(mock.didCallStartUpdatingLocation)
+        }
+    }
+
+    func testRestartIfAuthorizedDoesNothingWhenNotAlwaysAuthorized() async {
+        await MainActor.run {
+            let mock = MockLocationManager()
+            mock.authorizationStatus = .authorizedWhenInUse
+            let service = LocationService(manager: mock)
+            service.restartIfAuthorized()
+            XCTAssertFalse(mock.didCallStartUpdatingLocation,
+                           "Must not start updates or request permission outside of Always authorization")
+            XCTAssertFalse(mock.didCallRequestAlwaysAuthorization,
+                           "restartIfAuthorized must never prompt for permission")
+        }
     }
 
     // MARK: Delegate — onLocationUpdate
