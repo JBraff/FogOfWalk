@@ -60,6 +60,58 @@ enum GridMath {
         )
     }
 
+    /// Smallest cosine of latitude used when padding a longitude range.
+    ///
+    /// Longitude degrees shrink as `cos(latitude)`, so a metre-radius converted to degrees
+    /// of longitude diverges near the poles. This floor (cos 85°) keeps the resulting cell
+    /// box from exploding; the northernmost landmark in the bundled database is at 82.5°.
+    private static let minCosLatitude: Double = cos(85.0 * .pi / 180.0)
+
+    /// Grid-coordinate bounding box covering every cell that could lie within
+    /// `radiusMeters` of `coord`.
+    ///
+    /// **Invariant: the returned box is a strict superset of the disc.** It is a cheap
+    /// prefilter, so it must never exclude a cell that the precise distance check would
+    /// accept. Two things buy that:
+    ///
+    /// 1. Longitude padding divides by `cos(latitude)`. The grid is uniform in *degrees*,
+    ///    so a cell is only `kCellSizeMeters * cos(latitude)` wide east-west. Omitting this
+    ///    factor makes the box too narrow and silently drops landmarks that sit due east or
+    ///    west of the walked cell — the bug this helper exists to prevent.
+    /// 2. `cosφ` is taken at the latitude *farthest from the equator* in the box, where
+    ///    longitude degrees are shortest and therefore the padding in degrees is largest.
+    ///    The precise check uses `cos(latitude)` at the landmark, which is always ≥ this
+    ///    value, so the box can only ever be too wide — never too narrow.
+    ///
+    /// Do not "simplify" both sides to use `cos(latitude)`: that breaks the superset
+    /// property at the top edge of the box and reintroduces missed discoveries.
+    ///
+    /// One cell of padding is added on every side so cells that merely overlap the radius
+    /// boundary are still considered.
+    ///
+    /// Known limitation, pre-existing and unchanged: a coordinate within `radiusMeters` of
+    /// the antimeridian produces a box whose x range crosses the ±180° wrap and includes
+    /// cell coordinates that do not exist. No landmark in the bundled database is affected.
+    static func cellBox(
+        around coord: CLLocationCoordinate2D,
+        radiusMeters radius: Double
+    ) -> (minX: Int32, maxX: Int32, minY: Int32, maxY: Int32) {
+        let step   = kCellSizeMeters / metersPerDegree
+        let latPad = (radius / metersPerDegree) + step
+
+        // Farthest-from-equator latitude in the box → smallest cos → largest lon padding.
+        let worstLat = min(abs(coord.latitude) + latPad, 90.0)
+        let cosLat   = max(cos(worstLat * .pi / 180.0), minCosLatitude)
+        let lonPad   = (radius / (metersPerDegree * cosLat)) + step
+
+        return (
+            minX: Int32(floor((coord.longitude - lonPad) / step)),
+            maxX: Int32(floor((coord.longitude + lonPad) / step)),
+            minY: Int32(floor((coord.latitude  - latPad) / step)),
+            maxY: Int32(floor((coord.latitude  + latPad) / step))
+        )
+    }
+
     /// Grid-coordinate bounding box for a map region. Returns nil when the region
     /// would produce more than 10,000 cells (fog stays fully opaque at those scales).
     static func cellBounds(

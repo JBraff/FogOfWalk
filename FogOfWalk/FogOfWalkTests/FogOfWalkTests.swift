@@ -110,4 +110,60 @@ final class GridCellTests: XCTestCase {
         XCTAssertLessThan(bounds.min.longitude, 0, "Western hemisphere: min longitude must be negative")
         XCTAssertLessThan(bounds.max.longitude, 0, "Western hemisphere: max longitude must be negative")
     }
+
+    // MARK: - cellBox(around:radiusMeters:)
+
+    // The superset invariant, checked directly rather than through a store: every cell whose
+    // centre lies within the radius must fall inside the box, in every direction and at every
+    // latitude the bundled data reaches. Longitude is the interesting axis — degrees there
+    // shrink as cos(latitude), and omitting that factor is what silently dropped east-side
+    // discoveries.
+    func testCellBoxContainsCellsDueEastAndWest() {
+        for lat in [0.0, 40.0, 60.0, 82.5, -60.0] {
+            let coord  = CLLocationCoordinate2D(latitude: lat, longitude: 10.0)
+            let box    = GridMath.cellBox(around: coord, radiusMeters: 500)
+            let cosLat = cos(lat * .pi / 180.0)
+
+            for meters in [50.0, 200.0, 480.0] {
+                let dLon = meters / (GridMath.metersPerDegree * cosLat)
+                let east = GridMath.cellID(for: CLLocationCoordinate2D(latitude: lat,
+                                                                      longitude: 10.0 + dLon))
+                let west = GridMath.cellID(for: CLLocationCoordinate2D(latitude: lat,
+                                                                      longitude: 10.0 - dLon))
+                XCTAssertTrue(east.x >= box.minX && east.x <= box.maxX,
+                              "Cell \(meters) m due east at lat \(lat) must be inside the box")
+                XCTAssertTrue(west.x >= box.minX && west.x <= box.maxX,
+                              "Cell \(meters) m due west at lat \(lat) must be inside the box")
+            }
+        }
+    }
+
+    func testCellBoxContainsCellsDueNorthAndSouth() {
+        for lat in [0.0, 40.0, 60.0, 82.5, -60.0] {
+            let coord = CLLocationCoordinate2D(latitude: lat, longitude: 10.0)
+            let box   = GridMath.cellBox(around: coord, radiusMeters: 500)
+
+            for meters in [50.0, 200.0, 480.0] {
+                let dLat  = meters / GridMath.metersPerDegree
+                let north = GridMath.cellID(for: CLLocationCoordinate2D(latitude: lat + dLat,
+                                                                       longitude: 10.0))
+                let south = GridMath.cellID(for: CLLocationCoordinate2D(latitude: lat - dLat,
+                                                                        longitude: 10.0))
+                XCTAssertTrue(north.y >= box.minY && north.y <= box.maxY,
+                              "Cell \(meters) m due north at lat \(lat) must be inside the box")
+                XCTAssertTrue(south.y >= box.minY && south.y <= box.maxY,
+                              "Cell \(meters) m due south at lat \(lat) must be inside the box")
+            }
+        }
+    }
+
+    // The box is a prefilter, so it may be generous — but not unboundedly so, or the probe
+    // branch of discovery would do far more work than iterating the visited set.
+    func testCellBoxStaysBoundedNearThePoles() {
+        let polar = CLLocationCoordinate2D(latitude: 89.9, longitude: 0.0)
+        let box   = GridMath.cellBox(around: polar, radiusMeters: 500)
+        let count = (Int(box.maxX) - Int(box.minX) + 1) * (Int(box.maxY) - Int(box.minY) + 1)
+        XCTAssertLessThan(count, 10_000,
+                          "cos(latitude) floor must keep the polar cell box bounded")
+    }
 }

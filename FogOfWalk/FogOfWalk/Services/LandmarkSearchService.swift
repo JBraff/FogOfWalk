@@ -79,6 +79,16 @@ final class LandmarkSearchService {
         lastSearchTime   = now
         lastSearchCenter = region.center
 
+        // This Task inherits the main actor, so the SQLite query and the Core Data insert both
+        // run on the main thread. That is deliberate: bounded by the span guard above and the
+        // query's LIMIT, this is ≤500 R-tree-indexed rows (244 in the worst real region) plus
+        // one `save()` — well under a frame. Moving it off-actor would mean `@unchecked
+        // Sendable`, a lock, and `NSManagedObjectID` round-tripping, because `allLandmarks`
+        // hands managed objects straight to the UI.
+        //
+        // Gotcha for whoever tries anyway: with `SWIFT_APPROACHABLE_CONCURRENCY = YES` a plain
+        // `nonisolated async func` called from a `@MainActor` context still runs on the
+        // caller's actor. Reaching the global executor needs `@concurrent` or `Task.detached`.
         activeTask?.cancel()
         activeTask = Task {
             let items = source.landmarks(in: region)

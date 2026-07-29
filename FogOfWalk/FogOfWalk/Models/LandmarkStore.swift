@@ -208,24 +208,53 @@ final class LandmarkStore {
     private func isWithinVisitedCells(coord: CLLocationCoordinate2D,
                                       radius: Double,
                                       cells: Set<CellID>) -> Bool {
-        // Pre-filter to the CellID bounding box for the discovery radius. This avoids
-        // O(all_visited_cells) geodesic math — only the small set of cells near the
-        // landmark are checked precisely.
-        let step = kCellSizeMeters / GridMath.metersPerDegree
-        // Add one cell of padding to account for cells that overlap the radius boundary.
-        let latPad = (radius / GridMath.metersPerDegree) + step
-        let lonPad = (radius / GridMath.metersPerDegree) + step
-        let minX = Int32(floor((coord.longitude - lonPad) / step))
-        let maxX = Int32(floor((coord.longitude + lonPad) / step))
-        let minY = Int32(floor((coord.latitude  - latPad) / step))
-        let maxY = Int32(floor((coord.latitude  + latPad) / step))
+        let box = GridMath.cellBox(around: coord, radiusMeters: radius)
 
-        let landmarkLoc = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
-        for cell in cells where cell.x >= minX && cell.x <= maxX && cell.y >= minY && cell.y <= maxY {
-            let cellCenter = GridMath.center(for: cell)
-            let cellLoc = CLLocation(latitude: cellCenter.latitude, longitude: cellCenter.longitude)
-            if cellLoc.distance(from: landmarkLoc) <= radius {
-                return true
+        // Squared equirectangular distance rather than `CLLocation.distance(from:)`: this is
+        // the innermost loop of discovery, and the geodesic version allocates two ObjC
+        // objects and crosses into CoreLocation per candidate. More importantly it shares
+        // `metersPerDegree` with `cellBox` above, so the prefilter and the precise check
+        // agree about what a metre is — mixing WGS84 geodesics with a 111111 m/deg box is
+        // what allowed the original bug to hide. The delta against WGS84 is ~0.1-0.5%, well
+        // inside the discovery radii.
+        let cosLat      = cos(coord.latitude * .pi / 180.0)
+        let radiusSq    = radius * radius
+        let landmarkLat = coord.latitude
+        let landmarkLon = coord.longitude
+
+        func isWithin(_ cell: CellID) -> Bool {
+            let center = GridMath.center(for: cell)
+            let dLat = (center.latitude  - landmarkLat) * GridMath.metersPerDegree
+            let dLon = (center.longitude - landmarkLon) * GridMath.metersPerDegree * cosLat
+            return dLat * dLat + dLon * dLon <= radiusSq
+        }
+
+        // Two ways to intersect the visited set with the box, both exact. Pick whichever has
+        // less work to do:
+        //
+        //  - Probing generated CellIDs costs O(cells in box) and is independent of how much
+        //    the user has explored. That independence is the point — it is what keeps the
+        //    per-step cost flat as the visited set grows into the tens of thousands.
+        //  - Iterating the visited set costs O(visited cells) and wins when the user has
+        //    barely explored, which is also the case where a large radius at high latitude
+        //    makes the box biggest. Without this branch the "fix" would be a regression for
+        //    new users.
+        let probeCount = (Int(box.maxX) - Int(box.minX) + 1) * (Int(box.maxY) - Int(box.minY) + 1)
+
+        if cells.count < probeCount {
+            for cell in cells
+            where cell.x >= box.minX && cell.x <= box.maxX
+               && cell.y >= box.minY && cell.y <= box.maxY {
+                if isWithin(cell) { return true }
+            }
+            return false
+        }
+
+        for y in box.minY...box.maxY {
+            for x in box.minX...box.maxX {
+                let cell = CellID(x: x, y: y)
+                guard cells.contains(cell) else { continue }
+                if isWithin(cell) { return true }
             }
         }
         return false

@@ -346,6 +346,119 @@ final class LandmarkStoreTests: XCTestCase {
         }
     }
 
+    // MARK: - Discovery direction symmetry (cos-latitude bbox)
+
+    /// Cell whose *centre* lies approximately `meters` due east of `coord`.
+    private func cellDueEast(of coord: CLLocationCoordinate2D, meters: Double) -> CellID {
+        let cosLat = cos(coord.latitude * .pi / 180.0)
+        let lon    = coord.longitude + meters / (GridMath.metersPerDegree * cosLat)
+        return GridMath.cellID(for: CLLocationCoordinate2D(latitude: coord.latitude,
+                                                           longitude: lon))
+    }
+
+    /// Equirectangular distance from `coord` to the centre of `cell`, in metres.
+    private func metersFromCoord(_ coord: CLLocationCoordinate2D, toCentreOf cell: CellID) -> Double {
+        let centre = GridMath.center(for: cell)
+        let cosLat = cos(coord.latitude * .pi / 180.0)
+        let dLat = (centre.latitude  - coord.latitude)  * GridMath.metersPerDegree
+        let dLon = (centre.longitude - coord.longitude) * GridMath.metersPerDegree * cosLat
+        return (dLat * dLat + dLon * dLon).squareRoot()
+    }
+
+    func testAirportDiscoveredDueEastAtHighLatitude() async {
+        // Regression test for the missing cos(latitude) correction in the discovery bbox.
+        // Longitude degrees are half as long at 60°N, so a cell 430 m due east sits at
+        // Δlon 7.74e-3° while the old, uncorrected bbox was only 4.95e-3° wide — the cell was
+        // filtered out before the precise check ever ran. Walking north of this airport
+        // discovered it; walking the same distance east did not.
+        await MainActor.run {
+            let store   = makeStore()
+            let airport = CLLocationCoordinate2D(latitude: 60.0, longitude: 10.0)
+            store.addLandmarks([makeWikidataLandmark(id: "QNORTH", name: "Oslo Airport",
+                                                     lat: airport.latitude,
+                                                     lon: airport.longitude,
+                                                     category: "airport")])
+
+            let cell = cellDueEast(of: airport, meters: 430)
+            XCTAssertLessThan(metersFromCoord(airport, toCentreOf: cell), 500,
+                              "Fixture must genuinely be inside the 500 m radius")
+
+            XCTAssertEqual(store.checkDiscovery(visitedCells: [cell]).count, 1,
+                           "Discovery must work due east, not just due north")
+        }
+    }
+
+    func testAirportDiscoveredDueNorthAtHighLatitude() async {
+        // The direction that already worked. Paired with the east case so the two together
+        // document the asymmetry and pin the fix.
+        await MainActor.run {
+            let store   = makeStore()
+            let airport = CLLocationCoordinate2D(latitude: 60.0, longitude: 10.0)
+            store.addLandmarks([makeWikidataLandmark(id: "QNORTH", name: "Oslo Airport",
+                                                     lat: airport.latitude,
+                                                     lon: airport.longitude,
+                                                     category: "airport")])
+
+            let north = CLLocationCoordinate2D(
+                latitude: airport.latitude + 430 / GridMath.metersPerDegree,
+                longitude: airport.longitude
+            )
+            let cell = GridMath.cellID(for: north)
+            XCTAssertEqual(store.checkDiscovery(visitedCells: [cell]).count, 1)
+        }
+    }
+
+    func testAirportNotDiscoveredJustOutsideRadiusDueEast() async {
+        // Guards the *far* edge of the widened bbox. The cos correction makes the box up to
+        // 5x wider at high latitude, and from here on only the precise distance check stops
+        // over-discovery. This test deliberately picks a cell that IS inside the bbox but
+        // outside the radius, so it fails if anyone ever trusts the box alone.
+        await MainActor.run {
+            let store   = makeStore()
+            let airport = CLLocationCoordinate2D(latitude: 60.0, longitude: 10.0)
+            store.addLandmarks([makeWikidataLandmark(id: "QNORTH", name: "Oslo Airport",
+                                                     lat: airport.latitude,
+                                                     lon: airport.longitude,
+                                                     category: "airport")])
+
+            // Walk east one cell at a time until the centre passes 500 m. The bbox pads by a
+            // full cell, so the first such cell is still inside it.
+            let box = GridMath.cellBox(around: airport, radiusMeters: 500)
+            var cell = GridMath.cellID(for: airport)
+            while metersFromCoord(airport, toCentreOf: cell) <= 500 {
+                cell = CellID(x: cell.x + 1, y: cell.y)
+            }
+            XCTAssertLessThanOrEqual(cell.x, box.maxX,
+                "Fixture must sit inside the bbox, or this tests the box instead of the check")
+
+            XCTAssertEqual(store.checkDiscovery(visitedCells: [cell]).count, 0,
+                           "A cell inside the bbox but beyond the radius must not discover")
+        }
+    }
+
+    func testDiscoveryUnaffectedByVisitedSetSize() async {
+        // Both branches of isWithinVisitedCells (probe-the-box vs iterate-the-set) must agree.
+        // A tiny set takes the iterate branch; a large one takes the probe branch.
+        await MainActor.run {
+            let airport = CLLocationCoordinate2D(latitude: 60.0, longitude: 10.0)
+            let target  = cellDueEast(of: airport, meters: 430)
+
+            for extraCells in [0, 5_000] {
+                let store = makeStore()
+                store.addLandmarks([makeWikidataLandmark(id: "QNORTH", lat: airport.latitude,
+                                                         lon: airport.longitude,
+                                                         category: "airport")])
+                var cells: Set<CellID> = [target]
+                for i in 0..<extraCells {
+                    cells.insert(CellID(x: target.x + Int32(i + 1) * 500,
+                                        y: target.y + Int32(i + 1) * 500))
+                }
+                XCTAssertEqual(store.checkDiscovery(visitedCells: cells).count, 1,
+                               "Discovery must be identical with \(extraCells) far-away cells")
+            }
+        }
+    }
+
     // MARK: - landmarks(in:limit:)
 
     func testLandmarksInRegionRespectsLimit() async {
