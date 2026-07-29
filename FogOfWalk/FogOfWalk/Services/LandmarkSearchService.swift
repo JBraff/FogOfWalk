@@ -53,6 +53,16 @@ final class LandmarkSearchService {
 
     /// Load landmarks for `region` into `landmarkStore` if enough time or distance has elapsed.
     func searchIfNeeded(region: MKCoordinateRegion, landmarkStore: LandmarkStore) {
+        // Skip zoomed-out regions entirely. One pinch to world zoom would otherwise ingest
+        // the whole bundled database into Core Data, where it stays forever and makes every
+        // subsequent discovery check more expensive.
+        //
+        // This guard deliberately sits *above* the `lastSearchTime`/`lastSearchCenter` writes
+        // below: a skipped wide zoom must not consume the rate-limit budget, or the next
+        // legitimate walking-zoom query would be suppressed for `minimumSearchInterval`.
+        let widestSpan = max(region.span.latitudeDelta, region.span.longitudeDelta)
+        guard widestSpan <= GridMath.maxIngestSpanDegrees else { return }
+
         let now = Date()
         let timeSinceLast = now.timeIntervalSince(lastSearchTime)
         let distanceSinceLast: CLLocationDistance = {

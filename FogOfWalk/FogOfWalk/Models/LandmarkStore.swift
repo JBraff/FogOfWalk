@@ -152,16 +152,38 @@ final class LandmarkStore {
 
     // MARK: - Query
 
+    /// Default cap on the number of pins handed to `LandmarkOverlayView`.
+    ///
+    /// `LandmarkOverlayView` linear-scans its pin array in `draw` (every frame), `hitTest`
+    /// (every touch) and `handleTap`, and the off-screen cull happens *after* the per-pin
+    /// coordinate conversion. Users who world-zoomed before `maxIngestSpanDegrees` existed
+    /// have up to ~15,000 rows in Core Data permanently, so the array must be bounded
+    /// regardless of how much is stored.
+    static let maxRenderedPins = 300
+
     /// All landmarks visible within a coordinate region, for overlay rendering.
-    func landmarks(in region: MKCoordinateRegion) -> [Landmark] {
-        allLandmarks.filter { landmark in
-            let lat = landmark.latitude
-            let lon = landmark.longitude
-            let latDelta = region.span.latitudeDelta / 2
-            let lonDelta = region.span.longitudeDelta / 2
-            return abs(lat - region.center.latitude) <= latDelta
-                && abs(lon - region.center.longitude) <= lonDelta
+    ///
+    /// When more than `limit` landmarks fall inside `region`, discovered ones are kept in
+    /// preference to undiscovered hints — they carry a name label and are the only tappable
+    /// pins, so dropping them would lose functionality rather than just detail.
+    func landmarks(in region: MKCoordinateRegion,
+                   limit: Int = LandmarkStore.maxRenderedPins) -> [Landmark] {
+        let latDelta = region.span.latitudeDelta / 2
+        let lonDelta = region.span.longitudeDelta / 2
+        let center   = region.center
+
+        let visible = allLandmarks.filter { landmark in
+            abs(landmark.latitude  - center.latitude)  <= latDelta
+                && abs(landmark.longitude - center.longitude) <= lonDelta
         }
+
+        guard visible.count > limit else { return visible }
+
+        var capped = visible.filter { $0.isDiscovered }
+        if capped.count >= limit { return Array(capped.prefix(limit)) }
+        capped.append(contentsOf: visible.lazy.filter { !$0.isDiscovered }
+                                             .prefix(limit - capped.count))
+        return capped
     }
 
     // MARK: - Migration

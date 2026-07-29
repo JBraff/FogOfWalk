@@ -44,6 +44,15 @@ final class BundledLandmarkSource: LandmarkDataProviding {
         let maxLon = region.center.longitude + region.span.longitudeDelta / 2
 
         // Join against the R-tree for fast bounding-box filtering.
+        //
+        // The LIMIT is a blast-radius cap, not a pagination scheme: callers are expected to
+        // stay within `GridMath.maxIngestSpanDegrees` (1.0°), and the densest 1.0°×1.0° window
+        // in the shipped database holds 244 rows (central Italy). 500 therefore never truncates
+        // a legitimate result — but it does stop an unguarded world-zoom query from returning
+        // all ~15,000 rows and inserting them into Core Data permanently.
+        //
+        // If `maxIngestSpanDegrees` is ever raised, re-measure the worst-case density first:
+        // beyond that point this LIMIT becomes a silent truncator.
         let sql = """
             SELECT l.id, l.name, l.description, l.lat, l.lon, l.category, l.image
             FROM landmarks l
@@ -52,6 +61,8 @@ final class BundledLandmarkSource: LandmarkDataProviding {
               AND r.min_lat <= ?
               AND r.max_lon >= ?
               AND r.min_lon <= ?
+            ORDER BY l.rowid
+            LIMIT 500
             """
 
         var stmt: OpaquePointer?

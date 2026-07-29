@@ -20,6 +20,17 @@ enum GridMath {
     /// Metres per degree of latitude (and simplified longitude).
     static let metersPerDegree: Double = 111_111.0
 
+    /// Widest map span (in degrees) for which landmarks are ingested and pins drawn.
+    ///
+    /// Above this the map is an orientation view, not a detail view: walking zoom under
+    /// `userTrackingMode = .follow` is ~0.005–0.01°, and the fog itself already vanishes
+    /// above ~0.045° via the 10,000-cell cap in `cellBounds(in:)`. 1.0° still ingests a
+    /// whole metro area, while stopping one pinch-out to world zoom from dumping the
+    /// entire bundled database into Core Data.
+    ///
+    /// `BundledLandmarkSource`'s `LIMIT` depends on this value — see the comment there.
+    static let maxIngestSpanDegrees: Double = 1.0
+
     /// Convert a GPS coordinate to the CellID for the given cell size.
     static func cellID(for coord: CLLocationCoordinate2D) -> CellID {
         let step = kCellSizeMeters / metersPerDegree

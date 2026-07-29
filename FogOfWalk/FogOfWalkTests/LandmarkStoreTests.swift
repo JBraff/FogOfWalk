@@ -346,6 +346,55 @@ final class LandmarkStoreTests: XCTestCase {
         }
     }
 
+    // MARK: - landmarks(in:limit:)
+
+    func testLandmarksInRegionRespectsLimit() async {
+        await MainActor.run {
+            let store = makeStore()
+            let items = (0..<50).map { i in
+                makeWikidataLandmark(id: "Q\(i)", lat: 40.0 + Double(i) * 0.0001, lon: -74.0)
+            }
+            store.addLandmarks(items)
+
+            let region = MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: 40.0, longitude: -74.0),
+                span: MKCoordinateSpan(latitudeDelta: 1.0, longitudeDelta: 1.0)
+            )
+            XCTAssertEqual(store.landmarks(in: region).count, 50,
+                           "Under the limit, every visible landmark is returned")
+            XCTAssertEqual(store.landmarks(in: region, limit: 10).count, 10,
+                           "Pin array must be capped so the overlay's per-frame scan is bounded")
+        }
+    }
+
+    func testLandmarksInRegionLimitPrefersDiscovered() async {
+        await MainActor.run {
+            let store = makeStore()
+            let coord = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
+
+            // One landmark exactly on the visited cell, plus 20 undiscovered neighbours.
+            var items = [makeWikidataLandmark(id: "QDISCOVERED",
+                                              lat: coord.latitude, lon: coord.longitude)]
+            items += (0..<20).map { i in
+                makeWikidataLandmark(id: "QHINT\(i)",
+                                     lat: coord.latitude + 0.01 + Double(i) * 0.001,
+                                     lon: coord.longitude)
+            }
+            store.addLandmarks(items)
+            store.checkDiscovery(visitedCells: [GridMath.cellID(for: coord)])
+            XCTAssertEqual(store.totalDiscovered, 1)
+
+            let region = MKCoordinateRegion(
+                center: coord,
+                span: MKCoordinateSpan(latitudeDelta: 1.0, longitudeDelta: 1.0)
+            )
+            let capped = store.landmarks(in: region, limit: 3)
+            XCTAssertEqual(capped.count, 3)
+            XCTAssertTrue(capped.contains { $0.identifier == "QDISCOVERED" },
+                          "Discovered pins are labelled and tappable — they must survive the cap")
+        }
+    }
+
     // MARK: - Migration
 
     override func setUp() {

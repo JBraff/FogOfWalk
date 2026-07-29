@@ -210,4 +210,28 @@ final class BundledLandmarkSourceTests: XCTestCase {
         )
         XCTAssertEqual(source.landmarks(in: region).count, 2)
     }
+
+    // MARK: - Result cap
+
+    func testBundledSourceRespectsLimit() throws {
+        // 600 landmarks packed into one small box — more than the SQL LIMIT.
+        var landmarks: [(id: String, name: String, description: String?,
+                         lat: Double, lon: Double,
+                         category: String, image: String?)] = []
+        for i in 0..<600 {
+            let offset = Double(i) * 0.00001
+            landmarks.append((id: "Q\(i)", name: "Landmark \(i)", description: nil,
+                              lat: 40.0 + offset, lon: -74.0 + offset,
+                              category: "landmark", image: nil))
+        }
+        let url = try makeTestDatabase(landmarks: landmarks)
+        let source = try BundledLandmarkSource(databaseURL: url)
+
+        let region = MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 40.0, longitude: -74.0),
+            span: MKCoordinateSpan(latitudeDelta: 0.5, longitudeDelta: 0.5)
+        )
+        XCTAssertEqual(source.landmarks(in: region).count, 500,
+                       "Query must never return more than the LIMIT, however dense the region")
+    }
 }

@@ -150,6 +150,56 @@ final class LandmarkSearchServiceTests: XCTestCase {
         }
     }
 
+    // MARK: - Zoom gating
+
+    func testSearchServiceSkipsWideZoom() async {
+        let mock = MockLandmarkDataSource()
+        await MainActor.run {
+            let service = LandmarkSearchService(source: mock)
+            let store   = makeStore()
+            let wide    = makeRegion(span: MKCoordinateSpan(latitudeDelta: 30, longitudeDelta: 30))
+            service.searchIfNeeded(region: wide, landmarkStore: store)
+        }
+        try? await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(mock.callCount, 0,
+                       "A world-zoom region must not ingest landmarks")
+    }
+
+    func testSearchServiceRunsAtWalkingZoom() async {
+        let mock = MockLandmarkDataSource()
+        await MainActor.run {
+            let service = LandmarkSearchService(source: mock)
+            let store   = makeStore()
+            let close   = makeRegion(span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))
+            service.searchIfNeeded(region: close, landmarkStore: store)
+        }
+        try? await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(mock.callCount, 1,
+                       "Walking zoom must still ingest — the span guard must not be too aggressive")
+    }
+
+    func testWideZoomDoesNotConsumeRateLimitBudget() async {
+        // The span guard must sit above the lastSearchTime/lastSearchCenter writes, or a
+        // skipped wide zoom would suppress the next legitimate query for 30 s.
+        let mock = MockLandmarkDataSource()
+        await MainActor.run {
+            let service = LandmarkSearchService(source: mock)
+            let store   = makeStore()
+            let center  = CLLocationCoordinate2D(latitude: 40.7, longitude: -74.0)
+            service.searchIfNeeded(
+                region: makeRegion(center: center,
+                                   span: MKCoordinateSpan(latitudeDelta: 30, longitudeDelta: 30)),
+                landmarkStore: store)
+            service.searchIfNeeded(
+                region: makeRegion(center: center,
+                                   span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)),
+                landmarkStore: store)
+        }
+        try? await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(mock.callCount, 1,
+                       "Zooming back in after a wide zoom must still fire a search")
+    }
+
     // MARK: - Empty source
 
     func testEmptySourceAddsNoLandmarks() async {
