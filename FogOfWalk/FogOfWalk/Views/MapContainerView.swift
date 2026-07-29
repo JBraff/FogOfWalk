@@ -133,9 +133,10 @@ struct MapContainerView: UIViewRepresentable {
                 invalidateFogTiles()
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
 
-                let discovered = landmarkStore.checkDiscovery(
-                    visitedCells: store.visitedCellsCache
-                )
+                // Only the cell just walked can produce a new discovery, so hand over that one
+                // cell rather than the whole visited set. Cost is then independent of how much
+                // ground the user has covered.
+                let discovered = landmarkStore.checkDiscovery(newCell: cell)
                 if !discovered.isEmpty {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                 }
@@ -247,7 +248,9 @@ struct MapContainerView: UIViewRepresentable {
             CATransaction.commit()
             referenceRegion = region
 
-            searchService.searchIfNeeded(region: region, landmarkStore: landmarkStore)
+            searchService.searchIfNeeded(region: region,
+                                        landmarkStore: landmarkStore,
+                                        visitedCells: store.visitedCellsCache)
         }
 
         /// Fires continuously during pan/zoom. Applies a GPU-composited CATransform3D

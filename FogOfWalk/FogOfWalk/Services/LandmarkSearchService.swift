@@ -52,7 +52,13 @@ final class LandmarkSearchService {
     // MARK: - Public API
 
     /// Load landmarks for `region` into `landmarkStore` if enough time or distance has elapsed.
-    func searchIfNeeded(region: MKCoordinateRegion, landmarkStore: LandmarkStore) {
+    ///
+    /// `visitedCells` is threaded through to `addLandmarks` so a landmark ingested for ground
+    /// the user has already walked is discovered immediately rather than waiting for them to
+    /// walk a *new* cell nearby — which they may never do.
+    func searchIfNeeded(region: MKCoordinateRegion,
+                        landmarkStore: LandmarkStore,
+                        visitedCells: Set<CellID>) {
         // Skip zoomed-out regions entirely. One pinch to world zoom would otherwise ingest
         // the whole bundled database into Core Data, where it stays forever and makes every
         // subsequent discovery check more expensive.
@@ -93,7 +99,7 @@ final class LandmarkSearchService {
         activeTask = Task {
             let items = source.landmarks(in: region)
             guard !Task.isCancelled else { return }
-            landmarkStore.addLandmarks(items)
+            landmarkStore.addLandmarks(items, visitedCells: visitedCells)
         }
     }
 }

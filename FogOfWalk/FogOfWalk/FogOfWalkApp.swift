@@ -41,6 +41,17 @@ struct FogOfWalkApp: App {
                     }
                     // Backfill any existing cells that don't have a locality yet.
                     geocoder.geocodeUntaggedCells(context: store.viewContext)
+
+                    // Self-heal any discovery the per-cell path can't reach: a landmark whose
+                    // discovery save was rolled back, or one that a since-fixed bug filtered
+                    // out. Its cell will never be "new" again, so without this sweep the
+                    // discovery would be lost permanently. `store.configure()` ran in `init`,
+                    // so `visitedCellsCache` is populated.
+                    //
+                    // The result is deliberately discarded — no haptic. This can surface a
+                    // batch of retroactive discoveries on the first launch after a fix, and a
+                    // success buzz for landmarks the user visited weeks ago would be noise.
+                    landmarkStore.sweepAllUndiscovered(visitedCells: store.visitedCellsCache)
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     // Safety net: re-arm tracking whenever the app returns to the

@@ -42,7 +42,7 @@ final class LandmarkSearchServiceTests: XCTestCase {
         await MainActor.run {
             let service = LandmarkSearchService(source: mock)
             let store   = makeStore()
-            service.searchIfNeeded(region: makeRegion(), landmarkStore: store)
+            service.searchIfNeeded(region: makeRegion(), landmarkStore: store, visitedCells: [])
         }
         try? await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(mock.callCount, 1, "First call should always trigger a search")
@@ -56,9 +56,9 @@ final class LandmarkSearchServiceTests: XCTestCase {
             let service = LandmarkSearchService(source: mock)
             let store   = makeStore()
             let region  = makeRegion()
-            service.searchIfNeeded(region: region, landmarkStore: store)
-            service.searchIfNeeded(region: region, landmarkStore: store)
-            service.searchIfNeeded(region: region, landmarkStore: store)
+            service.searchIfNeeded(region: region, landmarkStore: store, visitedCells: [])
+            service.searchIfNeeded(region: region, landmarkStore: store, visitedCells: [])
+            service.searchIfNeeded(region: region, landmarkStore: store, visitedCells: [])
         }
         try? await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(mock.callCount, 1, "Repeated calls within the time window should be suppressed")
@@ -74,8 +74,8 @@ final class LandmarkSearchServiceTests: XCTestCase {
             let center1 = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
             // 10 m move — well under the 500 m threshold
             let center2 = CLLocationCoordinate2D(latitude: 40.7129, longitude: -74.0060)
-            service.searchIfNeeded(region: makeRegion(center: center1), landmarkStore: store)
-            service.searchIfNeeded(region: makeRegion(center: center2), landmarkStore: store)
+            service.searchIfNeeded(region: makeRegion(center: center1), landmarkStore: store, visitedCells: [])
+            service.searchIfNeeded(region: makeRegion(center: center2), landmarkStore: store, visitedCells: [])
         }
         try? await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(mock.callCount, 1, "Small movement should not trigger a second search")
@@ -89,8 +89,8 @@ final class LandmarkSearchServiceTests: XCTestCase {
             let center1 = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
             // ~800 m north — over the 500 m threshold
             let center2 = CLLocationCoordinate2D(latitude: 40.7200, longitude: -74.0060)
-            service.searchIfNeeded(region: makeRegion(center: center1), landmarkStore: store)
-            service.searchIfNeeded(region: makeRegion(center: center2), landmarkStore: store)
+            service.searchIfNeeded(region: makeRegion(center: center1), landmarkStore: store, visitedCells: [])
+            service.searchIfNeeded(region: makeRegion(center: center2), landmarkStore: store, visitedCells: [])
         }
         try? await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(mock.callCount, 2, "Large movement should trigger a new search")
@@ -111,7 +111,7 @@ final class LandmarkSearchServiceTests: XCTestCase {
         await MainActor.run {
             store = makeStore()
             let service = LandmarkSearchService(source: mock)
-            service.searchIfNeeded(region: makeRegion(), landmarkStore: store)
+            service.searchIfNeeded(region: makeRegion(), landmarkStore: store, visitedCells: [])
         }
         try? await Task.sleep(for: .milliseconds(100))
         await MainActor.run {
@@ -134,14 +134,14 @@ final class LandmarkSearchServiceTests: XCTestCase {
             store = makeStore()
             let service = LandmarkSearchService(source: mock)
             // First search
-            service.searchIfNeeded(region: makeRegion(), landmarkStore: store)
+            service.searchIfNeeded(region: makeRegion(), landmarkStore: store, visitedCells: [])
         }
         try? await Task.sleep(for: .milliseconds(100))
 
         // Second search from far away (triggers a new load)
         await MainActor.run {
             let service2 = LandmarkSearchService(source: mock)
-            service2.searchIfNeeded(region: makeRegion(), landmarkStore: store)
+            service2.searchIfNeeded(region: makeRegion(), landmarkStore: store, visitedCells: [])
         }
         try? await Task.sleep(for: .milliseconds(100))
 
@@ -158,7 +158,7 @@ final class LandmarkSearchServiceTests: XCTestCase {
             let service = LandmarkSearchService(source: mock)
             let store   = makeStore()
             let wide    = makeRegion(span: MKCoordinateSpan(latitudeDelta: 30, longitudeDelta: 30))
-            service.searchIfNeeded(region: wide, landmarkStore: store)
+            service.searchIfNeeded(region: wide, landmarkStore: store, visitedCells: [])
         }
         try? await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(mock.callCount, 0,
@@ -171,7 +171,7 @@ final class LandmarkSearchServiceTests: XCTestCase {
             let service = LandmarkSearchService(source: mock)
             let store   = makeStore()
             let close   = makeRegion(span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))
-            service.searchIfNeeded(region: close, landmarkStore: store)
+            service.searchIfNeeded(region: close, landmarkStore: store, visitedCells: [])
         }
         try? await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(mock.callCount, 1,
@@ -189,11 +189,11 @@ final class LandmarkSearchServiceTests: XCTestCase {
             service.searchIfNeeded(
                 region: makeRegion(center: center,
                                    span: MKCoordinateSpan(latitudeDelta: 30, longitudeDelta: 30)),
-                landmarkStore: store)
+                landmarkStore: store, visitedCells: [])
             service.searchIfNeeded(
                 region: makeRegion(center: center,
                                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)),
-                landmarkStore: store)
+                landmarkStore: store, visitedCells: [])
         }
         try? await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(mock.callCount, 1,
@@ -210,7 +210,7 @@ final class LandmarkSearchServiceTests: XCTestCase {
         await MainActor.run {
             store = makeStore()
             let service = LandmarkSearchService(source: mock)
-            service.searchIfNeeded(region: makeRegion(), landmarkStore: store)
+            service.searchIfNeeded(region: makeRegion(), landmarkStore: store, visitedCells: [])
         }
         try? await Task.sleep(for: .milliseconds(100))
         await MainActor.run {

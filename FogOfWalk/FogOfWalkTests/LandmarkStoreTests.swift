@@ -29,6 +29,16 @@ final class LandmarkStoreTests: XCTestCase {
         LandmarkStore(container: makeInMemoryContainer())
     }
 
+    /// Inserts landmarks with an empty visited set, for tests that are not about discovery.
+    ///
+    /// `addLandmarks` requires `visitedCells` so no production call site can silently drop
+    /// discoveries. This helper is the one place where passing `[]` is deliberate — tests that
+    /// do care about the interaction call `addLandmarks` directly with a real set.
+    @MainActor
+    func seed(_ store: LandmarkStore, _ items: [WikidataLandmark]) {
+        store.addLandmarks(items, visitedCells: [])
+    }
+
     /// Inserts a Landmark entity directly into Core Data, bypassing `addLandmarks`.
     /// Used by migration tests to simulate pre-Wikidata stored data.
     @MainActor
@@ -66,8 +76,8 @@ final class LandmarkStoreTests: XCTestCase {
             let store = makeStore()
             let item = makeWikidataLandmark(id: "Q99", name: "Stadium", category: "stadium")
 
-            store.addLandmarks([item])
-            store.addLandmarks([item])
+            seed(store, [item])
+            seed(store, [item])
 
             XCTAssertEqual(store.allLandmarks.count, 1, "Duplicate landmark should not be inserted twice")
         }
@@ -79,7 +89,7 @@ final class LandmarkStoreTests: XCTestCase {
             let item  = makeWikidataLandmark(id: "Q42", name: "Museum of Art",
                                              lat: 34.0, lon: -118.0, category: "museum")
 
-            store.addLandmarks([item])
+            seed(store, [item])
 
             let landmark = store.allLandmarks.first
             XCTAssertNotNil(landmark)
@@ -100,7 +110,7 @@ final class LandmarkStoreTests: XCTestCase {
                 makeWikidataLandmark(id: "Q2", name: "Airport",  category: "airport"),
                 makeWikidataLandmark(id: "Q3", name: "Stadium",  category: "stadium"),
             ]
-            store.addLandmarks(items)
+            seed(store, items)
             XCTAssertEqual(store.allLandmarks.count, 3)
         }
     }
@@ -124,7 +134,7 @@ final class LandmarkStoreTests: XCTestCase {
             for (cat, expectedRadius) in categories {
                 let item = makeWikidataLandmark(id: "Q\(cat)", category: cat)
                 let store = makeStore()
-                store.addLandmarks([item])
+                seed(store, [item])
                 XCTAssertEqual(
                     store.allLandmarks.first?.discoveryRadiusMeters ?? 0,
                     expectedRadius,
@@ -137,7 +147,7 @@ final class LandmarkStoreTests: XCTestCase {
     func testUnknownCategoryDefaultsToOneHundredMeters() async {
         await MainActor.run {
             let store = makeStore()
-            store.addLandmarks([makeWikidataLandmark(category: "unknownType")])
+            seed(store, [makeWikidataLandmark(category: "unknownType")])
             XCTAssertEqual(store.allLandmarks.first?.discoveryRadiusMeters, 100)
         }
     }
@@ -147,9 +157,8 @@ final class LandmarkStoreTests: XCTestCase {
     func testCheckDiscoveryWithinRadius() async {
         await MainActor.run {
             let store    = makeStore()
-            let cellSize = 50.0
             let coord    = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
-            store.addLandmarks([makeWikidataLandmark(id: "Q10", name: "Famous Landmark",
+            seed(store, [makeWikidataLandmark(id: "Q10", name: "Famous Landmark",
                                                      lat: coord.latitude, lon: coord.longitude,
                                                      category: "landmark")])
 
@@ -165,9 +174,8 @@ final class LandmarkStoreTests: XCTestCase {
     func testCheckDiscoveryOutsideRadius() async {
         await MainActor.run {
             let store    = makeStore()
-            let cellSize = 50.0
             let landmarkCoord = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
-            store.addLandmarks([makeWikidataLandmark(lat: landmarkCoord.latitude,
+            seed(store, [makeWikidataLandmark(lat: landmarkCoord.latitude,
                                                      lon: landmarkCoord.longitude,
                                                      category: "museum")])
 
@@ -184,9 +192,8 @@ final class LandmarkStoreTests: XCTestCase {
     func testCheckDiscoveryDoesNotFireTwice() async {
         await MainActor.run {
             let store    = makeStore()
-            let cellSize = 50.0
             let coord    = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
-            store.addLandmarks([makeWikidataLandmark(lat: coord.latitude, lon: coord.longitude)])
+            seed(store, [makeWikidataLandmark(lat: coord.latitude, lon: coord.longitude)])
 
             let cell   = GridMath.cellID(for: coord)
             let first  = store.checkDiscovery(visitedCells: [cell])
@@ -200,9 +207,8 @@ final class LandmarkStoreTests: XCTestCase {
     func testCheckDiscoveryAirportLargeRadius() async {
         await MainActor.run {
             let store    = makeStore()
-            let cellSize = 50.0
             let airportCoord = CLLocationCoordinate2D(latitude: 40.6413, longitude: -73.7781)
-            store.addLandmarks([makeWikidataLandmark(id: "QJFK", name: "JFK Airport",
+            seed(store, [makeWikidataLandmark(id: "QJFK", name: "JFK Airport",
                                                      lat: airportCoord.latitude,
                                                      lon: airportCoord.longitude,
                                                      category: "airport")])
@@ -222,9 +228,8 @@ final class LandmarkStoreTests: XCTestCase {
         // most of which are far from the undiscovered landmark.
         await MainActor.run {
             let store    = makeStore()
-            let cellSize = 50.0
             let coord    = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
-            store.addLandmarks([makeWikidataLandmark(id: "QPERF", lat: coord.latitude,
+            seed(store, [makeWikidataLandmark(id: "QPERF", lat: coord.latitude,
                                                      lon: coord.longitude, category: "landmark")])
 
             // Build a large set: the target cell plus 500 far-away cells.
@@ -244,10 +249,9 @@ final class LandmarkStoreTests: XCTestCase {
     func testCheckDiscoveryMultipleLandmarks() async {
         await MainActor.run {
             let store    = makeStore()
-            let cellSize = 50.0
             let coord    = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
 
-            store.addLandmarks([
+            seed(store, [
                 makeWikidataLandmark(id: "Q1", lat: coord.latitude, lon: coord.longitude, category: "museum"),
                 makeWikidataLandmark(id: "Q2", lat: coord.latitude, lon: coord.longitude, category: "library"),
             ])
@@ -264,9 +268,8 @@ final class LandmarkStoreTests: XCTestCase {
     func testTotalDiscoveredUpdatesAfterDiscovery() async {
         await MainActor.run {
             let store    = makeStore()
-            let cellSize = 50.0
             let coord    = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
-            store.addLandmarks([makeWikidataLandmark(lat: coord.latitude, lon: coord.longitude)])
+            seed(store, [makeWikidataLandmark(lat: coord.latitude, lon: coord.longitude)])
 
             XCTAssertEqual(store.totalDiscovered, 0)
 
@@ -285,7 +288,7 @@ final class LandmarkStoreTests: XCTestCase {
         await MainActor.run {
             let store1 = LandmarkStore(container: container)
             let coord  = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
-            store1.addLandmarks([makeWikidataLandmark(id: "QPERSIST", lat: coord.latitude, lon: coord.longitude)])
+            seed(store1, [makeWikidataLandmark(id: "QPERSIST", lat: coord.latitude, lon: coord.longitude)])
             XCTAssertEqual(store1.allLandmarks.count, 1)
 
             let cell = GridMath.cellID(for: coord)
@@ -306,7 +309,7 @@ final class LandmarkStoreTests: XCTestCase {
     func testLandmarksInRegionFiltersCorrectly() async {
         await MainActor.run {
             let store = makeStore()
-            store.addLandmarks([
+            seed(store, [
                 makeWikidataLandmark(id: "QNYC",    name: "NYC Museum",    lat: 40.7128,  lon: -74.0060),
                 makeWikidataLandmark(id: "QLONDON", name: "London Museum", lat: 51.5074,  lon: -0.1278),
             ])
@@ -325,10 +328,9 @@ final class LandmarkStoreTests: XCTestCase {
     func testLandmarksInRegionIncludesBothDiscoveredAndUndiscovered() async {
         await MainActor.run {
             let store    = makeStore()
-            let cellSize = 50.0
             let coord    = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
 
-            store.addLandmarks([
+            seed(store, [
                 makeWikidataLandmark(id: "Q1", lat: coord.latitude, lon: coord.longitude),
                 makeWikidataLandmark(id: "Q2", lat: coord.latitude + 0.001, lon: coord.longitude),
             ])
@@ -343,6 +345,213 @@ final class LandmarkStoreTests: XCTestCase {
             )
             let visible = store.landmarks(in: region)
             XCTAssertEqual(visible.count, 2, "Both discovered and undiscovered landmarks should appear in region")
+        }
+    }
+
+    // MARK: - Hot path: checkDiscovery(newCell:)
+
+    func testCheckDiscoveryWithNewCellOnly() async {
+        // The signature is the assertion: with no visited-set parameter, this entry point
+        // *structurally* cannot scan the visited set, however much the user has explored.
+        await MainActor.run {
+            let store = makeStore()
+            let coord = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
+            seed(store, [makeWikidataLandmark(id: "QNEW", lat: coord.latitude,
+                                              lon: coord.longitude, category: "landmark")])
+
+            let discovered = store.checkDiscovery(newCell: GridMath.cellID(for: coord))
+
+            XCTAssertEqual(discovered.count, 1)
+            XCTAssertEqual(store.totalDiscovered, 1)
+        }
+    }
+
+    func testCheckDiscoveryWithNewCellIgnoresFarLandmarks() async {
+        await MainActor.run {
+            let store = makeStore()
+            let here  = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
+            seed(store, [makeWikidataLandmark(id: "QFAR", lat: 51.5074, lon: -0.1278)])
+
+            XCTAssertEqual(store.checkDiscovery(newCell: GridMath.cellID(for: here)).count, 0)
+        }
+    }
+
+    func testCheckDiscoveryWithNewCellFindsMaxRadiusLandmark() async {
+        // The bucket search must use the largest radius across all categories, not the radius
+        // of whatever it happens to find — in this direction a candidate's radius is unknown
+        // until it has been found. An airport at 430 m is only reachable if it does.
+        await MainActor.run {
+            let store   = makeStore()
+            let airport = CLLocationCoordinate2D(latitude: 40.0, longitude: -74.0)
+            seed(store, [makeWikidataLandmark(id: "QAIR", lat: airport.latitude,
+                                              lon: airport.longitude, category: "airport")])
+
+            let cell = cellDueEast(of: airport, meters: 430)
+            XCTAssertEqual(store.checkDiscovery(newCell: cell).count, 1)
+        }
+    }
+
+    func testDiscoveryProbeCountDoesNotGrowWithVisitedCellCount() async {
+        // The real complexity test. No purely behavioural assertion can catch a complexity
+        // bug, because the slow implementation produced the correct answer too — so this
+        // counts the work instead. An upper bound rather than equality, so a later early-exit
+        // optimisation doesn't break it.
+        await MainActor.run {
+            let coord  = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
+            let target = GridMath.cellID(for: coord)
+
+            for cellCount in [10, 10_000] {
+                let store = makeStore()
+                seed(store, [makeWikidataLandmark(id: "QPROBE", lat: coord.latitude,
+                                                  lon: coord.longitude, category: "airport")])
+
+                var cells: Set<CellID> = [target]
+                for i in 1..<cellCount {
+                    cells.insert(CellID(x: target.x + Int32(i) * 137,
+                                        y: target.y + Int32(i) * 149))
+                }
+
+                // Bound derived from the box rather than hardcoded, so it stays meaningful if
+                // kCellSizeMeters changes. An upper bound, not equality.
+                let box = GridMath.cellBox(around: coord, radiusMeters: 500)
+                let boxSize = (Int(box.maxX) - Int(box.minX) + 1) * (Int(box.maxY) - Int(box.minY) + 1)
+
+                XCTAssertEqual(store.checkDiscovery(visitedCells: cells).count, 1,
+                               "Discovery must still succeed with \(cellCount) visited cells")
+                XCTAssertLessThanOrEqual(
+                    store.lastDiscoveryProbeCount, boxSize,
+                    """
+                    Probe count must be bounded by the discovery radius (\(boxSize) cells), \
+                    not by the \(cellCount) visited cells. \
+                    Got \(store.lastDiscoveryProbeCount).
+                    """
+                )
+            }
+        }
+    }
+
+    func testSweepProbeCountDoesNotGrowWithLandmarkCount() async {
+        // Companion to the test above, guarding the other axis. That one pins cost against the
+        // visited-set size (the direction-pick inside isWithinVisitedCells); this one pins it
+        // against the *landmark* count, which is what the bucket prefilter buys. Without the
+        // prefilter every undiscovered landmark bbox-probes, so 2,000 landmarks far from any
+        // walked ground cost ~2,000 x box-size probes instead of a few Set lookups each.
+        await MainActor.run {
+            let store  = makeStore()
+            let coord  = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
+            let target = GridMath.cellID(for: coord)
+
+            var items = [makeWikidataLandmark(id: "QNEAR", lat: coord.latitude,
+                                              lon: coord.longitude, category: "airport")]
+            // 2,000 airports in distinct buckets, all well clear of the visited region below
+            // (which spans ~5 km) and inside real longitudes.
+            for i in 1...2_000 {
+                items.append(makeWikidataLandmark(id: "QFAR\(i)",
+                                                  lat: coord.latitude,
+                                                  lon: coord.longitude + 20.0 + Double(i) * 0.05,
+                                                  category: "airport"))
+            }
+            seed(store, items)
+
+            var cells: Set<CellID> = [target]
+            for i in 1..<10_000 {
+                cells.insert(CellID(x: target.x + Int32(i % 100), y: target.y + Int32(i / 100)))
+            }
+
+            XCTAssertEqual(store.checkDiscovery(visitedCells: cells).count, 1,
+                           "Only the nearby landmark should be discovered")
+            XCTAssertLessThanOrEqual(
+                store.lastDiscoveryProbeCount, 2_000,
+                """
+                Probe count must be bounded by the landmarks near walked ground, not by all \
+                2,001 undiscovered ones. Got \(store.lastDiscoveryProbeCount).
+                """
+            )
+        }
+    }
+
+    // MARK: - Compensating sweeps
+
+    func testLandmarkAddedAfterCellWasWalkedIsDiscovered() async {
+        // Walk first, ingest second. Only the insert sweep can catch this — the cell will never
+        // be "new" again, so `checkDiscovery(newCell:)` will never see it.
+        //
+        // Note this does NOT guard against `visitedCells` regaining a default: it passes the
+        // argument explicitly, so a re-added `= []` would leave it green. Nothing structural
+        // protects that; the required parameter is the protection.
+        await MainActor.run {
+            let store = makeStore()
+            let coord = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
+            let cell  = GridMath.cellID(for: coord)
+
+            store.addLandmarks(
+                [makeWikidataLandmark(id: "QLATE", lat: coord.latitude, lon: coord.longitude)],
+                visitedCells: [cell]
+            )
+
+            XCTAssertEqual(store.totalDiscovered, 1,
+                           "A landmark ingested onto already-walked ground must be discovered")
+            XCTAssertTrue(store.allLandmarks.first?.isDiscovered ?? false)
+        }
+    }
+
+    func testDiscoveryRecoveredOnNextLaunchSweep() async {
+        // Simulates the rollback gap: isDiscovered reverted in Core Data while its cell stays
+        // in the visited set. Without an unconditional launch sweep that discovery is lost
+        // forever, because the cell will never be new again.
+        let container = makeInMemoryContainer()
+        let coord = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
+        let cell  = GridMath.cellID(for: coord)
+
+        await MainActor.run {
+            let store = LandmarkStore(container: container)
+            store.addLandmarks(
+                [makeWikidataLandmark(id: "QHEAL", lat: coord.latitude, lon: coord.longitude)],
+                visitedCells: [cell]
+            )
+            XCTAssertEqual(store.totalDiscovered, 1)
+
+            // Revert directly in Core Data, behind the store's back.
+            store.allLandmarks.first?.isDiscovered = false
+            try? container.viewContext.save()
+        }
+
+        await MainActor.run {
+            let store = LandmarkStore(container: container)
+            XCTAssertEqual(store.totalDiscovered, 0, "Precondition: the revert took effect")
+
+            store.sweepAllUndiscovered(visitedCells: [cell])
+
+            XCTAssertEqual(store.totalDiscovered, 1,
+                           "The launch sweep must recover a rolled-back discovery")
+        }
+    }
+
+    func testBucketIndexUpdatedWhenLandmarkBecomesDiscovered() async {
+        // Two landmarks in the same bucket, discovered from two different cells. Guards the
+        // index-mutation bugs the bucket index introduces: if removing the first corrupted the
+        // bucket, the second would become undiscoverable.
+        await MainActor.run {
+            let store = makeStore()
+            // ~500 m apart: far enough that each needs its own cell (100 m museum radius),
+            // close enough to share a bucket (32 cells ≈ 1600 m).
+            let a = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
+            let b = CLLocationCoordinate2D(latitude: 40.7173, longitude: -74.0060)
+            XCTAssertEqual(LandmarkStore.bucket(for: GridMath.cellID(for: a)),
+                           LandmarkStore.bucket(for: GridMath.cellID(for: b)),
+                           "Fixture must share a bucket, or this stops testing index mutation")
+            seed(store, [
+                makeWikidataLandmark(id: "QA", lat: a.latitude, lon: a.longitude),
+                makeWikidataLandmark(id: "QB", lat: b.latitude, lon: b.longitude),
+            ])
+
+            XCTAssertEqual(store.checkDiscovery(newCell: GridMath.cellID(for: a)).count, 1)
+            XCTAssertEqual(store.checkDiscovery(newCell: GridMath.cellID(for: b)).count, 1,
+                           "The second landmark must still be reachable after the first left the index")
+            XCTAssertEqual(store.totalDiscovered, 2)
+
+            XCTAssertEqual(store.checkDiscovery(newCell: GridMath.cellID(for: a)).count, 0,
+                           "An already-discovered landmark must not be rediscovered")
         }
     }
 
@@ -374,7 +583,7 @@ final class LandmarkStoreTests: XCTestCase {
         await MainActor.run {
             let store   = makeStore()
             let airport = CLLocationCoordinate2D(latitude: 60.0, longitude: 10.0)
-            store.addLandmarks([makeWikidataLandmark(id: "QNORTH", name: "Oslo Airport",
+            seed(store, [makeWikidataLandmark(id: "QNORTH", name: "Oslo Airport",
                                                      lat: airport.latitude,
                                                      lon: airport.longitude,
                                                      category: "airport")])
@@ -394,7 +603,7 @@ final class LandmarkStoreTests: XCTestCase {
         await MainActor.run {
             let store   = makeStore()
             let airport = CLLocationCoordinate2D(latitude: 60.0, longitude: 10.0)
-            store.addLandmarks([makeWikidataLandmark(id: "QNORTH", name: "Oslo Airport",
+            seed(store, [makeWikidataLandmark(id: "QNORTH", name: "Oslo Airport",
                                                      lat: airport.latitude,
                                                      lon: airport.longitude,
                                                      category: "airport")])
@@ -416,7 +625,7 @@ final class LandmarkStoreTests: XCTestCase {
         await MainActor.run {
             let store   = makeStore()
             let airport = CLLocationCoordinate2D(latitude: 60.0, longitude: 10.0)
-            store.addLandmarks([makeWikidataLandmark(id: "QNORTH", name: "Oslo Airport",
+            seed(store, [makeWikidataLandmark(id: "QNORTH", name: "Oslo Airport",
                                                      lat: airport.latitude,
                                                      lon: airport.longitude,
                                                      category: "airport")])
@@ -445,7 +654,7 @@ final class LandmarkStoreTests: XCTestCase {
 
             for extraCells in [0, 5_000] {
                 let store = makeStore()
-                store.addLandmarks([makeWikidataLandmark(id: "QNORTH", lat: airport.latitude,
+                seed(store, [makeWikidataLandmark(id: "QNORTH", lat: airport.latitude,
                                                          lon: airport.longitude,
                                                          category: "airport")])
                 var cells: Set<CellID> = [target]
@@ -467,7 +676,7 @@ final class LandmarkStoreTests: XCTestCase {
             let items = (0..<50).map { i in
                 makeWikidataLandmark(id: "Q\(i)", lat: 40.0 + Double(i) * 0.0001, lon: -74.0)
             }
-            store.addLandmarks(items)
+            seed(store, items)
 
             let region = MKCoordinateRegion(
                 center: CLLocationCoordinate2D(latitude: 40.0, longitude: -74.0),
@@ -493,7 +702,7 @@ final class LandmarkStoreTests: XCTestCase {
                                      lat: coord.latitude + 0.01 + Double(i) * 0.001,
                                      lon: coord.longitude)
             }
-            store.addLandmarks(items)
+            seed(store, items)
             store.checkDiscovery(visitedCells: [GridMath.cellID(for: coord)])
             XCTAssertEqual(store.totalDiscovered, 1)
 
