@@ -74,7 +74,7 @@ final class BackupServiceTests: XCTestCase {
                                   lat: 40, lon: -74, category: "museum", imageURL: nil)],
                 visitedCells: []
             )
-            _ = landmarkStore.restoreDiscovered([(identifier: "Q1", firstDiscovered: Date(timeIntervalSince1970: 42))])
+            _ = try landmarkStore.restoreDiscovered([(identifier: "Q1", firstDiscovered: Date(timeIntervalSince1970: 42))])
 
             let data = try BackupService.exportData(explorationStore: explorationStore, landmarkStore: landmarkStore)
             let payload = try BackupService.decode(data)
@@ -85,8 +85,8 @@ final class BackupServiceTests: XCTestCase {
         }
     }
 
-    func testMergeAppliesCellsAndLandmarksAndReturnsSummary() async {
-        await MainActor.run {
+    func testMergeAppliesCellsAndLandmarksAndReturnsSummary() async throws {
+        try await MainActor.run {
             let explorationStore = ExplorationStore(container: makeInMemoryContainer())
             explorationStore.configure()
 
@@ -105,7 +105,7 @@ final class BackupServiceTests: XCTestCase {
                 landmarks: [BackupLandmark(identifier: "Q5", firstDiscovered: Date(timeIntervalSince1970: 200))]
             )
 
-            let summary = BackupService.merge(payload, into: explorationStore, landmarkStore: landmarkStore)
+            let summary = try BackupService.merge(payload, into: explorationStore, landmarkStore: landmarkStore)
 
             XCTAssertEqual(summary, MergeSummary(cellsAdded: 1, landmarksAdded: 1))
             XCTAssertTrue(explorationStore.visitedCellsCache.contains(CellID(x: 9, y: 9)))
@@ -125,7 +125,7 @@ final class BackupServiceTests: XCTestCase {
                                   lat: 10, lon: 10, category: "landmark", imageURL: nil)],
                 visitedCells: []
             )
-            _ = sourceLandmarks.restoreDiscovered([(identifier: "Q7", firstDiscovered: Date(timeIntervalSince1970: 300))])
+            _ = try sourceLandmarks.restoreDiscovered([(identifier: "Q7", firstDiscovered: Date(timeIntervalSince1970: 300))])
 
             let data = try BackupService.exportData(explorationStore: sourceExploration, landmarkStore: sourceLandmarks)
             let payload = try BackupService.decode(data)
@@ -139,7 +139,7 @@ final class BackupServiceTests: XCTestCase {
                 visitedCells: []
             )
 
-            _ = BackupService.merge(payload, into: destExploration, landmarkStore: destLandmarks)
+            _ = try BackupService.merge(payload, into: destExploration, landmarkStore: destLandmarks)
 
             XCTAssertTrue(destExploration.visitedCellsCache.contains(CellID(x: 7, y: 7)))
             XCTAssertTrue(destLandmarks.allLandmarks.first?.isDiscovered ?? false)

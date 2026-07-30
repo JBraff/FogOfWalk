@@ -89,10 +89,12 @@ struct SettingsView: View {
             importErrorMessage = error.localizedDescription
             showImportError = true
         case .success(let url):
+            let didStart = url.startAccessingSecurityScopedResource()
+            defer { if didStart { url.stopAccessingSecurityScopedResource() } }
             do {
                 let data = try Data(contentsOf: url)
                 let payload = try BackupService.decode(data)
-                let summary = BackupService.merge(payload, into: store, landmarkStore: landmarkStore)
+                let summary = try BackupService.merge(payload, into: store, landmarkStore: landmarkStore)
                 importSummaryMessage = "Imported \(summary.cellsAdded) new cell\(summary.cellsAdded == 1 ? "" : "s"), "
                     + "\(summary.landmarksAdded) new landmark\(summary.landmarksAdded == 1 ? "" : "s")."
             } catch {

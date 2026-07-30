@@ -39,12 +39,13 @@ FogOfWalk/
       SettingsView.swift              # Sheet: export/import backup (BackupService)
       DiscoveryStatsView.swift        # Sheet: streaks, locality breakdowns, "N% of city explored"
       AlwaysLocationBanner.swift      # Prompts upgrading When-In-Use → Always
-  FogOfWalkTests/                     # 12 files: FogOfWalkTests.swift, ExplorationStoreTests.swift,
+  FogOfWalkTests/                     # 13 files: FogOfWalkTests.swift, ExplorationStoreTests.swift,
                                        # FogOverlayRendererTests.swift, CellSnapshotTests.swift,
                                        # GestureTransformTests.swift, LocationServiceTests.swift,
                                        # LocalityGeocoderTests.swift, DiscoveryStatsModelTests.swift,
                                        # LandmarkStoreTests.swift, LandmarkSearchServiceTests.swift,
-                                       # LandmarkOverlayViewTests.swift, BundledLandmarkSourceTests.swift
+                                       # LandmarkOverlayViewTests.swift, BundledLandmarkSourceTests.swift,
+                                       # BackupServiceTests.swift
   FogOfWalkUITests/
     FogOfWalkUITests.swift            # UI automation tests
     FogOfWalkUITestsLaunchTests.swift # Launch screenshot tests

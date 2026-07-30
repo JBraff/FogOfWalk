@@ -195,8 +195,13 @@ final class ExplorationStore {
     /// coordinate at the current cell size); for cells that already exist, keeps the earlier
     /// of the two `firstVisited` dates without touching `locality`. Returns the number of
     /// newly inserted cells.
+    ///
+    /// Throws if the Core Data save fails, so a real failure is distinguishable from the
+    /// legitimate "nothing new to merge" case (which returns 0). Fetch failures and the
+    /// empty-input early return are not treated as failures — they aren't caused by this
+    /// merge and there is nothing to roll back.
     @discardableResult
-    func addCells(_ records: [BackupVisitedCell]) -> Int {
+    func addCells(_ records: [BackupVisitedCell]) throws -> Int {
         guard !records.isEmpty else { return 0 }
 
         let ctx = container.viewContext
@@ -244,7 +249,7 @@ final class ExplorationStore {
         } catch {
             print("ExplorationStore: addCells save failed: \(error)")
             ctx.rollback()
-            return 0
+            throw error
         }
 
         reloadCache()

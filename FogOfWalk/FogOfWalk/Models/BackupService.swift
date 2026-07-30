@@ -103,16 +103,23 @@ enum BackupService {
 
     // MARK: - Import
 
-    /// Merges a decoded backup payload into both stores. Never partially applies: both
-    /// underlying merge calls are all-or-nothing at the Core Data save level (see
-    /// `ExplorationStore.addCells(_:)` and `LandmarkStore.restoreDiscovered(_:)`).
+    /// Merges a decoded backup payload into both stores.
+    ///
+    /// Note: the two merges are sequential, not jointly atomic. If the landmark merge fails
+    /// after the cell merge already saved, the cell changes remain committed. Both stores
+    /// share one persistent container in production, so a true single-save merge is
+    /// architecturally possible but not implemented here.
+    ///
+    /// Throws if either underlying merge fails to save, so the caller can distinguish a real
+    /// failure from "nothing new to import" (both of which would otherwise report as
+    /// `cellsAdded: 0, landmarksAdded: 0`).
     @MainActor
     static func merge(_ payload: BackupPayload,
                        into explorationStore: ExplorationStore,
-                       landmarkStore: LandmarkStore) -> MergeSummary {
-        let cellsAdded = explorationStore.addCells(payload.visitedCells)
-        let landmarksAdded = landmarkStore.restoreDiscovered(
-            payload.landmarks.map { ($0.identifier, $0.firstDiscovered ?? Date()) }
+                       landmarkStore: LandmarkStore) throws -> MergeSummary {
+        let cellsAdded = try explorationStore.addCells(payload.visitedCells)
+        let landmarksAdded = try landmarkStore.restoreDiscovered(
+            payload.landmarks.map { ($0.identifier, $0.firstDiscovered ?? payload.exportedAt) }
         )
         return MergeSummary(cellsAdded: cellsAdded, landmarksAdded: landmarksAdded)
     }

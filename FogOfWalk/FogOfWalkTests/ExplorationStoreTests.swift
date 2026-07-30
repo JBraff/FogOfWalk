@@ -481,8 +481,8 @@ final class ExplorationStoreTests: XCTestCase {
         }
     }
 
-    func testAddCellsInsertsNewCellsAndReturnsCount() async {
-        await MainActor.run {
+    func testAddCellsInsertsNewCellsAndReturnsCount() async throws {
+        try await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
             store.configure()
 
@@ -493,7 +493,7 @@ final class ExplorationStoreTests: XCTestCase {
                                    firstVisited: Date(timeIntervalSince1970: 2_000), locality: nil)
             ]
 
-            let added = store.addCells(records)
+            let added = try store.addCells(records)
 
             XCTAssertEqual(added, 2)
             XCTAssertEqual(store.totalVisitedCount, 2)
@@ -502,8 +502,8 @@ final class ExplorationStoreTests: XCTestCase {
         }
     }
 
-    func testAddCellsSkipsExistingCellButKeepsEarlierDate() async {
-        await MainActor.run {
+    func testAddCellsSkipsExistingCellButKeepsEarlierDate() async throws {
+        try await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
             store.configure()
             store.nowProvider = { Date(timeIntervalSince1970: 5_000) }
@@ -516,7 +516,7 @@ final class ExplorationStoreTests: XCTestCase {
             let earlierRecord = BackupVisitedCell(cellX: 3, cellY: 3, cellSizeMeters: kCellSizeMeters,
                                                    firstVisited: Date(timeIntervalSince1970: 1_000),
                                                    locality: nil)
-            let added = store.addCells([earlierRecord])
+            let added = try store.addCells([earlierRecord])
 
             XCTAssertEqual(added, 0, "Existing cell should not count as newly added")
             XCTAssertEqual(store.totalVisitedCount, 1, "No duplicate row should be created")
@@ -524,6 +524,34 @@ final class ExplorationStoreTests: XCTestCase {
             let after = try? store.viewContext.fetch(request)
             XCTAssertEqual(after?.first?.firstVisited, Date(timeIntervalSince1970: 1_000),
                             "Merge should keep the earlier firstVisited date")
+        }
+    }
+
+    /// Returns an in-memory container whose store is read-only, so fetches succeed but any
+    /// `save()` deterministically fails — the cleanest way to exercise the save-failure path
+    /// without depending on Core Data's internal error timing.
+    func makeReadOnlyInMemoryContainer() -> NSPersistentContainer {
+        let container   = NSPersistentContainer(name: "FogOfWalk")
+        let description = NSPersistentStoreDescription()
+        description.type = NSInMemoryStoreType
+        description.isReadOnly = true
+        container.persistentStoreDescriptions = [description]
+        container.loadPersistentStores { _, error in
+            if let error { XCTFail("Read-only in-memory store failed to load: \(error)") }
+        }
+        return container
+    }
+
+    func testAddCellsThrowsOnSaveFailure() async throws {
+        try await MainActor.run {
+            let store = ExplorationStore(container: makeReadOnlyInMemoryContainer())
+            store.configure()
+
+            let records = [BackupVisitedCell(cellX: 1, cellY: 1, cellSizeMeters: kCellSizeMeters,
+                                              firstVisited: Date(timeIntervalSince1970: 1_000), locality: nil)]
+
+            XCTAssertThrowsError(try store.addCells(records),
+                                 "A save failure must surface as a thrown error, not a silent 0")
         }
     }
 }

@@ -719,14 +719,14 @@ final class LandmarkStoreTests: XCTestCase {
 
     // MARK: - restoreDiscovered
 
-    func testRestoreDiscoveredMarksKnownLandmarkDiscovered() async {
-        await MainActor.run {
+    func testRestoreDiscoveredMarksKnownLandmarkDiscovered() async throws {
+        try await MainActor.run {
             let store = makeStore()
             seed(store, [makeWikidataLandmark(id: "Q10", name: "Old Fort")])
             XCTAssertFalse(store.allLandmarks.first?.isDiscovered ?? true)
 
             let date = Date(timeIntervalSince1970: 1_000)
-            let added = store.restoreDiscovered([(identifier: "Q10", firstDiscovered: date)])
+            let added = try store.restoreDiscovered([(identifier: "Q10", firstDiscovered: date)])
 
             XCTAssertEqual(added, 1)
             XCTAssertEqual(store.totalDiscovered, 1)
@@ -735,29 +735,49 @@ final class LandmarkStoreTests: XCTestCase {
         }
     }
 
-    func testRestoreDiscoveredSkipsUnknownIdentifierWithoutError() async {
-        await MainActor.run {
+    func testRestoreDiscoveredSkipsUnknownIdentifierWithoutError() async throws {
+        try await MainActor.run {
             let store = makeStore()
             seed(store, [makeWikidataLandmark(id: "Q10", name: "Old Fort")])
 
-            let added = store.restoreDiscovered([(identifier: "Q999-not-local", firstDiscovered: Date())])
+            let added = try store.restoreDiscovered([(identifier: "Q999-not-local", firstDiscovered: Date())])
 
             XCTAssertEqual(added, 0)
             XCTAssertEqual(store.totalDiscovered, 0)
         }
     }
 
-    func testRestoreDiscoveredKeepsEarlierDateForAlreadyDiscoveredLandmark() async {
-        await MainActor.run {
+    func testRestoreDiscoveredKeepsEarlierDateForAlreadyDiscoveredLandmark() async throws {
+        try await MainActor.run {
             let store = makeStore()
             seed(store, [makeWikidataLandmark(id: "Q10", name: "Old Fort")])
-            _ = store.restoreDiscovered([(identifier: "Q10", firstDiscovered: Date(timeIntervalSince1970: 5_000))])
+            _ = try store.restoreDiscovered([(identifier: "Q10", firstDiscovered: Date(timeIntervalSince1970: 5_000))])
 
-            let added = store.restoreDiscovered([(identifier: "Q10", firstDiscovered: Date(timeIntervalSince1970: 1_000))])
+            let added = try store.restoreDiscovered([(identifier: "Q10", firstDiscovered: Date(timeIntervalSince1970: 1_000))])
 
             XCTAssertEqual(added, 0, "Landmark was already discovered, so this is not a new discovery")
             XCTAssertEqual(store.allLandmarks.first?.firstDiscovered, Date(timeIntervalSince1970: 1_000),
                             "Merge should keep the earlier firstDiscovered date")
+        }
+    }
+
+    func testRestoreDiscoveredThrowsOnSaveFailure() async throws {
+        try await MainActor.run {
+            let container = makeInMemoryContainer()
+            let store = LandmarkStore(container: container)
+            seed(store, [makeWikidataLandmark(id: "Q10", name: "Old Fort")])
+
+            // Deterministically force the merge's ctx.save() to fail: flip the already-loaded
+            // store to read-only after seeding, so the earlier writes succeed but this one can't.
+            guard let persistentStore = container.persistentStoreCoordinator.persistentStores.first else {
+                return XCTFail("Expected an in-memory persistent store")
+            }
+            persistentStore.isReadOnly = true
+
+            XCTAssertThrowsError(
+                try store.restoreDiscovered([(identifier: "Q10", firstDiscovered: Date(timeIntervalSince1970: 1_000))]),
+                "A save failure must surface as a thrown error, not a silent 0"
+            )
         }
     }
 

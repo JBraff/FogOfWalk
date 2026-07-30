@@ -178,8 +178,11 @@ final class LandmarkStore {
     /// earlier of the existing/imported `firstDiscovered` date. Records whose identifier has
     /// no local match (e.g. bundled reference data differs between devices) are skipped
     /// without error. Returns the number of landmarks newly marked discovered.
+    ///
+    /// Throws if the Core Data save fails, so a real failure is distinguishable from the
+    /// legitimate "nothing new to merge" case (which returns 0).
     @discardableResult
-    func restoreDiscovered(_ records: [(identifier: String, firstDiscovered: Date)]) -> Int {
+    func restoreDiscovered(_ records: [(identifier: String, firstDiscovered: Date)]) throws -> Int {
         guard !records.isEmpty else { return 0 }
 
         var byIdentifier: [String: Landmark] = [:]
@@ -215,7 +218,7 @@ final class LandmarkStore {
             print("LandmarkStore: restoreDiscovered save failed: \(error)")
             ctx.rollback()
             loadFromStore()
-            return 0
+            throw error
         }
 
         loadFromStore()
