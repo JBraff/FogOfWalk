@@ -22,6 +22,7 @@ FogOfWalk/
       ExplorationStore.swift         # @MainActor @Observable — Core Data + in-memory cache
       VisitedCell+CoreData.swift     # NSManagedObject subclass (cellX, cellY, cellSizeMeters, firstVisited, locality)
       LandmarkStore.swift            # @MainActor @Observable — discovery state, Wikidata migration
+      BackupService.swift            # Versioned JSON export/import + merge-import into both stores
       CellSnapshot.swift             # Immutable, thread-safe snapshot of visited/recent cells for the renderer
       LocalityGeocoder.swift         # Reverse-geocodes cells in the background, bucketed queue
       DiscoveryStatsModel.swift      # Streaks, locality breakdowns, estimated distance
@@ -35,6 +36,7 @@ FogOfWalk/
       LandmarkOverlayView.swift       # UIView sibling: discovered-landmark icons + undiscovered "?" hints
       LandmarkDetailView.swift        # Sheet shown when a discovered pin is tapped
       StatsView.swift                 # HUD: today count, discovered-landmark count, paused indicator, stats button
+      SettingsView.swift              # Sheet: export/import backup (BackupService)
       DiscoveryStatsView.swift        # Sheet: streaks, locality breakdowns, "N% of city explored"
       AlwaysLocationBanner.swift      # Prompts upgrading When-In-Use → Always
   FogOfWalkTests/                     # 12 files: FogOfWalkTests.swift, ExplorationStoreTests.swift,
@@ -53,7 +55,7 @@ scripts/
 SETUP.md                              # How the checked-in project is wired, build/run, regenerating landmarks.sqlite
 ```
 
-There is no `SettingsView.swift` and no `FogView.swift` — both were removed; see below.
+There is no `FogView.swift` — it was removed; see below. `SettingsView.swift` exists again as of the backup export/import feature (below), reintroducing a settings screen after its earlier removal.
 
 ---
 
@@ -116,6 +118,24 @@ it builds a fresh `CellSnapshot` and marks the renderer's tiles dirty.
 `CATransform3D` to `LandmarkOverlayView` during gestures. Tests live in
 `FogOverlayRendererTests.swift`; there is no `FogViewTests.swift`.
 
+### Backup export/import
+
+`BackupService` (`Models/BackupService.swift`) is a stateless `enum` — plain namespaced static
+functions, not a store. It encodes/decodes a versioned JSON `BackupPayload`
+(`visitedCells` + discovered `landmarks` only — undiscovered landmarks and all landmark
+metadata besides `identifier`/`firstDiscovered` are intentionally excluded, since metadata is
+re-derived from bundled reference data on the importing device) and orchestrates merging it
+into both stores:
+
+- `ExplorationStore.addCells(_:)` inserts cells absent locally and keeps the earlier
+  `firstVisited` date for cells that already exist.
+- `LandmarkStore.restoreDiscovered(_:)` marks known-by-`identifier` landmarks discovered and
+  keeps the earlier `firstDiscovered` date; unknown identifiers are skipped without error.
+
+`SettingsView` (`Views/SettingsView.swift`), reachable via a gear button in `StatsView`, drives
+export through `ShareLink` and import through `.fileImporter`. This is manual/on-demand only —
+there is no automatic or continuous sync (no CloudKit).
+
 ---
 
 ## Key constraints and gotchas
@@ -133,7 +153,7 @@ it builds a fresh `CellSnapshot` and marks the renderer's tiles dirty.
 - **`cos(latitude)` correction:** `ExplorationStore.totalCellCount` divides the longitude span by `cos(lat)` to correct for meridian convergence. Without this, city % is wrong at non-equatorial latitudes.
 - **Build settings that affect concurrency:** `SWIFT_VERSION = 5.0` (Swift 5 language mode — cross-actor isolation violations are **warnings**, not errors), `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` on the app target only (this is why `BundledLandmarkSource` is implicitly `@MainActor` with no annotation), `SWIFT_APPROACHABLE_CONCURRENCY = YES` — which means a plain `nonisolated async func` called from a `@MainActor` context still runs **on the caller's actor**; reaching the global executor requires `@concurrent` or `Task.detached`.
 - **The product is renamed at the build-settings level.** `PRODUCT_NAME = "Fog-Of-Walk"` with `PRODUCT_MODULE_NAME` pinned to `FogOfWalk` and `TEST_HOST` repointed at `Fog-Of-Walk.app` — so the built app bundle is `Fog-Of-Walk.app` while `@testable import FogOfWalk` still resolves. If a rename or scheme edit ever breaks this pairing, the test target fails to launch with a message about scheme membership, not anything pointing at the actual cause — see the no-shared-scheme note under Build & run.
-- **No known way to delete location history in the running app.** `ExplorationStore.deleteAllCells`, `visitedCellCount`, `totalCellCount`, and `Coordinator.replaceFogOverlay` exist but have no production caller — this is a known gap, not a feature to build around.
+- **No known way to delete location history in the running app.** `ExplorationStore.deleteAllCells`, `visitedCellCount`, `totalCellCount`, and `Coordinator.replaceFogOverlay` exist but have no production caller — this is a known gap, not a feature to build around. (The Settings screen added for backup export/import does *not* address this — it only exports/imports/merges, it never deletes.)
 
 ---
 
