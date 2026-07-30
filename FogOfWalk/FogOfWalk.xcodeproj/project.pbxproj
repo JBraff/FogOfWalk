@@ -24,7 +24,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		77F76C932F69E9100094CED6 /* FogOfWalk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FogOfWalk.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		77F76C932F69E9100094CED6 /* Fog-Of-Walk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Fog-Of-Walk.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		77F76CA02F69E9110094CED6 /* FogOfWalkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FogOfWalkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		77F76CAA2F69E9110094CED6 /* FogOfWalkUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FogOfWalkUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -98,7 +98,7 @@
 		77F76C942F69E9100094CED6 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				77F76C932F69E9100094CED6 /* FogOfWalk.app */,
+				77F76C932F69E9100094CED6 /* Fog-Of-Walk.app */,
 				77F76CA02F69E9110094CED6 /* FogOfWalkTests.xctest */,
 				77F76CAA2F69E9110094CED6 /* FogOfWalkUITests.xctest */,
 			);
@@ -127,7 +127,7 @@
 			packageProductDependencies = (
 			);
 			productName = FogOfWalk;
-			productReference = 77F76C932F69E9100094CED6 /* FogOfWalk.app */;
+			productReference = 77F76C932F69E9100094CED6 /* Fog-Of-Walk.app */;
 			productType = "com.apple.product-type.application";
 		};
 		77F76C9F2F69E9110094CED6 /* FogOfWalkTests */ = {
@@ -424,7 +424,8 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jeremybraff.fogofwalk;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = FogOfWalk;
+				PRODUCT_NAME = "Fog-Of-Walk";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -458,7 +459,8 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jeremybraff.fogofwalk;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = FogOfWalk;
+				PRODUCT_NAME = "Fog-Of-Walk";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -486,7 +488,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FogOfWalk.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FogOfWalk";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Fog-Of-Walk.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Fog-Of-Walk";
 			};
 			name = Debug;
 		};
@@ -507,7 +509,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FogOfWalk.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FogOfWalk";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Fog-Of-Walk.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Fog-Of-Walk";
 			};
 			name = Release;
 		};
