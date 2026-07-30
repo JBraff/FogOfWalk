@@ -14,8 +14,8 @@ struct LandmarkPin {
 
 // MARK: - LandmarkOverlayView
 
-/// Transparent overlay above FogView. Draws discovered landmark icons above the fog
-/// and undiscovered landmarks as hint "?" icons visible through it.
+/// Transparent overlay above the fog MKOverlay. Draws discovered landmark icons above the
+/// fog and undiscovered landmarks as hint "?" icons visible through it.
 final class LandmarkOverlayView: UIView {
 
     var pins: [LandmarkPin] = []

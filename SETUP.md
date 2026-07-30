@@ -1,89 +1,100 @@
-# Fog of Walk — Xcode Setup
+# Fog of Walk — Project Setup
 
-All Swift source files are ready. Follow these steps to create the Xcode project
-and wire everything together.
-
----
-
-## 1. Create the Xcode Project
-
-1. Open Xcode → **File → New → Project**
-2. Choose **iOS → App**
-3. Fill in:
-   - **Product Name:** `FogOfWalk`
-   - **Bundle Identifier:** `com.yourname.fogofwalk`
-   - **Interface:** SwiftUI
-   - **Language:** Swift
-   - **Include Tests:** ✓
-   - **Use Core Data:** ✗ (we add it manually)
-4. Save to the root of this repo — Xcode will create `FogOfWalk.xcodeproj` here.
+The Xcode project, its capabilities, and the Core Data model are all **checked into this repo**.
+There is nothing to create — cloning and building is enough. This document explains how the
+checked-in project is wired, how to build and run it, and how to regenerate the bundled
+landmark database if you need to.
 
 ---
 
-## 2. Replace the Generated Sources
+## 1. How the project is wired
 
-Delete Xcode's generated stubs and add the files from this repo:
-
-| Xcode group            | Files to add                                     |
-|------------------------|--------------------------------------------------|
-| `FogOfWalk/`           | `FogOfWalkApp.swift`, `ContentView.swift`        |
-| `FogOfWalk/Models/`    | `GridCell.swift`, `GridSettings.swift`, `ExplorationStore.swift`, `VisitedCell+CoreData.swift`, `CellSnapshot.swift`, `DiscoveryStatsModel.swift`, `Landmark+CoreData.swift`, `LandmarkStore.swift`, `LocalityGeocoder.swift`, `WikidataLandmark.swift` |
-| `FogOfWalk/Services/`  | `LocationService.swift`, `LandmarkSearchService.swift`, `BundledLandmarkSource.swift` |
-| `FogOfWalk/Views/`     | `MapContainerView.swift`, `FogOverlay.swift`, `StatsView.swift`, `SettingsView.swift`, `DiscoveryStatsView.swift`, `LandmarkDetailView.swift`, `LandmarkOverlayView.swift` |
-| `FogOfWalkTests/`      | `FogOfWalkTests.swift` (GridCell), `ExplorationStoreTests.swift`, `FogOverlayRendererTests.swift`, `GestureTransformTests.swift`, `HighlightPeriodTests.swift`, `BundledLandmarkSourceTests.swift`, `CellSnapshotTests.swift`, `DiscoveryStatsModelTests.swift`, `LandmarkOverlayViewTests.swift`, `LandmarkSearchServiceTests.swift`, `LandmarkStoreTests.swift`, `LocalityGeocoderTests.swift`, `LocationServiceTests.swift` |
-
-To add files: **right-click group → Add Files to "FogOfWalk"** (or drag-and-drop).
-Make sure **"Copy items if needed"** is unchecked if files are already in the right folder.
-
----
-
-## 3. Add the Core Data Model
-
-1. **File → New → File → Core Data → Data Model** — name it `FogOfWalk`
-2. Xcode creates `FogOfWalk.xcdatamodeld` — **delete it** (move to trash)
-3. **File → Add Files to "FogOfWalk"** → select the existing
-   `FogOfWalk/FogOfWalk.xcdatamodeld` directory from this repo
-4. Confirm it appears in the project navigator and is in the app target
+- **`FogOfWalk.xcodeproj/project.pbxproj`** uses `PBXFileSystemSynchronizedRootGroup` for the
+  `FogOfWalk`, `FogOfWalkTests`, and `FogOfWalkUITests` groups. New files added under those
+  directories are picked up automatically — there is no per-file membership list to maintain.
+  `Info.plist` is the one explicit exception: it's referenced directly via `INFOPLIST_FILE`.
+- **Product naming:** `PRODUCT_NAME = "Fog-Of-Walk"` while `PRODUCT_MODULE_NAME` is pinned to
+  `FogOfWalk`, so the built bundle is `Fog-Of-Walk.app` but `@testable import FogOfWalk` still
+  works. Test targets point `TEST_HOST` at `Fog-Of-Walk.app`.
+- **No shared scheme.** `FogOfWalk.xcodeproj/xcshareddata/` doesn't exist, only `xcuserdata/` —
+  builds rely on Xcode's autocreated user scheme. This is fine locally but means there is no CI
+  in this repo and a fresh clone's first build depends on Xcode generating that scheme.
+- **Core Data model:** one `FogOfWalk.xcdatamodeld` containing two model *versions* —
+  `FogOfWalk.xcdatamodel` and `FogOfWalk 2.xcdatamodel` — with `.xccurrentversion` selecting v2.
+  Not two separate `.xcdatamodeld` directories. `VisitedCell` is in both versions; `Landmark`
+  and the `byCellSizeAndCoords` fetch index were added in v2.
+- **Deployment target:** app target `IPHONEOS_DEPLOYMENT_TARGET = 18.6`; test targets `26.2`;
+  project-level default `26.2`.
 
 ---
 
-## 4. Info.plist — Location Permissions
+## 2. Build & run
 
-Open **FogOfWalk → Info** (target settings) and add these keys:
+```bash
+# Build (replace simulator ID if needed)
+xcodebuild \
+  -project FogOfWalk/FogOfWalk.xcodeproj \
+  -scheme FogOfWalk \
+  -destination 'platform=iOS Simulator,id=F1E38D9B-23CC-41EB-A448-9CF91633190A' \
+  build
+
+# Run tests
+xcodebuild \
+  -project FogOfWalk/FogOfWalk.xcodeproj \
+  -scheme FogOfWalk \
+  -destination 'platform=iOS Simulator,id=F1E38D9B-23CC-41EB-A448-9CF91633190A' \
+  test
+```
+
+To find an available simulator if the ID above is stale:
+```bash
+xcrun simctl list devices available | grep iPhone
+```
+
+- **Simulator:** Works for UI. Use **Features → Location → City Bicycle Ride** to simulate
+  movement and watch the fog lift.
+- **Device:** Sign the app with your personal team, install via Xcode, grant "Always" location
+  permission, then go for a walk.
+
+**Info.plist keys** (already set, listed here for reference — do not need to be re-added):
 
 | Key | Value |
 |-----|-------|
 | `NSLocationWhenInUseUsageDescription` | `Fog of Walk uncovers the map as you explore your neighborhood.` |
 | `NSLocationAlwaysAndWhenInUseUsageDescription` | `Background location lets Fog of Walk track your path even when your phone is in your pocket.` |
 | `UIBackgroundModes` | Array → Item 0: `location` |
+| `UIApplicationSupportsMultipleScenes` | `false` |
+
+There is no legacy `NSLocationAlwaysUsageDescription` key — only the combined
+`...AndWhenInUseUsageDescription` string above is needed on the deployment targets this app
+supports.
 
 ---
 
-## 5. Background Modes Capability
+## 3. Regenerating `landmarks.sqlite`
 
-1. Select the **FogOfWalk** target → **Signing & Capabilities**
-2. Click **+ Capability** → **Background Modes**
-3. Check **Location updates**
+Both `scripts/landmarks.sqlite` and `FogOfWalk/FogOfWalk/landmarks.sqlite` (~4 MB each) are
+git-tracked binaries — the copy under `FogOfWalk/FogOfWalk/` is what actually ships, picked up
+implicitly by the synchronized root group (it appears nowhere by name in `project.pbxproj`).
 
----
+**If this file goes missing or fails to load, the failure is silent.**
+`LandmarkSearchService.makeBundled()` falls back to an `EmptyLandmarkSource()` with no log line —
+the landmark feature just quietly stops working. If pins and discovery both go dead with no
+error, check that this file is actually present and loadable before looking anywhere else.
 
-## 6. Deployment Target
+To regenerate it:
 
-Set **Minimum Deployments → iOS 17.0** (required for `@Observable`).
+```bash
+# 1. Fetch landmark candidates from Wikidata (items with coordinates, an enwiki article,
+#    a curated set of instance-of types, and at least --min-sitelinks sitelinks; default 10).
+#    There is no default --input/--output pair checked in as "landmarks.json" — use one of the
+#    checked-in files (landmarks_10.json, landmarks_preview.json) or fetch fresh:
+python3 scripts/fetch_landmarks.py --output scripts/landmarks_10.json --min-sitelinks 10
 
----
+# 2. Build the SQLite file: a `landmarks` table plus a `landmarks_rtree` virtual R-tree index
+#    (degenerate (lat, lat, lon, lon) boxes, since landmarks are points).
+python3 scripts/make_landmarks_db.py --input scripts/landmarks_10.json --output scripts/landmarks.sqlite
+```
 
-## 7. Build & Run
-
-- **Simulator:** Works for UI. Use **Features → Location → City Bicycle Ride**
-  to simulate movement and watch the fog lift.
-- **Device:** Sign the app with your personal team, install via Xcode,
-  grant "Always" location permission, then go for a walk.
-
----
-
-## Testing
-
-Run **FogOfWalkTests** — the suite covers grid math, Core Data persistence,
-fog overlay rendering, landmark discovery, stats computation, geocoding,
-and location service authorization across all four cell sizes.
+After regenerating, copy the result to `FogOfWalk/FogOfWalk/landmarks.sqlite` so it ships in the
+app bundle.
