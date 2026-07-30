@@ -22,9 +22,18 @@ struct StatsView: View {
                 : "\(store.todayVisitedCount) new today. Tap to highlight today's areas.")
 
             if landmarkStore.totalDiscovered > 0 {
-                Label("\(landmarkStore.totalDiscovered)", systemImage: "star.fill")
-                    .font(.subheadline)
-                    .foregroundStyle(.yellow)
+                Button {
+                    gridSettings.showLandmarks.toggle()
+                } label: {
+                    Label("\(landmarkStore.totalDiscovered)",
+                          systemImage: gridSettings.showLandmarks ? "star.fill" : "star")
+                        .font(.subheadline)
+                        .foregroundStyle(gridSettings.showLandmarks ? Color.yellow : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(gridSettings.showLandmarks
+                    ? "Showing landmarks. Tap to hide."
+                    : "\(landmarkStore.totalDiscovered) discovered. Tap to show landmarks on the map.")
             }
 
             Spacer()

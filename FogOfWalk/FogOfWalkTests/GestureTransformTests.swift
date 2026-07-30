@@ -176,6 +176,7 @@ final class RefreshLandmarksZoomTests: XCTestCase {
     func testWalkingZoomPopulatesPins() async {
         await MainActor.run {
             let (coordinator, store) = makeCoordinator()
+            coordinator.gridSettings.showLandmarks = true
             store.addLandmarks([WikidataLandmark(id: "Q1", name: "Museum", description: nil,
                                                 lat: 40.7128, lon: -74.0060,
                                                 category: "museum", imageURL: nil)],
@@ -192,6 +193,7 @@ final class RefreshLandmarksZoomTests: XCTestCase {
         // geographic positions while the user is looking at a whole continent.
         await MainActor.run {
             let (coordinator, store) = makeCoordinator()
+            coordinator.gridSettings.showLandmarks = true
             store.addLandmarks([WikidataLandmark(id: "Q1", name: "Museum", description: nil,
                                                 lat: 40.7128, lon: -74.0060,
                                                 category: "museum", imageURL: nil)],
@@ -208,6 +210,61 @@ final class RefreshLandmarksZoomTests: XCTestCase {
             // And zooming back in must repopulate — the clear must not be sticky.
             coordinator.refreshLandmarks(in: region(span: 0.01), mapView: mapView)
             XCTAssertEqual(overlayView.pins.count, 1, "Zooming back in must restore pins")
+        }
+    }
+
+    func testLandmarksHiddenByDefaultProducesNoPins() async {
+        await MainActor.run {
+            // Other tests in this run may have already flipped and persisted the toggle
+            // via the real UserDefaults.standard, so clear it to observe the true default
+            // for a value that's never been set.
+            UserDefaults.standard.removeObject(forKey: "com.fogofwalk.showLandmarks")
+            let (coordinator, store) = makeCoordinator()
+            store.addLandmarks([WikidataLandmark(id: "Q1", name: "Museum", description: nil,
+                                                lat: 40.7128, lon: -74.0060,
+                                                category: "museum", imageURL: nil)],
+                               visitedCells: [])
+            let mapView = MKMapView()
+
+            XCTAssertFalse(coordinator.gridSettings.showLandmarks,
+                           "Precondition: display defaults to off")
+            coordinator.refreshLandmarks(in: region(span: 0.01), mapView: mapView)
+            XCTAssertEqual(overlayView.pins.count, 0, "Landmarks must not render until enabled")
+        }
+    }
+
+    func testEnablingShowLandmarksPopulatesPins() async {
+        await MainActor.run {
+            let (coordinator, store) = makeCoordinator()
+            store.addLandmarks([WikidataLandmark(id: "Q1", name: "Museum", description: nil,
+                                                lat: 40.7128, lon: -74.0060,
+                                                category: "museum", imageURL: nil)],
+                               visitedCells: [])
+            let mapView = MKMapView()
+
+            coordinator.gridSettings.showLandmarks = true
+            coordinator.refreshLandmarks(in: region(span: 0.01), mapView: mapView)
+            XCTAssertEqual(overlayView.pins.count, 1, "Enabling the toggle must render pins")
+        }
+    }
+
+    func testDisablingShowLandmarksClearsPins() async {
+        await MainActor.run {
+            let (coordinator, store) = makeCoordinator()
+            coordinator.gridSettings.showLandmarks = true
+            store.addLandmarks([WikidataLandmark(id: "Q1", name: "Museum", description: nil,
+                                                lat: 40.7128, lon: -74.0060,
+                                                category: "museum", imageURL: nil)],
+                               visitedCells: [])
+            let mapView = MKMapView()
+
+            coordinator.refreshLandmarks(in: region(span: 0.01), mapView: mapView)
+            XCTAssertEqual(overlayView.pins.count, 1,
+                           "Precondition: pins populated while enabled")
+
+            coordinator.gridSettings.showLandmarks = false
+            coordinator.refreshLandmarks(in: region(span: 0.01), mapView: mapView)
+            XCTAssertEqual(overlayView.pins.count, 0, "Disabling the toggle must clear pins")
         }
     }
 }

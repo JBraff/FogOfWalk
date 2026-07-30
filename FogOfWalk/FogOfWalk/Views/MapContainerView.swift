@@ -172,6 +172,14 @@ struct MapContainerView: UIViewRepresentable {
         // MARK: - Landmark refresh
 
         func refreshLandmarks(in region: MKCoordinateRegion, mapView: MKMapView) {
+            // Clear rather than early-return so stale pins from before the toggle was
+            // flipped off (or from the previous region) stop drawing; both this guard and
+            // the wide-zoom one below rely on that to keep the overlay in sync.
+            guard gridSettings.showLandmarks else {
+                landmarkOverlayView?.update(pins: [])
+                return
+            }
+
             // Above the ingest span the map is an orientation view — the fog has already
             // vanished at this scale, so pins carry no useful detail either. Clear rather
             // than early-return so stale pins from the previous region stop drawing;
