@@ -1,5 +1,7 @@
 import XCTest
 import MapKit
+import CoreData
+import CoreLocation
 @testable import FogOfWalk
 
 /// Tests for Coordinator.gestureTransform — the pure-math function that converts
@@ -120,5 +122,92 @@ final class GestureTransformTests: XCTestCase {
         XCTAssertEqual(t.m22, 2.0, accuracy: 1e-6, "Combined: y scale must be 2")
         XCTAssertEqual(t.m41, 50.0,  accuracy: 1e-6, "Combined: tx must be 50")
         XCTAssertEqual(t.m42, -30.0, accuracy: 1e-6, "Combined: ty must be -30")
+    }
+}
+
+// MARK: - refreshLandmarks zoom gating
+
+/// `Coordinator.refreshLandmarks` decides whether landmark pins are drawn at all. The
+/// `mapView` argument is unused by its body, so the decision is testable without driving a
+/// real pinch gesture.
+///
+/// Tests are `async` + `await MainActor.run { }` rather than a `@MainActor` class with sync
+/// tests, because they construct `@MainActor @Observable` stores — see the note in
+/// `LandmarkStoreTests`. The sync form crashes in the Swift runtime when those stores
+/// deallocate outside a Task context.
+final class RefreshLandmarksZoomTests: XCTestCase {
+
+    var overlayView: LandmarkOverlayView!
+
+    @MainActor
+    func makeCoordinator() -> (MapContainerView.Coordinator, LandmarkStore) {
+        let exploration = ExplorationStore()
+        let container   = NSPersistentContainer(name: "FogOfWalk")
+        let desc        = NSPersistentStoreDescription()
+        desc.type       = NSInMemoryStoreType
+        container.persistentStoreDescriptions = [desc]
+        container.loadPersistentStores { _, _ in }
+        let landmarkStore = LandmarkStore(container: container)
+
+        let coordinator = MapContainerView.Coordinator(
+            store: exploration,
+            gridSettings: GridSettings(),
+            landmarkStore: landmarkStore,
+            searchService: LandmarkSearchService()
+        )
+        // `landmarkOverlayView` is weak — the test must hold the strong reference.
+        overlayView = LandmarkOverlayView(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        coordinator.landmarkOverlayView = overlayView
+        return (coordinator, landmarkStore)
+    }
+
+    override func tearDown() {
+        overlayView = nil
+        super.tearDown()
+    }
+
+    func region(span: Double) -> MKCoordinateRegion {
+        MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060),
+            span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span)
+        )
+    }
+
+    func testWalkingZoomPopulatesPins() async {
+        await MainActor.run {
+            let (coordinator, store) = makeCoordinator()
+            store.addLandmarks([WikidataLandmark(id: "Q1", name: "Museum", description: nil,
+                                                lat: 40.7128, lon: -74.0060,
+                                                category: "museum", imageURL: nil)],
+                               visitedCells: [])
+            let mapView = MKMapView()
+
+            coordinator.refreshLandmarks(in: region(span: 0.01), mapView: mapView)
+            XCTAssertEqual(overlayView.pins.count, 1)
+        }
+    }
+
+    func testWideZoomClearsPins() async {
+        // Stale pins from the previous region must stop drawing, not linger at their old
+        // geographic positions while the user is looking at a whole continent.
+        await MainActor.run {
+            let (coordinator, store) = makeCoordinator()
+            store.addLandmarks([WikidataLandmark(id: "Q1", name: "Museum", description: nil,
+                                                lat: 40.7128, lon: -74.0060,
+                                                category: "museum", imageURL: nil)],
+                               visitedCells: [])
+            let mapView = MKMapView()
+
+            coordinator.refreshLandmarks(in: region(span: 0.01), mapView: mapView)
+            XCTAssertEqual(overlayView.pins.count, 1,
+                           "Precondition: pins populated at walking zoom")
+
+            coordinator.refreshLandmarks(in: region(span: 30), mapView: mapView)
+            XCTAssertEqual(overlayView.pins.count, 0, "World zoom must clear the pin array")
+
+            // And zooming back in must repopulate — the clear must not be sticky.
+            coordinator.refreshLandmarks(in: region(span: 0.01), mapView: mapView)
+            XCTAssertEqual(overlayView.pins.count, 1, "Zooming back in must restore pins")
+        }
     }
 }
