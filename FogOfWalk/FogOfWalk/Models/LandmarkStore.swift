@@ -173,6 +173,55 @@ final class LandmarkStore {
         discover(among: inserted, visitedCells: visitedCells)
     }
 
+    /// Merge-imports discovered-landmark state from a backup. For each record whose
+    /// `identifier` matches a landmark known locally, marks it discovered and keeps the
+    /// earlier of the existing/imported `firstDiscovered` date. Records whose identifier has
+    /// no local match (e.g. bundled reference data differs between devices) are skipped
+    /// without error. Returns the number of landmarks newly marked discovered.
+    @discardableResult
+    func restoreDiscovered(_ records: [(identifier: String, firstDiscovered: Date)]) -> Int {
+        guard !records.isEmpty else { return 0 }
+
+        var byIdentifier: [String: Landmark] = [:]
+        for landmark in allLandmarks {
+            byIdentifier[landmark.identifier] = landmark
+        }
+
+        let ctx = container.viewContext
+        var newlyDiscoveredCount = 0
+        var touched: [Landmark] = []
+
+        for record in records {
+            guard let landmark = byIdentifier[record.identifier] else { continue }
+
+            if landmark.isDiscovered {
+                if let current = landmark.firstDiscovered, record.firstDiscovered < current {
+                    landmark.firstDiscovered = record.firstDiscovered
+                    touched.append(landmark)
+                }
+            } else {
+                landmark.isDiscovered = true
+                landmark.firstDiscovered = record.firstDiscovered
+                touched.append(landmark)
+                newlyDiscoveredCount += 1
+            }
+        }
+
+        guard !touched.isEmpty else { return 0 }
+
+        do {
+            try ctx.save()
+        } catch {
+            print("LandmarkStore: restoreDiscovered save failed: \(error)")
+            ctx.rollback()
+            loadFromStore()
+            return 0
+        }
+
+        loadFromStore()
+        return newlyDiscoveredCount
+    }
+
     // MARK: - Discovery
 
     /// Discovery triggered by one newly walked cell. This is the hot path — it runs on every

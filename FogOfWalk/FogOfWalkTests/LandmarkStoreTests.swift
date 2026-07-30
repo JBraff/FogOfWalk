@@ -717,6 +717,50 @@ final class LandmarkStoreTests: XCTestCase {
         }
     }
 
+    // MARK: - restoreDiscovered
+
+    func testRestoreDiscoveredMarksKnownLandmarkDiscovered() async {
+        await MainActor.run {
+            let store = makeStore()
+            seed(store, [makeWikidataLandmark(id: "Q10", name: "Old Fort")])
+            XCTAssertFalse(store.allLandmarks.first?.isDiscovered ?? true)
+
+            let date = Date(timeIntervalSince1970: 1_000)
+            let added = store.restoreDiscovered([(identifier: "Q10", firstDiscovered: date)])
+
+            XCTAssertEqual(added, 1)
+            XCTAssertEqual(store.totalDiscovered, 1)
+            XCTAssertTrue(store.allLandmarks.first?.isDiscovered ?? false)
+            XCTAssertEqual(store.allLandmarks.first?.firstDiscovered, date)
+        }
+    }
+
+    func testRestoreDiscoveredSkipsUnknownIdentifierWithoutError() async {
+        await MainActor.run {
+            let store = makeStore()
+            seed(store, [makeWikidataLandmark(id: "Q10", name: "Old Fort")])
+
+            let added = store.restoreDiscovered([(identifier: "Q999-not-local", firstDiscovered: Date())])
+
+            XCTAssertEqual(added, 0)
+            XCTAssertEqual(store.totalDiscovered, 0)
+        }
+    }
+
+    func testRestoreDiscoveredKeepsEarlierDateForAlreadyDiscoveredLandmark() async {
+        await MainActor.run {
+            let store = makeStore()
+            seed(store, [makeWikidataLandmark(id: "Q10", name: "Old Fort")])
+            _ = store.restoreDiscovered([(identifier: "Q10", firstDiscovered: Date(timeIntervalSince1970: 5_000))])
+
+            let added = store.restoreDiscovered([(identifier: "Q10", firstDiscovered: Date(timeIntervalSince1970: 1_000))])
+
+            XCTAssertEqual(added, 0, "Landmark was already discovered, so this is not a new discovery")
+            XCTAssertEqual(store.allLandmarks.first?.firstDiscovered, Date(timeIntervalSince1970: 1_000),
+                            "Merge should keep the earlier firstDiscovered date")
+        }
+    }
+
     // MARK: - Migration
 
     override func setUp() {
