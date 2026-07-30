@@ -66,45 +66,6 @@ final class ExplorationStoreTests: XCTestCase {
         }
     }
 
-    func testVisitedCellsInRegionReturnsOnlyIntersection() async {
-        await MainActor.run {
-            let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure()
-
-            let nyc  = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
-            let cell = GridMath.cellID(for: nyc)
-            let far  = CellID(x: cell.x + 1000, y: cell.y + 1000)
-
-            store.addCell(cell)
-            store.addCell(far)
-
-            let region  = MKCoordinateRegion(center: nyc, latitudinalMeters: 300,
-                                             longitudinalMeters: 300)
-            let visible = store.visitedCells(in: region)
-
-            XCTAssertTrue(visible.contains(cell), "Nearby cell must be included")
-            XCTAssertFalse(visible.contains(far), "Far cell must be excluded")
-        }
-    }
-
-    func testVisitedCellsInRegionReturnsEmptyWhenNoneMatch() async {
-        await MainActor.run {
-            let store  = ExplorationStore(container: makeInMemoryContainer())
-            store.configure()
-
-            let sydney = CLLocationCoordinate2D(latitude: -33.8688, longitude: 151.2093)
-            let nyc    = CLLocationCoordinate2D(latitude:  40.7128, longitude: -74.0060)
-
-            store.addCell(GridMath.cellID(for: sydney))
-
-            let region  = MKCoordinateRegion(center: nyc, latitudinalMeters: 300,
-                                             longitudinalMeters: 300)
-            let visible = store.visitedCells(in: region)
-
-            XCTAssertTrue(visible.isEmpty, "Should return empty when no visited cells in region")
-        }
-    }
-
     func testDeleteAllCellsClearsEverything() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
@@ -131,47 +92,6 @@ final class ExplorationStoreTests: XCTestCase {
         }
     }
 
-    func testTotalCellCountAccountsForLongitudeScaling() async {
-        await MainActor.run {
-            let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure()
-
-            // Cupertino: ~37.3°N. cos(37.3°) ≈ 0.795.
-            // A circle at this latitude should contain more cells in longitude
-            // than a naive (equatorial) calculation would suggest.
-            let cupertino = CLLocationCoordinate2D(latitude: 37.3230, longitude: -122.0322)
-            let radius: CLLocationDistance = 500
-            let circle = CLCircularRegion(center: cupertino, radius: radius, identifier: "test")
-
-            let total = store.totalCellCount(in: circle)
-
-            // At the equator, the circle would be symmetric: roughly π*(500/50)² ≈ 314 cells.
-            // At 37.3°N, cells are narrower in real meters (by cos(lat)), so more cells fit
-            // in the east-west direction. The total should be ~314/cos(37.3°) ≈ 395.
-            // Without the cos(lat) correction the denominator would be ~314, so assert > 340
-            // to catch the regression.
-            XCTAssertGreaterThan(total, 340,
-                "totalCellCount must use cos(lat)-corrected longitude span; got \(total)")
-        }
-    }
-
-    func testTotalCellCountSymmetricAtEquator() async {
-        await MainActor.run {
-            let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure()
-
-            // At the equator, cos(0°)=1, so no longitude correction is needed.
-            let equator = CLLocationCoordinate2D(latitude: 0.0, longitude: 0.0)
-            let circle = CLCircularRegion(center: equator, radius: 500, identifier: "eq")
-
-            let total = store.totalCellCount(in: circle)
-
-            // π * (500/50)² ≈ 314. Allow a range for grid discretization.
-            XCTAssertGreaterThan(total, 280, "Equator total too low: \(total)")
-            XCTAssertLessThan(total, 350, "Equator total too high: \(total)")
-        }
-    }
-
     func testVisitedCellCountUsesGeodesicDistance() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())
@@ -190,32 +110,6 @@ final class ExplorationStoreTests: XCTestCase {
 
             let visited = store.visitedCellCount(in: circle)
             XCTAssertEqual(visited, 1, "Only the nearby cell should be inside the circle")
-        }
-    }
-
-    func testCityPercentageIsReasonable() async {
-        await MainActor.run {
-            let store = ExplorationStore(container: makeInMemoryContainer())
-            store.configure()
-
-            let cupertino = CLLocationCoordinate2D(latitude: 37.3230, longitude: -122.0322)
-            let circle = CLCircularRegion(center: cupertino, radius: 500, identifier: "test")
-
-            // Add 12 cells near center.
-            let baseCell = GridMath.cellID(for: cupertino)
-            for dx in Int32(0)..<4 {
-                for dy in Int32(0)..<3 {
-                    store.addCell(CellID(x: baseCell.x + dx, y: baseCell.y + dy))
-                }
-            }
-
-            let visited = store.visitedCellCount(in: circle)
-            let total   = store.totalCellCount(in: circle)
-            let percent = Double(visited) / Double(total)
-
-            // 12 cells out of ~395 should be roughly 3%, definitely under 5%.
-            XCTAssertLessThan(percent, 0.05,
-                "12 cells in a 500m circle should be well under 5%, got \(percent * 100)%")
         }
     }
 

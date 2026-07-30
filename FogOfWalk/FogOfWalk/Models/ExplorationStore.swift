@@ -197,16 +197,6 @@ final class ExplorationStore {
 
     // MARK: - Query
 
-    func visitedCells(in region: MKCoordinateRegion) -> Set<CellID> {
-        // Filter the in-memory cache directly by bounds instead of materialising all
-        // region cells into a [CellID] array (which can reach 10,000 elements per call).
-        guard let b = GridMath.cellBounds(in: region) else {
-            return []
-        }
-        return visitedCellsCache.filter { $0.x >= b.minX && $0.x <= b.maxX &&
-                                          $0.y >= b.minY && $0.y <= b.maxY }
-    }
-
     /// Visited cells inside a circle (city % numerator).
     func visitedCellCount(in circle: CLCircularRegion) -> Int {
         let center = CLLocation(latitude: circle.center.latitude, longitude: circle.center.longitude)
@@ -214,22 +204,6 @@ final class ExplorationStore {
             let coord = GridMath.center(for: cell)
             return CLLocation(latitude: coord.latitude, longitude: coord.longitude)
                 .distance(from: center) <= circle.radius
-        }.count
-    }
-
-    /// Total grid cells that fit inside a circle (city % denominator).
-    func totalCellCount(in circle: CLCircularRegion) -> Int {
-        let cosLat = cos(circle.center.latitude * .pi / 180)
-        let span = MKCoordinateSpan(
-            latitudeDelta:  (circle.radius / GridMath.metersPerDegree) * 2,
-            longitudeDelta: (circle.radius / (GridMath.metersPerDegree * cosLat)) * 2
-        )
-        let region    = MKCoordinateRegion(center: circle.center, span: span)
-        let circleLoc = CLLocation(latitude: circle.center.latitude, longitude: circle.center.longitude)
-        return GridMath.cells(in: region).filter { cell in
-            let coord = GridMath.center(for: cell)
-            return CLLocation(latitude: coord.latitude, longitude: coord.longitude)
-                .distance(from: circleLoc) <= circle.radius
         }.count
     }
 

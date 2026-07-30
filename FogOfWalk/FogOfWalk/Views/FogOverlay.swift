@@ -53,6 +53,7 @@ struct FogRenderer {
         recentCells: [CellID] = [],
         drawRect: CGRect,
         coordinateConverter: (CLLocationCoordinate2D) -> CGPoint,
+        minRadius: CGFloat = 0,
         in context: CGContext
     ) {
         // 1. Flood-fill with fog.
@@ -65,7 +66,7 @@ struct FogRenderer {
         context.setBlendMode(.destinationOut)
         for cell in cells {
             drawHole(for: cell, drawRect: drawRect, coordinateConverter: coordinateConverter,
-                     in: context)
+                     minRadius: minRadius, in: context)
         }
         context.setBlendMode(.normal)
 
@@ -73,13 +74,14 @@ struct FogRenderer {
         guard !recentCells.isEmpty else { return }
         for cell in recentCells {
             drawHighlight(for: cell, drawRect: drawRect, coordinateConverter: coordinateConverter,
-                          in: context)
+                          minRadius: minRadius, in: context)
         }
     }
 
     private func cellGeometry(
         for cell: CellID,
-        coordinateConverter: (CLLocationCoordinate2D) -> CGPoint
+        coordinateConverter: (CLLocationCoordinate2D) -> CGPoint,
+        minRadius: CGFloat
     ) -> (center: CGPoint, radius: CGFloat) {
         let b = GridMath.bounds(for: cell)
         let minPt = coordinateConverter(CLLocationCoordinate2D(latitude: b.min.latitude,
@@ -89,17 +91,22 @@ struct FogRenderer {
         let center = CGPoint(x: (minPt.x + maxPt.x) / 2,
                              y: (minPt.y + maxPt.y) / 2)
         // 10% overlap so adjacent explored cells merge without visible seams.
-        let radius = max(abs(maxPt.x - minPt.x), abs(maxPt.y - minPt.y)) * 0.9
-        return (center, radius)
+        // Floored so cells stay visible on screen at low zoom, where the raw
+        // projected radius would otherwise shrink toward zero (see minRadius
+        // computation in FogOverlayRenderer.draw, which compensates for zoomScale).
+        let rawRadius = max(abs(maxPt.x - minPt.x), abs(maxPt.y - minPt.y)) * 0.9
+        return (center, max(rawRadius, minRadius))
     }
 
     private func drawHole(
         for cell: CellID,
         drawRect: CGRect,
         coordinateConverter: (CLLocationCoordinate2D) -> CGPoint,
+        minRadius: CGFloat,
         in context: CGContext
     ) {
-        let (center, radius) = cellGeometry(for: cell, coordinateConverter: coordinateConverter)
+        let (center, radius) = cellGeometry(for: cell, coordinateConverter: coordinateConverter,
+                                             minRadius: minRadius)
         guard radius > 0.5 else { return }  // skip sub-pixel cells
         let gradientRect = CGRect(x: center.x - radius, y: center.y - radius,
                                   width: radius * 2,    height: radius * 2)
@@ -120,9 +127,11 @@ struct FogRenderer {
         for cell: CellID,
         drawRect: CGRect,
         coordinateConverter: (CLLocationCoordinate2D) -> CGPoint,
+        minRadius: CGFloat,
         in context: CGContext
     ) {
-        let (center, radius) = cellGeometry(for: cell, coordinateConverter: coordinateConverter)
+        let (center, radius) = cellGeometry(for: cell, coordinateConverter: coordinateConverter,
+                                             minRadius: minRadius)
         guard radius > 0.5 else { return }
         let gradientRect = CGRect(x: center.x - radius, y: center.y - radius,
                                   width: radius * 2,    height: radius * 2)
@@ -144,6 +153,11 @@ struct FogRenderer {
 /// MapKit calls `draw(_:zoomScale:in:)` on background threads; all state shared
 /// with the main thread is protected by `NSLock` via the `snapshot` property.
 final class FogOverlayRenderer: MKOverlayRenderer {
+
+    /// Minimum on-screen radius (in points) for a visited-cell hole, regardless of zoom.
+    /// Without this, a cell's raw projected radius shrinks proportionally with zoomScale
+    /// and eventually becomes imperceptible when the map is zoomed far out.
+    private static let kMinCellScreenPoints: CGFloat = 3.0
 
     // MARK: Thread-safe snapshot
 
@@ -180,6 +194,14 @@ final class FogOverlayRenderer: MKOverlayRenderer {
         let cells   = snap.visitedCells(inLatRange: latRange, lonRange: lonRange)
         let recent  = snap.recentCells(inLatRange: latRange, lonRange: lonRange)
 
+        // draw(_:zoomScale:in:) draws into a context whose transform already bakes in
+        // zoomScale, so a fixed radius in this coordinate space shrinks proportionally
+        // as the map zooms out. Dividing the desired on-screen minimum by zoomScale
+        // converts it into this renderer's coordinate space, keeping it constant on screen.
+        let minRadius: CGFloat = zoomScale > 0
+            ? Self.kMinCellScreenPoints / CGFloat(zoomScale)
+            : 0
+
         fogRenderer.render(
             cells: cells,
             recentCells: recent,
@@ -187,6 +209,7 @@ final class FogOverlayRenderer: MKOverlayRenderer {
             coordinateConverter: { [weak self] coord in
                 self?.point(for: MKMapPoint(coord)) ?? .zero
             },
+            minRadius: minRadius,
             in: context
         )
     }

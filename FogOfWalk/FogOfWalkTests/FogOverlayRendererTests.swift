@@ -22,7 +22,13 @@ final class FogOverlayRendererTests: XCTestCase {
 
     /// Linear lat/lon → CGPoint projection that maps `region` onto `viewSize`.
     func makeCoordinateConverter() -> (CLLocationCoordinate2D) -> CGPoint {
-        let r       = region
+        makeCoordinateConverter(forRegion: region)
+    }
+
+    /// Same projection as `makeCoordinateConverter()` but over an arbitrary region, so tests
+    /// can simulate a zoomed-out view (a much wider span mapped onto the same view size,
+    /// shrinking the projected radius of a fixed-size cell) without touching real MapKit/zoomScale.
+    func makeCoordinateConverter(forRegion r: MKCoordinateRegion) -> (CLLocationCoordinate2D) -> CGPoint {
         let latMin  = r.center.latitude  - r.span.latitudeDelta  / 2
         let lonMin  = r.center.longitude - r.span.longitudeDelta / 2
         let latSpan = r.span.latitudeDelta
@@ -40,7 +46,8 @@ final class FogOverlayRendererTests: XCTestCase {
     /// Renders fog using FogRenderer directly into a CGImage.
     func renderFog(cells: [CellID],
                    recentCells: [CellID] = [],
-                   coordinateConverter: ((CLLocationCoordinate2D) -> CGPoint)? = nil) -> CGImage {
+                   coordinateConverter: ((CLLocationCoordinate2D) -> CGPoint)? = nil,
+                   minRadius: CGFloat = 0) -> CGImage {
         let converter = coordinateConverter ?? makeCoordinateConverter()
         let fogRenderer = FogRenderer()
         let format      = UIGraphicsImageRendererFormat()
@@ -49,7 +56,8 @@ final class FogOverlayRendererTests: XCTestCase {
         let uiImage = imgRenderer.image { _ in
             guard let ctx = UIGraphicsGetCurrentContext() else { return }
             fogRenderer.render(cells: cells, recentCells: recentCells,
-                               drawRect: drawRect, coordinateConverter: converter, in: ctx)
+                               drawRect: drawRect, coordinateConverter: converter,
+                               minRadius: minRadius, in: ctx)
         }
         return uiImage.cgImage!
     }
@@ -106,12 +114,13 @@ final class FogOverlayRendererTests: XCTestCase {
         makeCoordinateConverter()(coord)
     }
 
-    func holeRadius(for cell: CellID) -> CGFloat {
+    func holeRadius(for cell: CellID, minRadius: CGFloat = 0) -> CGFloat {
         let b     = GridMath.bounds(for: cell)
         let converter = makeCoordinateConverter()
         let minPt = converter(b.min)
         let maxPt = converter(b.max)
-        return max(abs(maxPt.x - minPt.x), abs(maxPt.y - minPt.y)) * 0.9
+        let rawRadius = max(abs(maxPt.x - minPt.x), abs(maxPt.y - minPt.y)) * 0.9
+        return max(rawRadius, minRadius)
     }
 
     // MARK: - FogOverlay tests
@@ -241,6 +250,31 @@ final class FogOverlayRendererTests: XCTestCase {
         let centerPixel = pixelColor(at: CGPoint(x: 200, y: 200), in: image)
         XCTAssertGreaterThan(Int(centerPixel.a), 200,
             "No cells: center should be fully fogged, got alpha=\(centerPixel.a)")
+    }
+
+    /// At a "zoomed out" projection (wide region over the same view size), the raw
+    /// projected radius of a single 50m cell shrinks toward zero and the hole would
+    /// otherwise vanish. Passing a minRadius floor should keep it visibly punched.
+    func testHoleRadiusHasMinimumFloorAtLowZoom() {
+        let cell = cellForTestCenter()
+        let zoomedOutRegion = MKCoordinateRegion(
+            center: testCenter, latitudinalMeters: 300_000, longitudinalMeters: 300_000)
+        let converter = makeCoordinateConverter(forRegion: zoomedOutRegion)
+
+        let floor: CGFloat = 5.0
+        let unfloored = renderFog(cells: [cell], coordinateConverter: converter, minRadius: 0)
+        let floored   = renderFog(cells: [cell], coordinateConverter: converter, minRadius: floor)
+
+        let coord = GridMath.center(for: cell)
+        let pt    = converter(coord)
+
+        let unflooredPixel = pixelColor(at: pt, in: unfloored)
+        XCTAssertGreaterThan(Int(unflooredPixel.a), 200,
+            "Sanity check: without a floor, a cell at 30km span should be effectively invisible, got alpha=\(unflooredPixel.a)")
+
+        let flooredPixel = pixelColor(at: pt, in: floored)
+        XCTAssertLessThan(Int(flooredPixel.a), 30,
+            "With a minRadius floor, the cell center should still be punched transparent, got alpha=\(flooredPixel.a)")
     }
 
     // MARK: - Highlight tests
