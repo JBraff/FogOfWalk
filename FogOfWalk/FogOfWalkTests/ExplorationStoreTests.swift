@@ -476,6 +476,104 @@ final class ExplorationStoreTests: XCTestCase {
         }
     }
 
+    // MARK: - Day rollover
+
+    func testTodayCountResetsAfterDayChange() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            let day1 = Calendar.current.startOfDay(for: Date())
+            store.nowProvider = { day1 }
+            store.configure()
+            store.addCell(CellID(x: 0, y: 0))
+            store.addCell(CellID(x: 1, y: 0))
+            XCTAssertEqual(store.todayVisitedCount, 2)
+
+            let day2 = Calendar.current.date(byAdding: .day, value: 1, to: day1)!
+            store.nowProvider = { day2 }
+            let rolled = store.refreshForDayChangeIfNeeded()
+
+            XCTAssertTrue(rolled, "refreshForDayChangeIfNeeded should report a rollover")
+            XCTAssertEqual(store.todayVisitedCount, 0, "today count should reset on day change")
+            XCTAssertEqual(store.totalVisitedCount, 2, "total count must be unaffected by rollover")
+        }
+    }
+
+    func testAddCellAfterDayChangeCountsOnlyNewDay() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            let day1 = Calendar.current.startOfDay(for: Date())
+            store.nowProvider = { day1 }
+            store.configure()
+            store.addCell(CellID(x: 0, y: 0))
+
+            let day2 = Calendar.current.date(byAdding: .day, value: 1, to: day1)!
+            store.nowProvider = { day2 }
+            store.refreshForDayChangeIfNeeded()
+
+            store.addCell(CellID(x: 5, y: 5))
+            XCTAssertEqual(store.todayVisitedCount, 1,
+                "only the cell added after rollover should count toward the new day")
+        }
+    }
+
+    func testHighlightCacheRebuiltAfterDayChange() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            let day1 = Calendar.current.startOfDay(for: Date())
+            store.nowProvider = { day1 }
+            store.configure()
+            store.loadRecentCells(since: day1)
+            store.addCell(CellID(x: 0, y: 0))
+            XCTAssertFalse(store.recentCellsCache.isEmpty)
+
+            let priorGeneration = store.recentCellsGeneration
+            let day2 = Calendar.current.date(byAdding: .day, value: 1, to: day1)!
+            store.nowProvider = { day2 }
+            store.refreshForDayChangeIfNeeded()
+
+            XCTAssertTrue(store.recentCellsCache.isEmpty,
+                "yesterday's cells must not remain in the highlight cache")
+            XCTAssertEqual(store.recentCellsGeneration, priorGeneration &+ 1,
+                "highlight rebuild should advance the generation exactly once")
+        }
+    }
+
+    func testRefreshForDayChangeIsNoOpWithinSameDay() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            let day1 = Calendar.current.startOfDay(for: Date())
+            store.nowProvider = { day1 }
+            store.configure()
+            store.addCell(CellID(x: 0, y: 0))
+
+            let countBefore = store.todayVisitedCount
+            let generationBefore = store.recentCellsGeneration
+            let rolled = store.refreshForDayChangeIfNeeded()
+
+            XCTAssertFalse(rolled, "no rollover should be reported within the same day")
+            XCTAssertEqual(store.todayVisitedCount, countBefore)
+            XCTAssertEqual(store.recentCellsGeneration, generationBefore)
+        }
+    }
+
+    func testHighlightNotArmedIsNotRebuiltOnDayChange() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            let day1 = Calendar.current.startOfDay(for: Date())
+            store.nowProvider = { day1 }
+            store.configure()
+            store.addCell(CellID(x: 0, y: 0))
+            // Never arm the highlight — recentCellsCache stays empty and inactive.
+
+            let day2 = Calendar.current.date(byAdding: .day, value: 1, to: day1)!
+            store.nowProvider = { day2 }
+            store.refreshForDayChangeIfNeeded()
+
+            XCTAssertTrue(store.recentCellsCache.isEmpty,
+                "a disarmed highlight must not be armed by a day change")
+        }
+    }
+
     func testDeleteAllCellsClearsRecentCache() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())

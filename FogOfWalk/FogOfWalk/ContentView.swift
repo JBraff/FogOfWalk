@@ -1,5 +1,6 @@
 import MapKit
 import SwiftUI
+import UIKit
 
 struct MapNavigationTarget {
     let id = UUID()
@@ -27,7 +28,8 @@ struct ContentView: View {
                 onLandmarkTapped: { id in
                     selectedLandmark = landmarkStore.allLandmarks.first(where: { $0.identifier == id })
                 },
-                navigateTo: mapTarget
+                navigateTo: mapTarget,
+                highlightGeneration: store.recentCellsGeneration
             )
             .ignoresSafeArea()
 
@@ -60,6 +62,22 @@ struct ContentView: View {
         .onChange(of: gridSettings.highlightToday) { _, newValue in
             let cutoff = newValue ? Calendar.current.startOfDay(for: Date()) : nil
             store.loadRecentCells(since: cutoff)
+        }
+        // Best-effort day-rollover triggers for a user actively watching the app as
+        // midnight passes. Each loop never returns, so each needs its own .task —
+        // putting them in FogOfWalkApp's setup .task would strand that task's real
+        // work behind an infinite loop.
+        .task {
+            for await _ in NotificationCenter.default.notifications(named: .NSCalendarDayChanged) {
+                store.refreshForDayChangeIfNeeded()
+            }
+        }
+        .task {
+            for await _ in NotificationCenter.default.notifications(
+                named: UIApplication.significantTimeChangeNotification
+            ) {
+                store.refreshForDayChangeIfNeeded()
+            }
         }
     }
 }

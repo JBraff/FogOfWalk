@@ -28,6 +28,12 @@ final class ExplorationStore {
     /// currently empty (e.g., early in the day before any cells are visited).
     private var isHighlightActive = false
 
+    /// Injectable clock, required to test day-rollover behavior deterministically.
+    var nowProvider: () -> Date = { Date() }
+    /// The calendar day (start-of-day) the caches were last computed for.
+    /// `.distantPast` forces the first refresh to do a real recount.
+    private var cacheDay: Date = .distantPast
+
     /// Called after a new cell is successfully persisted. Used by LocalityGeocoder.
     var onNewCell: ((VisitedCell) -> Void)?
 
@@ -86,16 +92,39 @@ final class ExplorationStore {
             totalVisitedCount = visitedCellsCache.count
             hasConfigured     = true
 
-            let startOfToday = Calendar.current.startOfDay(for: Date())
-            let todayRequest = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
-            todayRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-                NSPredicate(format: "cellSizeMeters == %f", kCellSizeMeters),
-                NSPredicate(format: "firstVisited >= %@", startOfToday as NSDate)
-            ])
-            todayVisitedCount = (try? container.viewContext.count(for: todayRequest)) ?? 0
+            let startOfToday = Calendar.current.startOfDay(for: nowProvider())
+            todayVisitedCount = fetchTodayCount(since: startOfToday)
+            cacheDay          = startOfToday
         } catch {
             print("ExplorationStore: cache reload failed: \(error)")
         }
+    }
+
+    private func fetchTodayCount(since startOfToday: Date) -> Int {
+        let todayRequest = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
+        todayRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            NSPredicate(format: "cellSizeMeters == %f", kCellSizeMeters),
+            NSPredicate(format: "firstVisited >= %@", startOfToday as NSDate)
+        ])
+        return (try? container.viewContext.count(for: todayRequest)) ?? 0
+    }
+
+    /// Call on every plausible "time may have advanced" trigger (new location, scene
+    /// becoming active, calendar day change notification). Cheap no-op within the same
+    /// day. Returns whether a rollover actually happened, since backgrounded callers
+    /// (no view update in flight) need to know whether to force a fog repaint.
+    @discardableResult
+    func refreshForDayChangeIfNeeded() -> Bool {
+        guard hasConfigured else { return false }
+        let today = Calendar.current.startOfDay(for: nowProvider())
+        guard today != cacheDay else { return false }
+
+        todayVisitedCount = fetchTodayCount(since: today)
+        cacheDay          = today
+        if isHighlightActive {
+            loadRecentCells(since: today)
+        }
+        return true
     }
 
     // MARK: - Recent cells
@@ -140,7 +169,7 @@ final class ExplorationStore {
         entity.cellX          = cell.x
         entity.cellY          = cell.y
         entity.cellSizeMeters = kCellSizeMeters
-        entity.firstVisited   = Date()
+        entity.firstVisited   = nowProvider()
 
         do {
             try ctx.save()
@@ -249,5 +278,6 @@ final class ExplorationStore {
         totalVisitedCount = 0
         todayVisitedCount = 0
         hasConfigured     = false
+        cacheDay          = .distantPast
     }
 }

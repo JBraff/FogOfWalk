@@ -60,6 +60,9 @@ struct FogOfWalkApp: App {
                     // so it won't catch this on a warm foreground.
                     if newPhase == .active {
                         locationService.restartIfAuthorized()
+                        // Catches a day rollover that happened while backgrounded, before
+                        // any location update arrives, so the HUD is correct on first frame.
+                        store.refreshForDayChangeIfNeeded()
                     }
                 }
         }

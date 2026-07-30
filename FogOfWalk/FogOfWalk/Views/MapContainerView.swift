@@ -10,6 +10,10 @@ struct MapContainerView: UIViewRepresentable {
 
     var onLandmarkTapped: ((String) -> Void)?
     var navigateTo: MapNavigationTarget?
+    /// Mirrors `store.recentCellsGeneration` so SwiftUI diffs this representable's value
+    /// on a day-rollover highlight rebuild even when no other input changed, forcing
+    /// `updateUIView` to run and pick up the new snapshot.
+    var highlightGeneration: UInt64 = 0
 
     func makeCoordinator() -> Coordinator {
         Coordinator(store: store, gridSettings: gridSettings,
@@ -125,6 +129,13 @@ struct MapContainerView: UIViewRepresentable {
 
         func handle(location: CLLocation) {
             store.configure()
+            // Must run before addCell: without it, cells walked just after midnight would
+            // increment yesterday's todayVisitedCount. There is no view update while the app
+            // is backgrounded, so this is the only trigger guaranteed to run at all then —
+            // force a fog repaint here since nothing else will.
+            if store.refreshForDayChangeIfNeeded() {
+                invalidateFogTiles()
+            }
             let cell  = GridMath.cellID(for: location.coordinate)
             let isNew = store.addCell(cell)
             if isNew {
