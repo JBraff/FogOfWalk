@@ -6,6 +6,7 @@ struct StatsView: View {
     @Environment(LocationService.self)   private var locationService
     @Environment(GridSettings.self)      private var gridSettings
     @Binding var showStats: Bool
+    @Binding var showSettings: Bool
 
     var body: some View {
         HStack(spacing: 16) {
@@ -49,6 +50,12 @@ struct StatsView: View {
                     .font(.title2)
             }
             .accessibilityLabel("Discovery statistics")
+
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape")
+                    .font(.title2)
+            }
+            .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var selectedLandmark: Landmark?
     @State private var mapTarget: MapNavigationTarget?
     @State private var upgradeBannerDismissed = false
+    @State private var showSettings = false
 
     private var showUpgradeBanner: Bool {
         locationService.needsAlwaysUpgrade && !upgradeBannerDismissed
@@ -41,7 +42,7 @@ struct ContentView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 Spacer()
-                StatsView(showStats: $showStats)
+                StatsView(showStats: $showStats, showSettings: $showSettings)
                     .padding(.bottom, 8)
             }
             .animation(.easeInOut, value: showUpgradeBanner)
@@ -54,6 +55,9 @@ struct ContentView: View {
         }
         .sheet(item: $selectedLandmark) { landmark in
             LandmarkDetailView(landmark: landmark)
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
         }
         .onAppear {
             store.configure()
