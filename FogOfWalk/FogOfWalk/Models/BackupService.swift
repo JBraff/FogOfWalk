@@ -1,3 +1,4 @@
+import CoreData
 import Foundation
 
 // MARK: - Payload
@@ -43,6 +44,15 @@ enum BackupError: LocalizedError, Equatable {
     }
 }
 
+// MARK: - Merge summary
+
+/// Counts surfaced to the user after an import: how many rows were actually new, as opposed
+/// to already present on the device (and therefore silently merged/skipped).
+struct MergeSummary: Equatable {
+    let cellsAdded: Int
+    let landmarksAdded: Int
+}
+
 // MARK: - Encode / decode
 
 enum BackupService {
@@ -64,5 +74,46 @@ enum BackupService {
             throw BackupError.unsupportedSchemaVersion(payload.schemaVersion)
         }
         return payload
+    }
+
+    // MARK: - Export
+
+    /// Builds a backup payload from the current state of both stores and encodes it.
+    /// Only discovered landmarks are included — undiscovered ones carry no user data worth
+    /// backing up, and their metadata is re-derived from bundled reference data on import.
+    @MainActor
+    static func exportData(explorationStore: ExplorationStore, landmarkStore: LandmarkStore) throws -> Data {
+        let request = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
+        let cells = try explorationStore.viewContext.fetch(request)
+        let cellRecords = cells.map {
+            BackupVisitedCell(cellX: $0.cellX, cellY: $0.cellY, cellSizeMeters: $0.cellSizeMeters,
+                               firstVisited: $0.firstVisited, locality: $0.locality)
+        }
+
+        let landmarkRecords = landmarkStore.allLandmarks
+            .filter { $0.isDiscovered }
+            .map { BackupLandmark(identifier: $0.identifier, firstDiscovered: $0.firstDiscovered) }
+
+        let payload = BackupPayload(schemaVersion: BackupPayload.currentSchemaVersion,
+                                     exportedAt: Date(),
+                                     visitedCells: cellRecords,
+                                     landmarks: landmarkRecords)
+        return try encode(payload)
+    }
+
+    // MARK: - Import
+
+    /// Merges a decoded backup payload into both stores. Never partially applies: both
+    /// underlying merge calls are all-or-nothing at the Core Data save level (see
+    /// `ExplorationStore.addCells(_:)` and `LandmarkStore.restoreDiscovered(_:)`).
+    @MainActor
+    static func merge(_ payload: BackupPayload,
+                       into explorationStore: ExplorationStore,
+                       landmarkStore: LandmarkStore) -> MergeSummary {
+        let cellsAdded = explorationStore.addCells(payload.visitedCells)
+        let landmarksAdded = landmarkStore.restoreDiscovered(
+            payload.landmarks.map { ($0.identifier, $0.firstDiscovered ?? Date()) }
+        )
+        return MergeSummary(cellsAdded: cellsAdded, landmarksAdded: landmarksAdded)
     }
 }
