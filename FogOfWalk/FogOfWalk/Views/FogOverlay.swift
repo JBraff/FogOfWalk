@@ -105,11 +105,14 @@ struct FogRenderer {
                                   width: radius * 2,    height: radius * 2)
         guard gradientRect.intersects(drawRect) else { return }
 
+        // Both gradient stops end at alpha 0, so `.drawsAfterEndLocation` — which fills the
+        // entire clip region with the end color beyond `endRadius` — was a full-clip no-op
+        // that cost a rasterization pass per visited cell. `options: []` is pixel-identical.
         context.drawRadialGradient(
             holeGradient,
             startCenter: center, startRadius: 0,
             endCenter:   center, endRadius:   radius,
-            options:     .drawsAfterEndLocation
+            options:     []
         )
     }
 
@@ -125,11 +128,12 @@ struct FogRenderer {
                                   width: radius * 2,    height: radius * 2)
         guard gradientRect.intersects(drawRect) else { return }
 
+        // Same reasoning as drawHole: the gold gradient also ends at alpha 0.
         context.drawRadialGradient(
             highlightGradient,
             startCenter: center, startRadius: 0,
             endCenter:   center, endRadius:   radius,
-            options:     .drawsAfterEndLocation
+            options:     []
         )
     }
 }

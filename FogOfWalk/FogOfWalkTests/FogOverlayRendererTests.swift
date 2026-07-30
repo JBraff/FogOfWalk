@@ -54,14 +54,10 @@ final class FogOverlayRendererTests: XCTestCase {
         return uiImage.cgImage!
     }
 
-    /// Reads the RGBA of a single pixel from a CGImage.
-    func pixelColor(at point: CGPoint, in image: CGImage)
-        -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8)
-    {
+    /// Allocates an RGBA buffer and draws `image` into it once, for scanning multiple pixels
+    /// without re-drawing the whole image per lookup.
+    func pixelBuffer(for image: CGImage) -> [UInt8] {
         let w = image.width, h = image.height
-        let x = Int(point.x.rounded()), y = Int(point.y.rounded())
-        guard x >= 0, x < w, y >= 0, y < h else { return (0, 0, 0, 0) }
-
         let bpp = 4, bpr = w * bpp
         var data = [UInt8](repeating: 0, count: h * bpr)
 
@@ -70,14 +66,36 @@ final class FogOverlayRendererTests: XCTestCase {
             bitsPerComponent: 8, bytesPerRow: bpr,
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return (0, 0, 0, 0) }
+        ) else { return data }
 
         ctx.translateBy(x: 0, y: CGFloat(h))
         ctx.scaleBy(x: 1, y: -1)
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return data
+    }
 
-        let offset = (h - 1 - y) * bpr + x * bpp
-        return (data[offset], data[offset+1], data[offset+2], data[offset+3])
+    /// Reads the RGBA of a single pixel from a pre-drawn buffer.
+    func pixelColor(at point: CGPoint, in buffer: [UInt8], width: Int, height: Int)
+        -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8)
+    {
+        let x = Int(point.x.rounded()), y = Int(point.y.rounded())
+        guard x >= 0, x < width, y >= 0, y < height else { return (0, 0, 0, 0) }
+
+        let bpp = 4, bpr = width * bpp
+        let offset = (height - 1 - y) * bpr + x * bpp
+        return (buffer[offset], buffer[offset+1], buffer[offset+2], buffer[offset+3])
+    }
+
+    /// Reads the RGBA of a single pixel from a CGImage.
+    func pixelColor(at point: CGPoint, in image: CGImage)
+        -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8)
+    {
+        let w = image.width, h = image.height
+        let x = Int(point.x.rounded()), y = Int(point.y.rounded())
+        guard x >= 0, x < w, y >= 0, y < h else { return (0, 0, 0, 0) }
+
+        let buffer = pixelBuffer(for: image)
+        return pixelColor(at: point, in: buffer, width: w, height: h)
     }
 
     func cellForTestCenter() -> CellID {
@@ -267,6 +285,52 @@ final class FogOverlayRendererTests: XCTestCase {
         // Hole is punched — should be nearly transparent with no strong color bias.
         XCTAssertLessThan(Int(pixel.a), 30,
             "Non-recent visited cell center should be transparent, got alpha=\(pixel.a)")
+    }
+
+    // MARK: - Reinstatement guards (Plan C)
+
+    /// Guards against `.drawsAfterEndLocation` being reinstated on a gradient with a
+    /// non-zero end alpha, which would fill the entire clip region rather than just the
+    /// cell's disk. Scans every pixel rather than a couple of hand-picked corners.
+    func testFogOpaqueEverywhereBeyondHoleRadius() {
+        let cell   = cellForTestCenter()
+        let image  = renderFog(cells: [cell])
+        let buffer = pixelBuffer(for: image)
+
+        let coord  = GridMath.center(for: cell)
+        let center = viewPoint(for: coord)
+        let radius = holeRadius(for: cell)
+        let slack: CGFloat = 2
+
+        for y in 0..<image.height {
+            for x in 0..<image.width {
+                let pt = CGPoint(x: x, y: y)
+                let dist = hypot(pt.x - center.x, pt.y - center.y)
+                guard dist > radius + slack else { continue }
+                let pixel = pixelColor(at: pt, in: buffer, width: image.width, height: image.height)
+                XCTAssertGreaterThan(Int(pixel.a), 200,
+                    "Fog must be opaque beyond hole radius at \(pt), got alpha=\(pixel.a)")
+            }
+        }
+    }
+
+    /// Guards the highlight gradient against the same reinstatement risk as above —
+    /// far from the recent cell, fog should match plain (untinted) fog exactly.
+    func testHighlightDoesNotTintFarOutsideRadius() {
+        let cell     = cellForTestCenter()
+        let baseline = renderFog(cells: [cell], recentCells: [])
+        let tinted   = renderFog(cells: [cell], recentCells: [cell])
+
+        let pt = CGPoint(x: 10, y: 10)
+        let basePixel   = pixelColor(at: pt, in: baseline)
+        let tintedPixel = pixelColor(at: pt, in: tinted)
+
+        XCTAssertGreaterThan(Int(basePixel.a), 200,
+            "Fog far from the recent cell should remain opaque, got alpha=\(basePixel.a)")
+        XCTAssertEqual(basePixel.r, tintedPixel.r, "Far fog should be untinted by the highlight gradient")
+        XCTAssertEqual(basePixel.g, tintedPixel.g, "Far fog should be untinted by the highlight gradient")
+        XCTAssertEqual(basePixel.b, tintedPixel.b, "Far fog should be untinted by the highlight gradient")
+        XCTAssertEqual(basePixel.a, tintedPixel.a, "Far fog should be untinted by the highlight gradient")
     }
 
     func testEmptyRecentCellsMatchesBaseRendering() {
