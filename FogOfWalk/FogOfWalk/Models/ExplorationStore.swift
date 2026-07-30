@@ -191,6 +191,66 @@ final class ExplorationStore {
         }
     }
 
+    /// Merge-imports backup cell records. Inserts cells absent locally (matched by grid
+    /// coordinate at the current cell size); for cells that already exist, keeps the earlier
+    /// of the two `firstVisited` dates without touching `locality`. Returns the number of
+    /// newly inserted cells.
+    @discardableResult
+    func addCells(_ records: [BackupVisitedCell]) -> Int {
+        guard !records.isEmpty else { return 0 }
+
+        let ctx = container.viewContext
+        let request = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
+        request.predicate = NSPredicate(format: "cellSizeMeters == %f", kCellSizeMeters)
+        let existing: [VisitedCell]
+        do {
+            existing = try ctx.fetch(request)
+        } catch {
+            print("ExplorationStore: addCells fetch failed: \(error)")
+            return 0
+        }
+
+        var byID: [CellID: VisitedCell] = [:]
+        for cell in existing {
+            byID[CellID(x: cell.cellX, y: cell.cellY)] = cell
+        }
+
+        var addedCount = 0
+        for record in records {
+            let id = CellID(x: record.cellX, y: record.cellY)
+            if let existingCell = byID[id] {
+                if let imported = record.firstVisited,
+                   let current = existingCell.firstVisited,
+                   imported < current {
+                    existingCell.firstVisited = imported
+                }
+                continue
+            }
+
+            let entity = VisitedCell(context: ctx)
+            entity.cellX          = record.cellX
+            entity.cellY          = record.cellY
+            entity.cellSizeMeters = kCellSizeMeters
+            entity.firstVisited   = record.firstVisited ?? nowProvider()
+            entity.locality       = record.locality
+            byID[id] = entity
+            addedCount += 1
+        }
+
+        guard ctx.hasChanges else { return 0 }
+
+        do {
+            try ctx.save()
+        } catch {
+            print("ExplorationStore: addCells save failed: \(error)")
+            ctx.rollback()
+            return 0
+        }
+
+        reloadCache()
+        return addedCount
+    }
+
     func isVisited(_ cell: CellID) -> Bool {
         visitedCellsCache.contains(cell)
     }

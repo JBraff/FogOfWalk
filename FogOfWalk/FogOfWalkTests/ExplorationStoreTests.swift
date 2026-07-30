@@ -480,4 +480,50 @@ final class ExplorationStoreTests: XCTestCase {
                           "deleteAllCells should also clear recentCellsCache")
         }
     }
+
+    func testAddCellsInsertsNewCellsAndReturnsCount() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            store.configure()
+
+            let records = [
+                BackupVisitedCell(cellX: 1, cellY: 1, cellSizeMeters: kCellSizeMeters,
+                                   firstVisited: Date(timeIntervalSince1970: 1_000), locality: "Town A"),
+                BackupVisitedCell(cellX: 2, cellY: 2, cellSizeMeters: kCellSizeMeters,
+                                   firstVisited: Date(timeIntervalSince1970: 2_000), locality: nil)
+            ]
+
+            let added = store.addCells(records)
+
+            XCTAssertEqual(added, 2)
+            XCTAssertEqual(store.totalVisitedCount, 2)
+            XCTAssertTrue(store.visitedCellsCache.contains(CellID(x: 1, y: 1)))
+            XCTAssertTrue(store.visitedCellsCache.contains(CellID(x: 2, y: 2)))
+        }
+    }
+
+    func testAddCellsSkipsExistingCellButKeepsEarlierDate() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            store.configure()
+            store.nowProvider = { Date(timeIntervalSince1970: 5_000) }
+            store.addCell(CellID(x: 3, y: 3))
+
+            let request = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
+            let before = try? store.viewContext.fetch(request)
+            XCTAssertEqual(before?.first?.firstVisited, Date(timeIntervalSince1970: 5_000))
+
+            let earlierRecord = BackupVisitedCell(cellX: 3, cellY: 3, cellSizeMeters: kCellSizeMeters,
+                                                   firstVisited: Date(timeIntervalSince1970: 1_000),
+                                                   locality: nil)
+            let added = store.addCells([earlierRecord])
+
+            XCTAssertEqual(added, 0, "Existing cell should not count as newly added")
+            XCTAssertEqual(store.totalVisitedCount, 1, "No duplicate row should be created")
+
+            let after = try? store.viewContext.fetch(request)
+            XCTAssertEqual(after?.first?.firstVisited, Date(timeIntervalSince1970: 1_000),
+                            "Merge should keep the earlier firstVisited date")
+        }
+    }
 }
