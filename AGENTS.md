@@ -80,7 +80,8 @@ Cell size is fixed at `kCellSizeMeters = 50.0` (defined in `GridCell.swift`). Th
 - **Core Data context:** Always use `container.viewContext` (main-queue context). `automaticallyMergesChangesFromParent = true` is set. `NSBatchDeleteRequest` results are merged back manually via `NSManagedObjectContext.mergeChanges(fromRemoteContextSave:into:)`.
 - **iOS 17+ only:** Required for `@Observable`. Do not back-port to `ObservableObject`.
 - **No Swift Testing / #Preview:** The test target uses XCTest. There are no SwiftUI previews — test rendering in the simulator.
-- **Haptic feedback:** `UIImpactFeedbackGenerator.light` fires on each new cell discovery.
+- **No haptics.** Deliberate: tracking runs for hours in the background, so a buzz per newly
+  walked 50 m cell is noise rather than feedback. Don't reintroduce one.
 - **City % calculation:** `StatsView` reverse-geocodes every 500m+ to get a city name and `CLCircularRegion`. The percentage is relative to that circle, not actual administrative boundaries — it's an approximation.
 - **`cos(latitude)` correction:** `totalCellCount` divides the longitude span by `cos(lat)` to correct for meridian convergence. Without this, city % is wrong at non-equatorial latitudes.
 

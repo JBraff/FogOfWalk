@@ -131,15 +131,14 @@ struct MapContainerView: UIViewRepresentable {
                 // Push the updated cell set into the renderer; MapKit re-renders
                 // only the affected visible tiles asynchronously.
                 invalidateFogTiles()
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
 
                 // Only the cell just walked can produce a new discovery, so hand over that one
                 // cell rather than the whole visited set. Cost is then independent of how much
                 // ground the user has covered.
-                let discovered = landmarkStore.checkDiscovery(newCell: cell)
-                if !discovered.isEmpty {
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                }
+                //
+                // The result is unused: this app has no haptics. Tracking runs for hours in the
+                // background, so a buzz every 50 m walked is not feedback, it is noise.
+                landmarkStore.checkDiscovery(newCell: cell)
             }
         }
 
