@@ -26,7 +26,9 @@ final class DiscoveryStatsModelTests: XCTestCase {
         x: Int32 = 0, y: Int32 = 0,
         cellSizeMeters: Double = 50,
         firstVisited: Date,
-        locality: String? = nil
+        locality: String? = nil,
+        state: String? = nil,
+        country: String? = nil
     ) -> VisitedCell {
         let cell = VisitedCell(context: ctx)
         cell.cellX          = x
@@ -34,6 +36,8 @@ final class DiscoveryStatsModelTests: XCTestCase {
         cell.cellSizeMeters = cellSizeMeters
         cell.firstVisited   = firstVisited
         cell.locality       = locality
+        cell.state          = state
+        cell.country        = country
         try! ctx.save()
         return cell
     }
@@ -243,9 +247,9 @@ final class DiscoveryStatsModelTests: XCTestCase {
 
             let localities = model.locality(for: .thisWeek)
             XCTAssertEqual(localities.count, 2)
-            XCTAssertEqual(localities.first?.locality, "Springfield")
+            XCTAssertEqual(localities.first?.name, "Springfield")
             XCTAssertEqual(localities.first?.count, 2)
-            XCTAssertEqual(localities.last?.locality, "Shelbyville")
+            XCTAssertEqual(localities.last?.name, "Shelbyville")
             XCTAssertEqual(localities.last?.count, 1)
         }
     }
@@ -261,7 +265,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             let model = DiscoveryStatsModel()
             model.refresh(context: ctx)
 
-            XCTAssertEqual(model.locality(for: .thisWeek).first?.locality, "Unknown")
+            XCTAssertEqual(model.locality(for: .thisWeek).first?.name, "Unknown")
         }
     }
 
@@ -280,7 +284,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             let model = DiscoveryStatsModel()
             model.refresh(context: ctx)
 
-            let names = model.locality(for: .thisWeek).map { $0.locality }
+            let names = model.locality(for: .thisWeek).map { $0.name }
             XCTAssertTrue(names.contains("Recentville"))
             XCTAssertFalse(names.contains("OldTown"), "8-day-old cell should not appear in locality breakdown")
         }
@@ -473,7 +477,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             let model = DiscoveryStatsModel()
             model.refresh(context: ctx)
 
-            let names = model.locality(for: .allTime).map { $0.locality }
+            let names = model.locality(for: .allTime).map { $0.name }
             XCTAssertTrue(names.contains("OldTown"), "Old cells should appear in all-time locality breakdown")
             XCTAssertTrue(names.contains("NewTown"))
         }
@@ -493,7 +497,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             let model = DiscoveryStatsModel()
             model.refresh(context: ctx)
 
-            XCTAssertEqual(model.locality(for: .allTime).first?.locality, "A")
+            XCTAssertEqual(model.locality(for: .allTime).first?.name, "A")
             XCTAssertEqual(model.locality(for: .allTime).first?.count, 3)
         }
     }
@@ -524,7 +528,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             model.refresh(context: ctx)
 
             let expected = GridMath.center(for: CellID(x: x, y: y))
-            let stat = model.locality(for: .allTime).first(where: { $0.locality == "Solo" })
+            let stat = model.locality(for: .allTime).first(where: { $0.name == "Solo" })
             XCTAssertNotNil(stat)
             XCTAssertEqual(stat!.center.latitude,  expected.latitude,  accuracy: 1e-9)
             XCTAssertEqual(stat!.center.longitude, expected.longitude, accuracy: 1e-9)
@@ -549,7 +553,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             let expectedLat = (c0.latitude  + c2.latitude)  / 2
             let expectedLon = (c0.longitude + c2.longitude) / 2
 
-            let stat = model.locality(for: .allTime).first(where: { $0.locality == "Avg" })
+            let stat = model.locality(for: .allTime).first(where: { $0.name == "Avg" })
             XCTAssertNotNil(stat)
             XCTAssertEqual(stat!.center.latitude,  expectedLat, accuracy: 1e-9)
             XCTAssertEqual(stat!.center.longitude, expectedLon, accuracy: 1e-9)
@@ -568,7 +572,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             let model = DiscoveryStatsModel()
             model.refresh(context: ctx)
 
-            let stat = model.locality(for: .allTime).first(where: { $0.locality == "Tiny" })
+            let stat = model.locality(for: .allTime).first(where: { $0.name == "Tiny" })
             XCTAssertNotNil(stat)
             XCTAssertGreaterThanOrEqual(stat!.span.latitudeDelta,  0.01)
             XCTAssertGreaterThanOrEqual(stat!.span.longitudeDelta, 0.01)
@@ -592,7 +596,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             let model = DiscoveryStatsModel()
             model.refresh(context: ctx)
 
-            let stat = model.locality(for: .allTime).first(where: { $0.locality == "Wide" })
+            let stat = model.locality(for: .allTime).first(where: { $0.name == "Wide" })
             XCTAssertNotNil(stat)
 
             let step = cellSizeMeters / GridMath.metersPerDegree
@@ -615,7 +619,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             let model = DiscoveryStatsModel()
             model.refresh(context: ctx)
 
-            let stat = model.locality(for: .thisWeek).first(where: { $0.locality == "Recent" })
+            let stat = model.locality(for: .thisWeek).first(where: { $0.name == "Recent" })
             XCTAssertNotNil(stat)
             let expected = GridMath.center(for: CellID(x: x, y: y))
             XCTAssertEqual(stat!.center.latitude,  expected.latitude,  accuracy: 1e-9)
@@ -638,7 +642,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
             let model = DiscoveryStatsModel()
             model.refresh(context: ctx)
 
-            let names = model.locality(for: .today).map { $0.locality }
+            let names = model.locality(for: .today).map { $0.name }
             XCTAssertTrue(names.contains("Todayville"), "Cell from today should appear in .today")
             XCTAssertFalse(names.contains("Yesterdayton"), "Cell from yesterday should not appear in .today")
         }
@@ -658,10 +662,10 @@ final class DiscoveryStatsModelTests: XCTestCase {
             let model = DiscoveryStatsModel()
             model.refresh(context: ctx)
 
-            let thisMonthNames = model.locality(for: .thisMonth).map { $0.locality }
+            let thisMonthNames = model.locality(for: .thisMonth).map { $0.name }
             XCTAssertTrue(thisMonthNames.contains("Thismonthburg"))
 
-            let allTimeNames = model.locality(for: .allTime).map { $0.locality }
+            let allTimeNames = model.locality(for: .allTime).map { $0.name }
             XCTAssertTrue(allTimeNames.contains("Oldmonthton"), "Old cell should appear in .allTime")
         }
     }
@@ -707,6 +711,116 @@ final class DiscoveryStatsModelTests: XCTestCase {
                 "No cells visited this week — .thisWeek should return empty array, not nil")
             XCTAssertFalse(model.locality(for: .allTime).isEmpty,
                 ".allTime should still contain the old cell")
+        }
+    }
+
+    // MARK: - State breakdown (all-time only)
+
+    func testStateGroupingAggregatesCorrectly() async {
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let ctx       = container.viewContext
+            let now       = Date()
+
+            insertCell(in: ctx, x: 0, y: 0, firstVisited: now, state: "California")
+            insertCell(in: ctx, x: 1, y: 0, firstVisited: now, state: "California")
+            insertCell(in: ctx, x: 2, y: 0, firstVisited: now, state: "Nevada")
+
+            let model = DiscoveryStatsModel()
+            model.refresh(context: ctx)
+
+            XCTAssertEqual(model.stateStats.count, 2)
+            XCTAssertEqual(model.stateStats.first?.name, "California")
+            XCTAssertEqual(model.stateStats.first?.count, 2)
+            XCTAssertEqual(model.stateStats.last?.name, "Nevada")
+            XCTAssertEqual(model.stateStats.last?.count, 1)
+        }
+    }
+
+    func testNilStateAppearsAsUnknown() async {
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let ctx       = container.viewContext
+            let now       = Date()
+
+            insertCell(in: ctx, x: 0, y: 0, firstVisited: now, state: nil)
+
+            let model = DiscoveryStatsModel()
+            model.refresh(context: ctx)
+
+            XCTAssertEqual(model.stateStats.first?.name, "Unknown")
+        }
+    }
+
+    func testStateStatsIncludeOldCells() async {
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let ctx       = container.viewContext
+            let now       = Date()
+
+            insertCell(in: ctx, x: 0, y: 0, firstVisited: now.addingTimeInterval(-30 * 86400), state: "Oregon")
+
+            let model = DiscoveryStatsModel()
+            model.refresh(context: ctx)
+
+            XCTAssertTrue(model.stateStats.map { $0.name }.contains("Oregon"),
+                "State stats are all-time — old cells must still be included")
+        }
+    }
+
+    func testStateStatsEmptyWhenNoData() async {
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let model     = DiscoveryStatsModel()
+            model.refresh(context: container.viewContext)
+            XCTAssertTrue(model.stateStats.isEmpty)
+        }
+    }
+
+    // MARK: - Country breakdown (all-time only)
+
+    func testCountryGroupingAggregatesCorrectly() async {
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let ctx       = container.viewContext
+            let now       = Date()
+
+            insertCell(in: ctx, x: 0, y: 0, firstVisited: now, country: "United States")
+            insertCell(in: ctx, x: 1, y: 0, firstVisited: now, country: "United States")
+            insertCell(in: ctx, x: 2, y: 0, firstVisited: now, country: "Canada")
+
+            let model = DiscoveryStatsModel()
+            model.refresh(context: ctx)
+
+            XCTAssertEqual(model.countryStats.count, 2)
+            XCTAssertEqual(model.countryStats.first?.name, "United States")
+            XCTAssertEqual(model.countryStats.first?.count, 2)
+            XCTAssertEqual(model.countryStats.last?.name, "Canada")
+            XCTAssertEqual(model.countryStats.last?.count, 1)
+        }
+    }
+
+    func testNilCountryAppearsAsUnknown() async {
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let ctx       = container.viewContext
+            let now       = Date()
+
+            insertCell(in: ctx, x: 0, y: 0, firstVisited: now, country: nil)
+
+            let model = DiscoveryStatsModel()
+            model.refresh(context: ctx)
+
+            XCTAssertEqual(model.countryStats.first?.name, "Unknown")
+        }
+    }
+
+    func testCountryStatsEmptyWhenNoData() async {
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let model     = DiscoveryStatsModel()
+            model.refresh(context: container.viewContext)
+            XCTAssertTrue(model.countryStats.isEmpty)
         }
     }
 }

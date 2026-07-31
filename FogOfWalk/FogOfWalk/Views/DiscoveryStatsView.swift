@@ -268,7 +268,7 @@ private struct LocalityRow: View {
 
     private var row: some View {
         HStack(spacing: 12) {
-            Text(stat.locality)
+            Text(stat.name)
                 .font(.subheadline)
                 .lineLimit(1)
 

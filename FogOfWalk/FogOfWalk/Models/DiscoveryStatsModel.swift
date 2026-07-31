@@ -39,11 +39,11 @@ struct DailyCount: Identifiable {
 }
 
 struct LocalityStats: Identifiable {
-    let locality: String
+    let name: String
     let count: Int
     let center: CLLocationCoordinate2D
     let span: MKCoordinateSpan
-    var id: String { locality }
+    var id: String { name }
 }
 
 // MARK: - LocalityStats geometry helpers
@@ -101,6 +101,8 @@ final class DiscoveryStatsModel {
     var estimatedDistanceMeters: Double = 0
     /// Sorted by count descending for each period. Cells with nil locality appear as "Unknown".
     var localityByPeriod: [LocalityPeriod: [LocalityStats]] = [:]
+    var stateStats: [LocalityStats] = []
+    var countryStats: [LocalityStats] = []
 
     func locality(for period: LocalityPeriod) -> [LocalityStats] {
         localityByPeriod[period] ?? []
@@ -130,6 +132,8 @@ final class DiscoveryStatsModel {
         // Single pass: accumulate all stat buckets simultaneously.
         var allDayCounts:      [Date: Int]        = [:]
         var allLocalityCells:  [String: [CellID]] = [:]
+        var allStateCells:     [String: [CellID]] = [:]
+        var allCountryCells:   [String: [CellID]] = [:]
         var last24Count        = 0
         var recentDayCounts:   [Date: Int]        = [:]
         var recentLocalCells:  [String: [CellID]] = [:]
@@ -145,6 +149,10 @@ final class DiscoveryStatsModel {
             // All-time buckets
             allDayCounts[day, default: 0] += 1
             allLocalityCells[locality, default: []].append(cellID)
+            let state   = cell.state ?? "Unknown"
+            let country = cell.country ?? "Unknown"
+            allStateCells[state, default: []].append(cellID)
+            allCountryCells[country, default: []].append(cellID)
 
             // Last 24 hours
             if visited >= cutoff24h { last24Count += 1 }
@@ -230,7 +238,7 @@ final class DiscoveryStatsModel {
         func buildStats(_ dict: [String: [CellID]]) -> [LocalityStats] {
             dict.map { name, ids in
                 LocalityStats(
-                    locality: name,
+                    name: name,
                     count: ids.count,
                     center: localityCentroid(ids),
                     span: localitySpan(ids)
@@ -245,5 +253,8 @@ final class DiscoveryStatsModel {
             .thisMonth: buildStats(monthLocalCells),
             .allTime:   buildStats(allLocalityCells),
         ]
+
+        stateStats   = buildStats(allStateCells)
+        countryStats = buildStats(allCountryCells)
     }
 }
