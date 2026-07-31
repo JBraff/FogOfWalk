@@ -146,4 +146,32 @@ final class BackupServiceTests: XCTestCase {
             XCTAssertEqual(destLandmarks.allLandmarks.first?.firstDiscovered, Date(timeIntervalSince1970: 300))
         }
     }
+
+    func testMergeUsesExportedAtAsFallbackWhenFirstDiscoveredIsNil() async throws {
+        try await MainActor.run {
+            let explorationStore = ExplorationStore(container: makeInMemoryContainer())
+            explorationStore.configure()
+
+            let landmarkStore = LandmarkStore(container: makeInMemoryContainer())
+            landmarkStore.addLandmarks(
+                [WikidataLandmark(id: "Q99", name: "TestLandmark", description: nil,
+                                  lat: 50, lon: 50, category: "landmark", imageURL: nil)],
+                visitedCells: []
+            )
+
+            let exportedAtDate = Date(timeIntervalSince1970: 999)
+            let payload = BackupPayload(
+                schemaVersion: BackupPayload.currentSchemaVersion,
+                exportedAt: exportedAtDate,
+                visitedCells: [],
+                landmarks: [BackupLandmark(identifier: "Q99", firstDiscovered: nil)]
+            )
+
+            _ = try BackupService.merge(payload, into: explorationStore, landmarkStore: landmarkStore)
+
+            XCTAssertTrue(landmarkStore.allLandmarks.first?.isDiscovered ?? false)
+            XCTAssertEqual(landmarkStore.allLandmarks.first?.firstDiscovered, exportedAtDate,
+                          "When firstDiscovered is nil, merge should use payload.exportedAt as fallback")
+        }
+    }
 }
