@@ -11,7 +11,7 @@ final class BackupServiceTests: XCTestCase {
             visitedCells: [
                 BackupVisitedCell(cellX: 1, cellY: 2, cellSizeMeters: 50.0,
                                    firstVisited: Date(timeIntervalSince1970: 1_600_000_000),
-                                   locality: "Springfield")
+                                   locality: "Springfield", state: "Illinois", country: "United States")
             ],
             landmarks: [
                 BackupLandmark(identifier: "Q42", firstDiscovered: Date(timeIntervalSince1970: 1_650_000_000))
@@ -82,6 +82,28 @@ final class BackupServiceTests: XCTestCase {
             XCTAssertEqual(payload.visitedCells.count, 1)
             XCTAssertEqual(payload.visitedCells.first?.cellX, 4)
             XCTAssertEqual(payload.landmarks, [BackupLandmark(identifier: "Q1", firstDiscovered: Date(timeIntervalSince1970: 42))])
+        }
+    }
+
+    func testExportDataIncludesStateAndCountry() async throws {
+        try await MainActor.run {
+            let explorationStore = ExplorationStore(container: makeInMemoryContainer())
+            explorationStore.configure()
+            explorationStore.addCell(CellID(x: 4, y: 4))
+
+            let request = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
+            let cells = try? explorationStore.viewContext.fetch(request)
+            cells?.first?.state = "California"
+            cells?.first?.country = "United States"
+            try? explorationStore.viewContext.save()
+
+            let landmarkStore = LandmarkStore(container: makeInMemoryContainer())
+
+            let data = try BackupService.exportData(explorationStore: explorationStore, landmarkStore: landmarkStore)
+            let payload = try BackupService.decode(data)
+
+            XCTAssertEqual(payload.visitedCells.first?.state, "California")
+            XCTAssertEqual(payload.visitedCells.first?.country, "United States")
         }
     }
 

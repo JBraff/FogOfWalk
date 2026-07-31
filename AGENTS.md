@@ -20,7 +20,7 @@ FogOfWalk/
       GridCell.swift                 # CellID, kCellSizeMeters (50m), GridMath namespace
       GridSettings.swift             # @MainActor @Observable — highlightToday, showLandmarks
       ExplorationStore.swift         # @MainActor @Observable — Core Data + in-memory cache
-      VisitedCell+CoreData.swift     # NSManagedObject subclass (cellX, cellY, cellSizeMeters, firstVisited, locality)
+      VisitedCell+CoreData.swift     # NSManagedObject subclass (cellX, cellY, cellSizeMeters, firstVisited, locality, state, country)
       LandmarkStore.swift            # @MainActor @Observable — discovery state, Wikidata migration
       BackupService.swift            # Versioned JSON export/import + merge-import into both stores
       CellSnapshot.swift             # Immutable, thread-safe snapshot of visited/recent cells for the renderer
@@ -126,7 +126,24 @@ functions, not a store. It encodes/decodes a versioned JSON `BackupPayload`
 (`visitedCells` + discovered `landmarks` only — undiscovered landmarks and all landmark
 metadata besides `identifier`/`firstDiscovered` are intentionally excluded, since metadata is
 re-derived from bundled reference data on the importing device) and orchestrates merging it
-into both stores:
+into both stores. `BackupPayload.currentSchemaVersion` is `2`; a sample `visitedCells` entry
+looks like:
+
+```json
+{
+  "cellX": 1,
+  "cellY": 2,
+  "cellSizeMeters": 50.0,
+  "firstVisited": "2023-11-14T22:13:20Z",
+  "locality": "Springfield",
+  "state": "Illinois",
+  "country": "United States"
+}
+```
+
+`BackupVisitedCell.state`/`.country` (added alongside `locality` when the Discovery Stats sheet
+started breaking down visited cells by state/country) default to `nil`, so a schema-version-1
+backup file — missing those keys entirely — still decodes cleanly.
 
 - `ExplorationStore.addCells(_:)` inserts cells absent locally and keeps the earlier
   `firstVisited` date for cells that already exist.

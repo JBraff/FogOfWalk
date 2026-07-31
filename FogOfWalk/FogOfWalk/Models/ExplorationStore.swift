@@ -238,6 +238,8 @@ final class ExplorationStore {
             entity.cellSizeMeters = kCellSizeMeters
             entity.firstVisited   = record.firstVisited ?? nowProvider()
             entity.locality       = record.locality
+            entity.state          = record.state
+            entity.country        = record.country
             byID[id] = entity
             addedCount += 1
         }

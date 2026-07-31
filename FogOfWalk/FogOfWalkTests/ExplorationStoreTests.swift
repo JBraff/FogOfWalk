@@ -549,6 +549,25 @@ final class ExplorationStoreTests: XCTestCase {
         }
     }
 
+    func testAddCellsCarriesStateAndCountryThrough() async throws {
+        try await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            store.configure()
+
+            let record = BackupVisitedCell(cellX: 8, cellY: 8, cellSizeMeters: kCellSizeMeters,
+                                            firstVisited: Date(timeIntervalSince1970: 1_000),
+                                            locality: "Metropolis", state: "New York", country: "United States")
+
+            _ = try store.addCells([record])
+
+            let request = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
+            request.predicate = NSPredicate(format: "cellX == 8 AND cellY == 8")
+            let fetched = try? store.viewContext.fetch(request)
+            XCTAssertEqual(fetched?.first?.state, "New York")
+            XCTAssertEqual(fetched?.first?.country, "United States")
+        }
+    }
+
     /// Returns an in-memory container whose store is read-only, so fetches succeed but any
     /// `save()` deterministically fails — the cleanest way to exercise the save-failure path
     /// without depending on Core Data's internal error timing.
