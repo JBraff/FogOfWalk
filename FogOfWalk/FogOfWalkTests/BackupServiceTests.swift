@@ -40,6 +40,32 @@ final class BackupServiceTests: XCTestCase {
         }
     }
 
+    func testDecodeAcceptsOlderSchemaVersion() throws {
+        // A v1 backup file predates the `state`/`country` fields entirely — the keys are
+        // absent from the JSON, not merely null. `BackupVisitedCell.state`/`.country` default
+        // to nil, so this must still decode cleanly and be treated as an old-but-supported file.
+        let json = """
+        {
+            "schemaVersion": 1,
+            "exportedAt": "2023-11-14T22:13:20Z",
+            "visitedCells": [
+                { "cellX": 1, "cellY": 2, "cellSizeMeters": 50.0,
+                  "firstVisited": "2020-09-13T12:26:40Z", "locality": "Springfield" }
+            ],
+            "landmarks": [
+                { "identifier": "Q42", "firstDiscovered": "2022-04-15T21:20:00Z" }
+            ]
+        }
+        """
+        let data = Data(json.utf8)
+
+        let decoded = try BackupService.decode(data)
+        XCTAssertEqual(decoded.schemaVersion, 1)
+        XCTAssertEqual(decoded.visitedCells.first?.locality, "Springfield")
+        XCTAssertNil(decoded.visitedCells.first?.state)
+        XCTAssertNil(decoded.visitedCells.first?.country)
+    }
+
     func testDecodeRejectsMalformedJSON() {
         let garbage = Data("not json".utf8)
         XCTAssertThrowsError(try BackupService.decode(garbage))

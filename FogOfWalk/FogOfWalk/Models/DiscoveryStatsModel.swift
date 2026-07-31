@@ -101,7 +101,9 @@ final class DiscoveryStatsModel {
     var estimatedDistanceMeters: Double = 0
     /// Sorted by count descending for each period. Cells with nil locality appear as "Unknown".
     var localityByPeriod: [LocalityPeriod: [LocalityStats]] = [:]
+    /// All-time only (no per-period breakdown). Cells with nil state/country appear as "Unknown".
     var stateStats: [LocalityStats] = []
+    /// All-time only (no per-period breakdown). Cells with nil state/country appear as "Unknown".
     var countryStats: [LocalityStats] = []
 
     func locality(for period: LocalityPeriod) -> [LocalityStats] {

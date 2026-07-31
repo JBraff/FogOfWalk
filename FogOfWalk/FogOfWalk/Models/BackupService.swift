@@ -65,14 +65,16 @@ enum BackupService {
         return try encoder.encode(payload)
     }
 
-    /// Decodes and validates a backup file. Throws `BackupError.unsupportedSchemaVersion`
-    /// if the file was produced by a schema version this app doesn't understand, or a
-    /// `DecodingError` if the file isn't a valid backup at all.
+    /// Decodes and validates a backup file. Older schema versions decode forward-compatibly
+    /// (newer optional fields simply default to `nil`), so only files from a *future* schema
+    /// version this app doesn't understand are rejected. Throws
+    /// `BackupError.unsupportedSchemaVersion` in that case, or a `DecodingError` if the file
+    /// isn't a valid backup at all.
     static func decode(_ data: Data) throws -> BackupPayload {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let payload = try decoder.decode(BackupPayload.self, from: data)
-        guard payload.schemaVersion == BackupPayload.currentSchemaVersion else {
+        guard payload.schemaVersion <= BackupPayload.currentSchemaVersion else {
             throw BackupError.unsupportedSchemaVersion(payload.schemaVersion)
         }
         return payload

@@ -126,14 +126,14 @@ final class LocalityGeocoder {
             let placemarks = try await geocoder.reverseGeocodeLocation(location)
             guard let p = placemarks.first else { return }
             let name    = p.locality ?? p.subAdministrativeArea ?? p.administrativeArea ?? "Unknown"
-            let state   = p.administrativeArea
-            let country = p.country
+            let state   = p.administrativeArea ?? "Unknown"
+            let country = p.country ?? "Unknown"
             let ctx = cluster.context
             for id in cluster.objectIDs {
                 guard let cell = try? ctx.existingObject(with: id) as? VisitedCell else { continue }
-                cell.locality = name
-                cell.state    = state
-                cell.country  = country
+                if cell.locality == nil { cell.locality = name }
+                if cell.state    == nil { cell.state    = state }
+                if cell.country  == nil { cell.country  = country }
             }
             try? ctx.save()
         } catch {

@@ -193,8 +193,9 @@ final class ExplorationStore {
 
     /// Merge-imports backup cell records. Inserts cells absent locally (matched by grid
     /// coordinate at the current cell size); for cells that already exist, keeps the earlier
-    /// of the two `firstVisited` dates without touching `locality`. Returns the number of
-    /// newly inserted cells.
+    /// of the two `firstVisited` dates without touching `locality` — `state`/`country` are
+    /// handled the same way, set only when a cell is newly inserted and never overwritten on
+    /// merge for existing cells. Returns the number of newly inserted cells.
     ///
     /// Throws if the Core Data save fails, so a real failure is distinguishable from the
     /// legitimate "nothing new to merge" case (which returns 0). Fetch failures and the

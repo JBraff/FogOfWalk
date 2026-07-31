@@ -297,6 +297,88 @@ final class LocalityGeocoderTests: XCTestCase {
         }
     }
 
+    func testBackfillDoesNotOverwriteExistingLocality() async {
+        // Regression test: a cell already tagged with a correct locality under the old scheme
+        // must keep that locality when backfilled for state/country, even if clustered with
+        // cells whose geocode result would produce a different locality name.
+        let expectation = XCTestExpectation(description: "geocoder called")
+        let mock = MockGeocoder(locality: "DifferentCity", state: "NewState", country: "NewCountry",
+                                 onCall: { expectation.fulfill() })
+
+        var cellID: NSManagedObjectID?
+        var context: NSManagedObjectContext?
+
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            context       = container.viewContext
+            let cell      = insertCell(in: context!, locality: "OriginalCity", state: nil, country: nil)
+            cellID        = cell.objectID
+            let geocoder  = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
+            geocoder.geocodeUntaggedCells(context: context!)
+        }
+
+        await fulfillment(of: [expectation], timeout: 5)
+        try? await Task.sleep(for: .milliseconds(100))
+
+        await MainActor.run {
+            guard let id = cellID, let ctx = context,
+                  let cell = try? ctx.existingObject(with: id) as? VisitedCell else {
+                XCTFail("Could not fetch cell")
+                return
+            }
+            XCTAssertEqual(cell.locality, "OriginalCity", "Backfill must not overwrite an already-set locality")
+            XCTAssertEqual(cell.state, "NewState")
+            XCTAssertEqual(cell.country, "NewCountry")
+        }
+    }
+
+    func testBackfillFillsUnknownAndTerminatesRegeocodeLoop() async {
+        // Regression test: when the placemark lacks administrativeArea/country, the backfill
+        // must still write "Unknown" (not nil) so the predicate stops matching the cell —
+        // otherwise the cell would be re-geocoded forever on every launch.
+        let expectation = XCTestExpectation(description: "geocoder called")
+        let mock = MockGeocoder(locality: "SomeCity", onCall: { expectation.fulfill() }) // state/country default to nil
+
+        var cellID: NSManagedObjectID?
+        var context: NSManagedObjectContext?
+
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            context       = container.viewContext
+            let cell      = insertCell(in: context!, locality: nil, state: nil, country: nil)
+            cellID        = cell.objectID
+            let geocoder  = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
+            geocoder.geocodeUntaggedCells(context: context!)
+        }
+
+        await fulfillment(of: [expectation], timeout: 5)
+        try? await Task.sleep(for: .milliseconds(100))
+
+        await MainActor.run {
+            guard let id = cellID, let ctx = context,
+                  let cell = try? ctx.existingObject(with: id) as? VisitedCell else {
+                XCTFail("Could not fetch cell")
+                return
+            }
+            XCTAssertEqual(cell.state, "Unknown")
+            XCTAssertEqual(cell.country, "Unknown")
+        }
+
+        // A second, fresh backfill pass must find nothing left to geocode.
+        await MainActor.run {
+            guard let ctx = context else { return }
+            let geocoder2 = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
+            geocoder2.geocodeUntaggedCells(context: ctx)
+        }
+
+        try? await Task.sleep(for: .milliseconds(200))
+
+        await MainActor.run {
+            XCTAssertEqual(mock.callCount, 1,
+                "Cell with 'Unknown' state/country must no longer match the backfill predicate")
+        }
+    }
+
     func testClusteringReducesGeocoderCalls() async {
         // Two cells in the same 0.5° bucket should produce only one geocoder call.
         // At 50m cell size, cells (0,0) and (1,1) map to ~0.00045°, same 0.5° bucket.

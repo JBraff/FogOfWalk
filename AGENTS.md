@@ -14,8 +14,8 @@ FogOfWalk/
     ContentView.swift                # Root view: MapContainerView + StatsView + sheets
     Info.plist                       # Location permission strings, UIBackgroundModes: [location], single-scene
     landmarks.sqlite                 # Bundled landmark DB — see SETUP.md for how it's wired
-    FogOfWalk.xcdatamodeld/          # Core Data model — two versions (v1, v2) inside one .xcdatamodeld;
-                                      # .xccurrentversion selects "FogOfWalk 2.xcdatamodel"
+    FogOfWalk.xcdatamodeld/          # Core Data model — three versions (v1, v2, v3) inside one .xcdatamodeld;
+                                      # .xccurrentversion selects "FogOfWalk 3.xcdatamodel"
     Models/
       GridCell.swift                 # CellID, kCellSizeMeters (50m), GridMath namespace
       GridSettings.swift             # @MainActor @Observable — highlightToday, showLandmarks
@@ -126,8 +126,9 @@ functions, not a store. It encodes/decodes a versioned JSON `BackupPayload`
 (`visitedCells` + discovered `landmarks` only — undiscovered landmarks and all landmark
 metadata besides `identifier`/`firstDiscovered` are intentionally excluded, since metadata is
 re-derived from bundled reference data on the importing device) and orchestrates merging it
-into both stores. `BackupPayload.currentSchemaVersion` is `2`; a sample `visitedCells` entry
-looks like:
+into both stores. `BackupPayload.currentSchemaVersion` is `2`; the version gate accepts any
+`schemaVersion <= currentSchemaVersion` (older files decode forward-compatibly) and only
+rejects files from a future, unrecognized version. A sample `visitedCells` entry looks like:
 
 ```json
 {
