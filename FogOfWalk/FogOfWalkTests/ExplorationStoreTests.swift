@@ -113,6 +113,28 @@ final class ExplorationStoreTests: XCTestCase {
         }
     }
 
+    func testVisitedCellPersistsStateAndCountry() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            store.configure()
+            let ctx = store.viewContext
+
+            let cell = VisitedCell(context: ctx)
+            cell.cellX          = 5
+            cell.cellY          = 5
+            cell.cellSizeMeters = kCellSizeMeters
+            cell.firstVisited   = Date()
+            cell.state          = "California"
+            cell.country        = "United States"
+            try? ctx.save()
+
+            let request = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
+            let fetched = try? ctx.fetch(request)
+            XCTAssertEqual(fetched?.first?.state, "California")
+            XCTAssertEqual(fetched?.first?.country, "United States")
+        }
+    }
+
     // MARK: - onNewCell callback
 
     func testOnNewCellCallbackFiresForNewCell() async {
