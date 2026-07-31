@@ -20,6 +20,8 @@ struct DiscoveryStatsView: View {
                     summaryCards
                     weeklyChart
                     localitySection
+                    statesSection
+                    countriesSection
                     allTimeSection
                     landmarksSection
                 }
@@ -115,6 +117,20 @@ struct DiscoveryStatsView: View {
                 .pickerStyle(.segmented)
             }
         }
+    }
+
+    // MARK: - States
+
+    private var statesSection: some View {
+        LocalityListSection(title: "States", emptyText: "No states explored yet.",
+                             data: model.stateStats, onNavigate: onNavigate, dismiss: { dismiss() })
+    }
+
+    // MARK: - Countries
+
+    private var countriesSection: some View {
+        LocalityListSection(title: "Countries", emptyText: "No countries explored yet.",
+                             data: model.countryStats, onNavigate: onNavigate, dismiss: { dismiss() })
     }
 
     // MARK: - All time
@@ -268,7 +284,7 @@ private struct LocalityRow: View {
 
     private var row: some View {
         HStack(spacing: 12) {
-            Text(stat.locality)
+            Text(stat.name)
                 .font(.subheadline)
                 .lineLimit(1)
 
@@ -301,5 +317,45 @@ private struct LocalityRow: View {
         }
         .padding(.vertical, 8)
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - LocalityListSection
+
+private struct LocalityListSection: View {
+    let title: String
+    let emptyText: String
+    let data: [LocalityStats]
+    var onNavigate: ((MapNavigationTarget) -> Void)?
+    var dismiss: () -> Void
+
+    var body: some View {
+        GroupBox {
+            if data.isEmpty {
+                Text(emptyText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(data) { stat in
+                        LocalityRow(
+                            stat: stat,
+                            maxCount: data.first?.count ?? 1,
+                            action: onNavigate.map { navigate in {
+                                navigate(MapNavigationTarget(center: stat.center, span: stat.span))
+                                dismiss()
+                            }}
+                        )
+                        if stat.id != data.last?.id {
+                            Divider()
+                        }
+                    }
+                }
+            }
+        } label: {
+            Text(title)
+                .font(.headline)
+        }
     }
 }

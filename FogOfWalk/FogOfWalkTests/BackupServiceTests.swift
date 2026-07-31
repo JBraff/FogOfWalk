@@ -11,7 +11,7 @@ final class BackupServiceTests: XCTestCase {
             visitedCells: [
                 BackupVisitedCell(cellX: 1, cellY: 2, cellSizeMeters: 50.0,
                                    firstVisited: Date(timeIntervalSince1970: 1_600_000_000),
-                                   locality: "Springfield")
+                                   locality: "Springfield", state: "Illinois", country: "United States")
             ],
             landmarks: [
                 BackupLandmark(identifier: "Q42", firstDiscovered: Date(timeIntervalSince1970: 1_650_000_000))
@@ -38,6 +38,32 @@ final class BackupServiceTests: XCTestCase {
             }
             XCTAssertEqual(backupError, .unsupportedSchemaVersion(999))
         }
+    }
+
+    func testDecodeAcceptsOlderSchemaVersion() throws {
+        // A v1 backup file predates the `state`/`country` fields entirely — the keys are
+        // absent from the JSON, not merely null. `BackupVisitedCell.state`/`.country` default
+        // to nil, so this must still decode cleanly and be treated as an old-but-supported file.
+        let json = """
+        {
+            "schemaVersion": 1,
+            "exportedAt": "2023-11-14T22:13:20Z",
+            "visitedCells": [
+                { "cellX": 1, "cellY": 2, "cellSizeMeters": 50.0,
+                  "firstVisited": "2020-09-13T12:26:40Z", "locality": "Springfield" }
+            ],
+            "landmarks": [
+                { "identifier": "Q42", "firstDiscovered": "2022-04-15T21:20:00Z" }
+            ]
+        }
+        """
+        let data = Data(json.utf8)
+
+        let decoded = try BackupService.decode(data)
+        XCTAssertEqual(decoded.schemaVersion, 1)
+        XCTAssertEqual(decoded.visitedCells.first?.locality, "Springfield")
+        XCTAssertNil(decoded.visitedCells.first?.state)
+        XCTAssertNil(decoded.visitedCells.first?.country)
     }
 
     func testDecodeRejectsMalformedJSON() {
@@ -82,6 +108,28 @@ final class BackupServiceTests: XCTestCase {
             XCTAssertEqual(payload.visitedCells.count, 1)
             XCTAssertEqual(payload.visitedCells.first?.cellX, 4)
             XCTAssertEqual(payload.landmarks, [BackupLandmark(identifier: "Q1", firstDiscovered: Date(timeIntervalSince1970: 42))])
+        }
+    }
+
+    func testExportDataIncludesStateAndCountry() async throws {
+        try await MainActor.run {
+            let explorationStore = ExplorationStore(container: makeInMemoryContainer())
+            explorationStore.configure()
+            explorationStore.addCell(CellID(x: 4, y: 4))
+
+            let request = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
+            let cells = try? explorationStore.viewContext.fetch(request)
+            cells?.first?.state = "California"
+            cells?.first?.country = "United States"
+            try? explorationStore.viewContext.save()
+
+            let landmarkStore = LandmarkStore(container: makeInMemoryContainer())
+
+            let data = try BackupService.exportData(explorationStore: explorationStore, landmarkStore: landmarkStore)
+            let payload = try BackupService.decode(data)
+
+            XCTAssertEqual(payload.visitedCells.first?.state, "California")
+            XCTAssertEqual(payload.visitedCells.first?.country, "United States")
         }
     }
 

@@ -8,28 +8,39 @@ import MapKit
 
 final class MockGeocoder: GeocoderProtocol, @unchecked Sendable {
     let localityToReturn: String
+    let stateToReturn: String?
+    let countryToReturn: String?
     private(set) var callCount = 0
     var onCall: (() -> Void)?
 
-    init(locality: String = "MockCity", onCall: (() -> Void)? = nil) {
+    init(locality: String = "MockCity", state: String? = nil, country: String? = nil,
+         onCall: (() -> Void)? = nil) {
         self.localityToReturn = locality
+        self.stateToReturn    = state
+        self.countryToReturn  = country
         self.onCall           = onCall
     }
 
     func reverseGeocodeLocation(_ location: CLLocation) async throws -> [CLPlacemark] {
         callCount += 1
         onCall?()
-        let placemark = MockPlacemark(locality: localityToReturn)
+        let placemark = MockPlacemark(locality: localityToReturn,
+                                       administrativeArea: stateToReturn,
+                                       country: countryToReturn)
         return [placemark]
     }
 }
 
-/// Minimal CLPlacemark subclass that overrides `locality`.
+/// Minimal CLPlacemark subclass that overrides locality/administrativeArea/country.
 private final class MockPlacemark: CLPlacemark, @unchecked Sendable {
     private let localityValue: String?
+    private let administrativeAreaValue: String?
+    private let countryValue: String?
 
-    init(locality: String?) {
+    init(locality: String?, administrativeArea: String? = nil, country: String? = nil) {
         self.localityValue = locality
+        self.administrativeAreaValue = administrativeArea
+        self.countryValue = country
         // init(placemark:) is the designated iOS initializer for CLPlacemark.
         super.init(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D()))
     }
@@ -37,6 +48,8 @@ private final class MockPlacemark: CLPlacemark, @unchecked Sendable {
     required init?(coder: NSCoder) { nil }
 
     override var locality: String? { localityValue }
+    override var administrativeArea: String? { administrativeAreaValue }
+    override var country: String? { countryValue }
 }
 
 // MARK: - Tests
@@ -59,7 +72,9 @@ final class LocalityGeocoderTests: XCTestCase {
         in ctx: NSManagedObjectContext,
         x: Int32 = 0, y: Int32 = 0,
         cellSizeMeters: Double = 50,
-        locality: String? = nil
+        locality: String? = nil,
+        state: String? = nil,
+        country: String? = nil
     ) -> VisitedCell {
         let cell = VisitedCell(context: ctx)
         cell.cellX          = x
@@ -67,6 +82,8 @@ final class LocalityGeocoderTests: XCTestCase {
         cell.cellSizeMeters = cellSizeMeters
         cell.firstVisited   = Date()
         cell.locality       = locality
+        cell.state          = state
+        cell.country        = country
         try! ctx.save()
         return cell
     }
@@ -202,7 +219,8 @@ final class LocalityGeocoderTests: XCTestCase {
         await MainActor.run {
             let container = makeInMemoryContainer()
             let ctx       = container.viewContext
-            insertCell(in: ctx, x: 0, locality: "ExistingLocality")
+            insertCell(in: ctx, x: 0, locality: "ExistingLocality",
+                       state: "ExistingState", country: "ExistingCountry")
             let geocoder = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
             geocoder.geocodeUntaggedCells(context: ctx)
         }
@@ -211,7 +229,153 @@ final class LocalityGeocoderTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(200))
 
         await MainActor.run {
-            XCTAssertEqual(mock.callCount, 0, "No geocode call should be made for already-tagged cells")
+            XCTAssertEqual(mock.callCount, 0, "No geocode call should be made for fully-tagged cells")
+        }
+    }
+
+    func testEnqueueSetsStateAndCountry() async {
+        let expectation = XCTestExpectation(description: "geocoder called")
+        let mock = MockGeocoder(locality: "TestCity", state: "TestState", country: "TestCountry",
+                                 onCall: { expectation.fulfill() })
+
+        var cellObjectID: NSManagedObjectID?
+        var ctx: NSManagedObjectContext?
+
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            ctx           = container.viewContext
+            let cell      = insertCell(in: ctx!, locality: nil)
+            cellObjectID  = cell.objectID
+            let geocoder  = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
+            geocoder.enqueue(cell)
+        }
+
+        await fulfillment(of: [expectation], timeout: 5)
+        try? await Task.sleep(for: .milliseconds(100))
+
+        await MainActor.run {
+            guard let id = cellObjectID, let context = ctx,
+                  let cell = try? context.existingObject(with: id) as? VisitedCell else {
+                XCTFail("Could not fetch cell")
+                return
+            }
+            XCTAssertEqual(cell.state, "TestState")
+            XCTAssertEqual(cell.country, "TestCountry")
+        }
+    }
+
+    func testBackfillRegeocodesCellsMissingStateOrCountry() async {
+        // A cell already tagged with `locality` under the old scheme (state/country nil)
+        // must be picked up by the backfill and re-geocoded to fill in state/country.
+        let expectation = XCTestExpectation(description: "geocoded cell missing state/country")
+        let mock = MockGeocoder(locality: "SameCity", state: "NewState", country: "NewCountry",
+                                 onCall: { expectation.fulfill() })
+
+        var cellID: NSManagedObjectID?
+        var context: NSManagedObjectContext?
+
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            context       = container.viewContext
+            let cell      = insertCell(in: context!, locality: "SameCity", state: nil, country: nil)
+            cellID        = cell.objectID
+            let geocoder  = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
+            geocoder.geocodeUntaggedCells(context: context!)
+        }
+
+        await fulfillment(of: [expectation], timeout: 5)
+        try? await Task.sleep(for: .milliseconds(100))
+
+        await MainActor.run {
+            guard let id = cellID, let ctx = context,
+                  let cell = try? ctx.existingObject(with: id) as? VisitedCell else {
+                XCTFail("Could not fetch cell")
+                return
+            }
+            XCTAssertEqual(cell.state, "NewState")
+            XCTAssertEqual(cell.country, "NewCountry")
+        }
+    }
+
+    func testBackfillDoesNotOverwriteExistingLocality() async {
+        // Regression test: a cell already tagged with a correct locality under the old scheme
+        // must keep that locality when backfilled for state/country, even if clustered with
+        // cells whose geocode result would produce a different locality name.
+        let expectation = XCTestExpectation(description: "geocoder called")
+        let mock = MockGeocoder(locality: "DifferentCity", state: "NewState", country: "NewCountry",
+                                 onCall: { expectation.fulfill() })
+
+        var cellID: NSManagedObjectID?
+        var context: NSManagedObjectContext?
+
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            context       = container.viewContext
+            let cell      = insertCell(in: context!, locality: "OriginalCity", state: nil, country: nil)
+            cellID        = cell.objectID
+            let geocoder  = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
+            geocoder.geocodeUntaggedCells(context: context!)
+        }
+
+        await fulfillment(of: [expectation], timeout: 5)
+        try? await Task.sleep(for: .milliseconds(100))
+
+        await MainActor.run {
+            guard let id = cellID, let ctx = context,
+                  let cell = try? ctx.existingObject(with: id) as? VisitedCell else {
+                XCTFail("Could not fetch cell")
+                return
+            }
+            XCTAssertEqual(cell.locality, "OriginalCity", "Backfill must not overwrite an already-set locality")
+            XCTAssertEqual(cell.state, "NewState")
+            XCTAssertEqual(cell.country, "NewCountry")
+        }
+    }
+
+    func testBackfillFillsUnknownAndTerminatesRegeocodeLoop() async {
+        // Regression test: when the placemark lacks administrativeArea/country, the backfill
+        // must still write "Unknown" (not nil) so the predicate stops matching the cell —
+        // otherwise the cell would be re-geocoded forever on every launch.
+        let expectation = XCTestExpectation(description: "geocoder called")
+        let mock = MockGeocoder(locality: "SomeCity", onCall: { expectation.fulfill() }) // state/country default to nil
+
+        var cellID: NSManagedObjectID?
+        var context: NSManagedObjectContext?
+
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            context       = container.viewContext
+            let cell      = insertCell(in: context!, locality: nil, state: nil, country: nil)
+            cellID        = cell.objectID
+            let geocoder  = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
+            geocoder.geocodeUntaggedCells(context: context!)
+        }
+
+        await fulfillment(of: [expectation], timeout: 5)
+        try? await Task.sleep(for: .milliseconds(100))
+
+        await MainActor.run {
+            guard let id = cellID, let ctx = context,
+                  let cell = try? ctx.existingObject(with: id) as? VisitedCell else {
+                XCTFail("Could not fetch cell")
+                return
+            }
+            XCTAssertEqual(cell.state, "Unknown")
+            XCTAssertEqual(cell.country, "Unknown")
+        }
+
+        // A second, fresh backfill pass must find nothing left to geocode.
+        await MainActor.run {
+            guard let ctx = context else { return }
+            let geocoder2 = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
+            geocoder2.geocodeUntaggedCells(context: ctx)
+        }
+
+        try? await Task.sleep(for: .milliseconds(200))
+
+        await MainActor.run {
+            XCTAssertEqual(mock.callCount, 1,
+                "Cell with 'Unknown' state/country must no longer match the backfill predicate")
         }
     }
 

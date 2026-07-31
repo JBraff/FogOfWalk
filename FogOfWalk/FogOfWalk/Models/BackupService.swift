@@ -10,6 +10,8 @@ struct BackupVisitedCell: Codable, Equatable {
     let cellSizeMeters: Double
     let firstVisited: Date?
     let locality: String?
+    var state: String? = nil
+    var country: String? = nil
 }
 
 /// One discovered landmark, as stored in a backup file. Only the identifier and discovery
@@ -23,7 +25,7 @@ struct BackupLandmark: Codable, Equatable {
 /// The full contents of a backup file. `schemaVersion` guards against importing a file
 /// produced by a future, incompatible version of the app.
 struct BackupPayload: Codable, Equatable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     let schemaVersion: Int
     let exportedAt: Date
@@ -63,14 +65,16 @@ enum BackupService {
         return try encoder.encode(payload)
     }
 
-    /// Decodes and validates a backup file. Throws `BackupError.unsupportedSchemaVersion`
-    /// if the file was produced by a schema version this app doesn't understand, or a
-    /// `DecodingError` if the file isn't a valid backup at all.
+    /// Decodes and validates a backup file. Older schema versions decode forward-compatibly
+    /// (newer optional fields simply default to `nil`), so only files from a *future* schema
+    /// version this app doesn't understand are rejected. Throws
+    /// `BackupError.unsupportedSchemaVersion` in that case, or a `DecodingError` if the file
+    /// isn't a valid backup at all.
     static func decode(_ data: Data) throws -> BackupPayload {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let payload = try decoder.decode(BackupPayload.self, from: data)
-        guard payload.schemaVersion == BackupPayload.currentSchemaVersion else {
+        guard payload.schemaVersion <= BackupPayload.currentSchemaVersion else {
             throw BackupError.unsupportedSchemaVersion(payload.schemaVersion)
         }
         return payload
@@ -87,7 +91,8 @@ enum BackupService {
         let cells = try explorationStore.viewContext.fetch(request)
         let cellRecords = cells.map {
             BackupVisitedCell(cellX: $0.cellX, cellY: $0.cellY, cellSizeMeters: $0.cellSizeMeters,
-                               firstVisited: $0.firstVisited, locality: $0.locality)
+                               firstVisited: $0.firstVisited, locality: $0.locality,
+                               state: $0.state, country: $0.country)
         }
 
         let landmarkRecords = landmarkStore.allLandmarks

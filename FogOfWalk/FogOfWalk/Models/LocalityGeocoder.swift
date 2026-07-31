@@ -72,7 +72,7 @@ final class LocalityGeocoder {
         hasBackfilled = true
         let request = VisitedCell.fetchRequest()
         request.predicate = NSPredicate(
-            format: "cellSizeMeters == %f AND locality == nil",
+            format: "cellSizeMeters == %f AND (locality == nil OR state == nil OR country == nil)",
             kCellSizeMeters
         )
         guard let cells = try? context.fetch(request), !cells.isEmpty else { return }
@@ -125,11 +125,15 @@ final class LocalityGeocoder {
         do {
             let placemarks = try await geocoder.reverseGeocodeLocation(location)
             guard let p = placemarks.first else { return }
-            let name = p.locality ?? p.subAdministrativeArea ?? p.administrativeArea ?? "Unknown"
+            let name    = p.locality ?? p.subAdministrativeArea ?? p.administrativeArea ?? "Unknown"
+            let state   = p.administrativeArea ?? "Unknown"
+            let country = p.country ?? "Unknown"
             let ctx = cluster.context
             for id in cluster.objectIDs {
                 guard let cell = try? ctx.existingObject(with: id) as? VisitedCell else { continue }
-                cell.locality = name
+                if cell.locality == nil { cell.locality = name }
+                if cell.state    == nil { cell.state    = state }
+                if cell.country  == nil { cell.country  = country }
             }
             try? ctx.save()
         } catch {
