@@ -737,7 +737,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
         }
     }
 
-    func testNilStateAppearsAsUnknown() async {
+    func testNilStateIsExcluded() async {
         await MainActor.run {
             let container = makeInMemoryContainer()
             let ctx       = container.viewContext
@@ -748,7 +748,41 @@ final class DiscoveryStatsModelTests: XCTestCase {
             let model = DiscoveryStatsModel()
             model.refresh(context: ctx)
 
-            XCTAssertEqual(model.stateStats.first?.name, "Unknown")
+            XCTAssertTrue(model.stateStats.isEmpty)
+        }
+    }
+
+    func testNonUSStateIsExcluded() async {
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let ctx       = container.viewContext
+            let now       = Date()
+
+            insertCell(in: ctx, x: 0, y: 0, firstVisited: now, state: "Ontario", country: "Canada")
+
+            let model = DiscoveryStatsModel()
+            model.refresh(context: ctx)
+
+            XCTAssertTrue(model.stateStats.isEmpty, "Non-US administrative areas must not appear in stateStats")
+            XCTAssertEqual(model.countryStats.first?.name, "Canada", "Country breakdown is unaffected")
+        }
+    }
+
+    func testStateAbbreviationsNormalizeToFullNameAndMergeWithFullNameEntries() async {
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let ctx       = container.viewContext
+            let now       = Date()
+
+            insertCell(in: ctx, x: 0, y: 0, firstVisited: now, state: "CA")
+            insertCell(in: ctx, x: 1, y: 0, firstVisited: now, state: "California")
+
+            let model = DiscoveryStatsModel()
+            model.refresh(context: ctx)
+
+            XCTAssertEqual(model.stateStats.count, 1)
+            XCTAssertEqual(model.stateStats.first?.name, "California")
+            XCTAssertEqual(model.stateStats.first?.count, 2)
         }
     }
 

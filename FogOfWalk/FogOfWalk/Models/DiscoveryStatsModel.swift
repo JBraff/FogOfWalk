@@ -101,7 +101,9 @@ final class DiscoveryStatsModel {
     var estimatedDistanceMeters: Double = 0
     /// Sorted by count descending for each period. Cells with nil locality appear as "Unknown".
     var localityByPeriod: [LocalityPeriod: [LocalityStats]] = [:]
-    /// All-time only (no per-period breakdown). Cells with nil state/country appear as "Unknown".
+    /// All-time only (no per-period breakdown). Restricted to the 50 US states — values are
+    /// normalized to full names (e.g. "CA" and "California" both bucket under "California"),
+    /// and cells with nil/unrecognized/non-US state values are excluded entirely.
     var stateStats: [LocalityStats] = []
     /// All-time only (no per-period breakdown). Cells with nil state/country appear as "Unknown".
     var countryStats: [LocalityStats] = []
@@ -151,9 +153,10 @@ final class DiscoveryStatsModel {
             // All-time buckets
             allDayCounts[day, default: 0] += 1
             allLocalityCells[locality, default: []].append(cellID)
-            let state   = cell.state ?? "Unknown"
             let country = cell.country ?? "Unknown"
-            allStateCells[state, default: []].append(cellID)
+            if let rawState = cell.state, let state = USState.canonicalFullName(for: rawState) {
+                allStateCells[state, default: []].append(cellID)
+            }
             allCountryCells[country, default: []].append(cellID)
 
             // Last 24 hours

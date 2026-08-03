@@ -122,7 +122,9 @@ struct DiscoveryStatsView: View {
     // MARK: - States
 
     private var statesSection: some View {
-        LocalityListSection(title: "States", emptyText: "No states explored yet.",
+        LocalityListSection(title: "States",
+                             visitedSummary: "\(model.stateStats.count) of \(USState.count) states visited",
+                             emptyText: "No states explored yet.",
                              data: model.stateStats, onNavigate: onNavigate, dismiss: { dismiss() })
     }
 
@@ -324,6 +326,7 @@ private struct LocalityRow: View {
 
 private struct LocalityListSection: View {
     let title: String
+    var visitedSummary: String? = nil
     let emptyText: String
     let data: [LocalityStats]
     var onNavigate: ((MapNavigationTarget) -> Void)?
@@ -338,6 +341,13 @@ private struct LocalityListSection: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 VStack(spacing: 0) {
+                    if let visitedSummary {
+                        Text(visitedSummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, 8)
+                    }
                     ForEach(data) { stat in
                         LocalityRow(
                             stat: stat,
