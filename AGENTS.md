@@ -2,6 +2,26 @@
 
 iOS app that overlays a "fog of war" on Apple Maps and lifts it as the user physically walks through the world. Written in Swift. App target deploys to iOS 18.6; test targets to 26.2.
 
+## Workspace navigation and active work
+
+This repository remains independent from the agent workspace. Before consulting
+cross-project knowledge or active-work records, locate the workspace at
+`$WORKSPACE_ROOT/agent-workspace`. If `WORKSPACE_ROOT` is unset, use only the
+direct sibling `../agent-workspace` relative to this repository's Git root.
+Require that location to be a Git checkout containing `AGENTS.md` and
+`registry.yaml`; otherwise stop and report that the workspace could not be
+located. Do not scan parent trees or unrelated directories.
+
+Read the workspace `AGENTS.md` and `registry.yaml` before opening another
+product repository. Load only Fog of Walk and directly relevant registered
+projects; do not load Weather merely because it is registered.
+
+The workspace `knowledge/` tree holds durable cross-project knowledge.
+`work/initiatives/` holds explicitly authorized current work. Do not create an
+initiative, change its lifecycle, or infer current work from this repository's
+plans or activity without explicit user authorization. Do not edit or generate
+`work/PORTFOLIO.md` from this repository.
+
 ---
 
 ## Project layout
