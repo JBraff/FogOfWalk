@@ -6,6 +6,11 @@ An iOS app that overlays a "fog of war" on Apple Maps and lifts it as you physic
 
 Fog of Walk covers your map in a grey haze and clears it as you walk. Go somewhere new and the fog lifts. Over time you build up a picture of everywhere you've actually been — the well-worn routes, the gaps you never noticed, the corners of your city still waiting to be explored.
 
+## Documentation
+
+For architecture, proposals, and preserved implementation history, see the
+[documentation map](docs/README.md).
+
 ## Requirements
 
 - Xcode 15+

@@ -4,6 +4,11 @@ iOS app that overlays a "fog of war" on Apple Maps and lifts it as the user phys
 
 ## Workspace navigation and active work
 
+For durable product documentation, begin with `docs/README.md` and load
+`docs/SYSTEM.md` when the task needs architecture context. Keep current-work
+lifecycle, milestones, blockers, and next actions in the registered workspace
+initiative rather than duplicating them in this repository's documentation.
+
 This repository remains independent from the agent workspace. Before consulting
 cross-project knowledge or active-work records, locate the workspace at
 `$WORKSPACE_ROOT/agent-workspace`. If `WORKSPACE_ROOT` is unset, use only the
