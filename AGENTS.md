@@ -4,28 +4,27 @@ iOS app that overlays a "fog of war" on Apple Maps and lifts it as the user phys
 
 ## Workspace navigation and active work
 
-For durable product documentation, begin with `docs/README.md` and load
-`docs/SYSTEM.md` when the task needs architecture context. Keep current-work
-lifecycle, milestones, blockers, and next actions in the registered workspace
-initiative rather than duplicating them in this repository's documentation.
+<!-- workspace-instructions:v1 -->
 
-This repository remains independent from the agent workspace. Before consulting
-cross-project knowledge or active-work records, locate the workspace at
-`$WORKSPACE_ROOT/agent-workspace`. If `WORKSPACE_ROOT` is unset, use only the
-direct sibling `../agent-workspace` relative to this repository's Git root.
-Require that location to be a Git checkout containing `AGENTS.md` and
-`registry.yaml`; otherwise stop and report that the workspace could not be
-located. Do not scan parent trees or unrelated directories.
+At task start, locate the independent `agent-workspace` checkout: use
+`AGENT_WORKSPACE_PATH` if set (the checkout itself), else
+`$WORKSPACE_ROOT/agent-workspace` if set, else the direct sibling of this
+product's **main Git checkout**. For a managed worktree, derive the main checkout
+from `git worktree list --porcelain` before using the sibling fallback. Do not
+scan parent trees. Verify the candidate with
+`python3 <workspace>/scripts/product-instructions.py resolve --project fog-of-walk --checkout <product-root>`;
+if it is missing or mismatched, stop and report that fact. Then read its
+`AGENTS.md` and `registry.yaml`, even for Fog-only work. Load only the
+relevant initiative, runbook, and Fog documentation. Durable product context
+starts at `docs/README.md` and `docs/SYSTEM.md`.
 
-Read the workspace `AGENTS.md` and `registry.yaml` before opening another
-product repository. Load only Fog of Walk and directly relevant registered
-projects; do not load Weather merely because it is registered.
-
-The workspace `knowledge/` tree holds durable cross-project knowledge.
-`work/initiatives/` holds explicitly authorized current work. Do not create an
-initiative, change its lifecycle, or infer current work from this repository's
-plans or activity without explicit user authorization. Do not edit or generate
-`work/PORTFOLIO.md` from this repository.
+Workspace rules govern shared delivery, initiative tracking, and verified
+completion; this guide governs Fog behavior. Keep current-work lifecycle,
+milestones, blockers, and next actions in the authorized workspace initiative.
+For authorized record updates, obtain workspace write access, then run
+`./scripts/render-portfolio.sh` and `./scripts/validate.sh` there. If access is
+unavailable, report the exact pending tracking update and continue independent
+authorized product work.
 
 ---
 
