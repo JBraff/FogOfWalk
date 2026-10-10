@@ -9,8 +9,10 @@ blockers, and next actions; it does not replace these product documents.
 
 - [System architecture](SYSTEM.md) describes the enduring application structure,
   data ownership, and operational constraints.
-- [Adaptive Location Tracking](proposals/2026-09-04-adaptive-location-tracking.md)
-  is the currently proposed product design. Its workspace initiative is tracked
+- [Location Energy and Reliable Resume](proposals/2026-10-09-location-energy-and-reliability.md)
+  is the current proposal for measuring and reducing battery use. The original
+  [Adaptive Location Tracking plan](proposals/2026-09-04-adaptive-location-tracking.md)
+  is deprecated. Its workspace initiative is tracked
   separately under `agent-workspace/work/initiatives/`.
 
 ## Documentation areas

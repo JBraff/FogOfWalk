@@ -46,8 +46,10 @@ Exploration is based on actual location samples; the application never invents a
 route between sparse samples. Standard location updates prioritize continuity:
 background updates stay enabled, automatic pausing remains disabled, and
 significant-change monitoring remains a recovery/relaunch safety net rather than
-the primary tracker. The current proposed adaptive-location design is documented
-in [proposals/2026-09-04-adaptive-location-tracking.md](proposals/2026-09-04-adaptive-location-tracking.md).
+the primary tracker. The measurement-first replacement proposal is documented in
+[Location Energy and Reliable Resume](proposals/2026-10-09-location-energy-and-reliability.md).
+It evaluates stationary-aware delivery without changing the current architecture.
+The earlier explored-area adaptive-location proposal is deprecated.
 
 ## Operational constraints
 

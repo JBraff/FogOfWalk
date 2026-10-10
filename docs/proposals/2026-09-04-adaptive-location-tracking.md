@@ -1,6 +1,10 @@
 # Adaptive Location Tracking Implementation Plan
 
-**Status:** Proposed — no implementation changes have been made.
+**Status:** Deprecated on 2026-10-09. No implementation changes were made.
+
+Replaced in full by [Location Energy and Reliable Resume](2026-10-09-location-energy-and-reliability.md).
+The explored-area switching design and its implementation checklist below are
+retained for historical context only and must not be used as the current plan.
 
 ## Background
 
