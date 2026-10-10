@@ -54,7 +54,9 @@ to restart it. Test the framework's stationary/resume behavior directly.
 
 ### 1. Establish a physical-device baseline
 
-Add minimal internal diagnostics to the current implementation, then measure:
+After the independent protocol review, add minimal internal diagnostics to the
+current location implementation without changing its delivery policy. Measure
+that diagnostics-only legacy build before testing a candidate source:
 
 - screen-locked stationary operation for two hours;
 - screen-locked walking on a fixed 20–30 minute route;
@@ -68,6 +70,20 @@ rendering, geocoding, and persistence activity. Use physical-device energy profi
 supported by the installed Xcode. Battery percentage alone is insufficient for a
 short trial. A diagnostic trace identifies likely causes; it is not a calibrated
 battery-saving percentage.
+
+On an iPhone running iOS 26 or later, use on-device Power Profiler for locked-screen
+and walking runs so the phone can be unplugged and away from Xcode. Enable tracing
+for the TestFlight or development build, start and stop each run from Control Center,
+then transfer the `.aar` trace to the Mac for Instruments analysis. Record the actual
+trace interval, app build, Always-On Display setting, display-brightness and thermal
+tracks, and any other phone use. Hold ordinary display settings constant across
+matched runs. The profiler's system power rate is whole-device consumption, not
+Fog of Walk's isolated cost; its per-process impact tracks also do not by themselves
+identify Core Location as the cause. Correlate them with the app diagnostics and
+other profiling before attributing cost. An attached debugger or charging phone
+can change the measurement; charging makes the reported system power rate zero.
+On-device traces are limited to ten hours, so define a segmented capture or another
+repeatable metric before day-length trials. Keep full traces local and private.
 
 **Gate:** Produce an attributable baseline and identify the largest actionable cost.
 If stationary location work is not material, record that finding and propose a
@@ -157,10 +173,11 @@ claim of universal reliability.
 
 ### 4. Test energy benefit without compromising the comparison
 
-Use at least five paired two-hour stationary runs and five paired walking runs per
-source on the same phone with matched conditions and alternating order. Obtain an
-initial measurement-noise estimate from repeated control runs. Keep diagnostics
-equivalent and lightweight; verify behavior without an attached debugger as well.
+Use at least five stationary pairs of two-hour runs and five walking pairs on the
+same phone. Each pair contains one legacy and one candidate run under matched
+conditions; alternate their order. Obtain an initial measurement-noise estimate
+from repeated control runs. Keep diagnostics equivalent and lightweight; verify
+behavior without an attached debugger as well.
 
 Select one repeatable energy metric before candidate trials and record its units,
 limitations, and capture procedure. Define the minimum useful change as the larger
@@ -244,7 +261,8 @@ aggregate results and reproducible procedures under docs/evidence/ when availabl
 Each evidence record includes build, device/OS, protocol, trial count, results,
 failures, uncertainty, and the gate decision. The workspace initiative owns current
 milestones, progress, blockers, and next actions. This document owns the proposed
-method and acceptance policy. No measurements have been performed for this plan.
+method and acceptance policy. No protocol-qualified baseline or candidate
+measurements have been performed for this plan.
 
 ## Sources and interpretation
 
@@ -254,6 +272,9 @@ method and acceptance policy. No measurements have been performed for this plan.
   is the implementation reference for the candidate source.
 - [Apple: Handling location updates in the background](https://developer.apple.com/documentation/corelocation/handling-location-updates-in-the-background)
   is the lifecycle/session reference; check availability for the supported OS.
+- [Apple: Measuring your app's power use with Power Profiler](https://developer.apple.com/documentation/xcode/measuring-your-app-s-power-use-with-power-profiler)
+  documents on-device traces, sharing, the whole-device power rate, charging and
+  pairing limitations, and the ten-hour capture limit.
 
 The choice to investigate this API and all numeric trial gates above are engineering
 proposals for Fog of Walk, not Apple performance promises.
