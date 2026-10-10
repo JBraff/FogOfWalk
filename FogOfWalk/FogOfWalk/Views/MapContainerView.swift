@@ -133,11 +133,13 @@ struct MapContainerView: UIViewRepresentable {
             // increment yesterday's todayVisitedCount. There is no view update while the app
             // is backgrounded, so this is the only trigger guaranteed to run at all then —
             // force a fog repaint here since nothing else will.
-            if store.refreshForDayChangeIfNeeded() {
+            let dayRollover = store.refreshForDayChangeIfNeeded()
+            if dayRollover {
                 invalidateFogTiles()
             }
             let cell  = GridMath.cellID(for: location.coordinate)
             let isNew = store.addCell(cell)
+            var discoveryCount = 0
             if isNew {
                 // Push the updated cell set into the renderer; MapKit re-renders
                 // only the affected visible tiles asynchronously.
@@ -147,10 +149,13 @@ struct MapContainerView: UIViewRepresentable {
                 // cell rather than the whole visited set. Cost is then independent of how much
                 // ground the user has covered.
                 //
-                // The result is unused: this app has no haptics. Tracking runs for hours in the
-                // background, so a buzz every 50 m walked is not feedback, it is noise.
-                landmarkStore.checkDiscovery(newCell: cell)
+                // The count is diagnostic only. This app has no haptics: a buzz every
+                // 50 m during hours of background tracking would be noise.
+                discoveryCount = landmarkStore.checkDiscovery(newCell: cell).count
             }
+            LocationStudyDiagnostics.shared.recordDownstream(
+                cell: cell, isNew: isNew, discoveries: discoveryCount, dayRollover: dayRollover
+            )
         }
 
         // MARK: - Fog tile management

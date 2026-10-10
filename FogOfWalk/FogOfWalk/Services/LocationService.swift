@@ -39,6 +39,8 @@ extension CLLocationManager: LocationManagerProtocol {
 @Observable
 final class LocationService: NSObject, CLLocationManagerDelegate {
     private let manager: LocationManagerProtocol
+    private let diagnostics: LocationDiagnosticRecording
+    private var sessionStartedAt: Date?
 
     private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
     private(set) var currentLocation: CLLocation?
@@ -59,8 +61,12 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     /// Called on the main actor on every significant location update.
     var onLocationUpdate: ((CLLocation) -> Void)?
 
-    init(manager: LocationManagerProtocol = CLLocationManager()) {
+    init(
+        manager: LocationManagerProtocol = CLLocationManager(),
+        diagnostics: LocationDiagnosticRecording? = nil
+    ) {
         self.manager = manager
+        self.diagnostics = diagnostics ?? LocationStudyDiagnostics.shared
         super.init()
         manager.delegate                           = self
         manager.desiredAccuracy                    = kCLLocationAccuracyNearestTenMeters
@@ -78,6 +84,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     func requestPermissionAndStart() {
         switch manager.authorizationStatus {
         case .notDetermined:
+            diagnostics.recordLifecycle("permission_request", detail: "always")
             manager.requestAlwaysAuthorization()
         case .authorizedAlways:
             startTracking()
@@ -87,14 +94,18 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
             // location updates require Always permission, which isn't granted yet at this
             // point. startTracking() is called from locationManagerDidChangeAuthorization
             // once the user responds to the upgrade prompt.
+            diagnostics.recordLifecycle("permission_upgrade_request", detail: "always")
             manager.requestAlwaysAuthorization()
         #endif
         default:
             isPermissionDenied = true
+            diagnostics.recordLifecycle("permission_unavailable", detail: "\(manager.authorizationStatus.rawValue)")
         }
     }
 
     private func startTracking() {
+        if sessionStartedAt == nil { sessionStartedAt = Date() }
+        diagnostics.recordLifecycle("tracking_start_or_rearm", detail: "legacy")
         manager.allowsBackgroundLocationUpdates = true
         manager.startMonitoringSignificantLocationChanges()
         manager.startUpdatingLocation()
@@ -106,6 +117,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     /// nothing beyond re-asserting existing "Always" tracking — never requests permission.
     func restartIfAuthorized() {
         guard manager.authorizationStatus == .authorizedAlways else { return }
+        diagnostics.recordLifecycle("foreground_rearm", detail: "legacy")
         startTracking()
     }
 
@@ -120,6 +132,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
             // reflects the injected manager, not the CLLocationManager delegate argument.
             let status = self.manager.authorizationStatus
             self.authorizationStatus = status
+            self.diagnostics.recordLifecycle("authorization_change", detail: "\(status.rawValue)")
             switch status {
             case .authorizedAlways:
                 self.isPermissionDenied = false
@@ -129,6 +142,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
                 // Foreground-only permission: start updates for now, but do not set
                 // allowsBackgroundLocationUpdates (requires Always auth).
                 self.isPermissionDenied = false
+                if self.sessionStartedAt == nil { self.sessionStartedAt = Date() }
                 self.manager.startUpdatingLocation()
                 self.manager.startMonitoringSignificantLocationChanges()
                 // Request upgrade to Always so iOS shows the "Change to Always Allow?" prompt.
@@ -136,6 +150,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
             #endif
             case .denied, .restricted:
                 self.isPermissionDenied = true
+                self.sessionStartedAt = nil
             default:
                 break
             }
@@ -143,27 +158,39 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
+        let receivedAt = Date()
         Task { @MainActor [weak self] in
-            self?.currentLocation = location
-            self?.isPaused        = false
-            self?.onLocationUpdate?(location)
+            guard let self else { return }
+            self.diagnostics.recordBatch(locations, receivedAt: receivedAt,
+                                         sessionStartedAt: self.sessionStartedAt)
+            guard let location = locations.last else { return }
+            self.currentLocation = location
+            self.isPaused = false
+            self.onLocationUpdate?(location)
         }
     }
 
     nonisolated func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
         Task { @MainActor [weak self] in
             self?.isPaused = true
+            self?.diagnostics.recordLifecycle("location_paused", detail: nil)
         }
     }
 
     nonisolated func locationManagerDidResumeLocationUpdates(_ manager: CLLocationManager) {
         Task { @MainActor [weak self] in
             self?.isPaused = false
+            self?.diagnostics.recordLifecycle("location_resumed", detail: nil)
         }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         print("LocationService: \(error.localizedDescription)")
+        Task { @MainActor [weak self] in
+            let nsError = error as NSError
+            self?.diagnostics.recordLifecycle(
+                "location_error", detail: "\(nsError.domain):\(nsError.code)"
+            )
+        }
     }
 }
