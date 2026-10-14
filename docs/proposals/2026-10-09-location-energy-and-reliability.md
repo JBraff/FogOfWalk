@@ -334,7 +334,7 @@ A passing test suite does not replace these reviews.
    alone is insufficient.
 
 Execution roles and delegation instructions are in the workspace
-[execution handover](https://github.com/JBraff/agent-workspace/blob/codex/fog-location-energy-plan/work/handoffs/fog-location-energy-and-reliability.md).
+[execution handover](https://github.com/JBraff/agent-workspace/blob/main/work/handoffs/fog-location-energy-and-reliability.md).
 The handover's model assignments do not change these evidence requirements.
 
 ## What each testing layer proves
