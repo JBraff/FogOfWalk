@@ -34,6 +34,7 @@ struct FogOfWalkApp: App {
                     // relaunches (e.g. via significant-location-change) begin tracking
                     // before the map view ever appears.
                     locationService.requestPermissionAndStart()
+                    locationService.recordStudyTrackingState()
 
                     // Wire new-cell callback so locality is geocoded as cells are discovered.
                     store.onNewCell = { [geocoder] cell in

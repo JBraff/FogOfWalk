@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @Environment(ExplorationStore.self) private var store
     @Environment(LandmarkStore.self)    private var landmarkStore
+    @Environment(LocationService.self) private var locationService
     @Environment(\.dismiss)             private var dismiss
 
     @State private var exportURL: URL?
@@ -46,12 +47,24 @@ struct SettingsView: View {
 
                 if study.isStudyApp {
                     Section {
+                        Toggle("Tracking off — stationary control", isOn: Binding(
+                            get: { locationService.isStudyTrackingDisabled },
+                            set: { _ = locationService.setStudyTrackingDisabled($0) }
+                        ))
+                        .disabled(study.isCapturing)
+                        .accessibilityIdentifier("studyTrackingOff")
+                        Text(locationService.isStudyTrackingDisabled
+                             ? "Tracking OFF: no exploration is recorded. Use only while stationary."
+                             : "Tracking ON: current legacy tracking and map location are enabled.")
+
                         if study.isCapturing {
                             Button("Stop Diagnostic Capture") { study.stopCapture() }
                             Text("Capture running since \(study.captureStartedAt?.formatted() ?? "unknown time").")
                         } else {
                             Button("Start Diagnostic Capture") {
-                                do { try study.startCapture() }
+                                do {
+                                    try study.startCapture()
+                                }
                                 catch { studyMessage = error.localizedDescription }
                             }
                         }
@@ -80,7 +93,7 @@ struct SettingsView: View {
                     } header: {
                         Text("Location Study")
                     } footer: {
-                        Text("For the separate study app only. Start before a trial and stop afterward. Logs contain precise locations and stay on this phone until you export them; old files are removed after seven days. Query motion only after a run has ended.")
+                        Text("Choose tracking ON or OFF before recording. The mode stays selected after relaunch. Stop Diagnostic Capture stops logging only; it does not change tracking. Restore tracking ON after stationary controls before walking. Logs contain precise locations and stay on this phone until exported; old files are removed after seven days. Query motion only after a run has ended.")
                     }
                 }
             }

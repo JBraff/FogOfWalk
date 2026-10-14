@@ -35,9 +35,14 @@ enum StudySampleValidator {
 
 @MainActor
 protocol LocationDiagnosticRecording: AnyObject {
+    var isCapturing: Bool { get }
     func recordLifecycle(_ name: String, detail: String?)
     func recordBatch(_ locations: [CLLocation], receivedAt: Date, sessionStartedAt: Date?)
     func recordDownstream(cell: CellID, isNew: Bool, discoveries: Int, dayRollover: Bool)
+}
+
+extension LocationDiagnosticRecording {
+    var isCapturing: Bool { false }
 }
 
 /// An explicitly started, local-only JSONL capture in the separate `.study` app.
@@ -132,6 +137,7 @@ final class LocationStudyDiagnostics: LocationDiagnosticRecording {
                         isCapturing = true
                         captureEndedAt = nil
                         recordLifecycle("process_relaunch", detail: nil)
+                        recordTrackingState()
                     } catch {
                         lastError = "Could not resume diagnostic capture: \(error.localizedDescription)"
                         defaults.set(false, forKey: "locationStudy.active")
@@ -167,6 +173,7 @@ final class LocationStudyDiagnostics: LocationDiagnosticRecording {
         defaults.removeObject(forKey: "locationStudy.endedAt")
         defaults.set(true, forKey: "locationStudy.active")
         append(Event(kind: "capture_start", recordedAt: date, detail: "legacy"))
+        recordTrackingState()
     }
 
     func stopCapture(at date: Date = Date()) {
@@ -186,6 +193,11 @@ final class LocationStudyDiagnostics: LocationDiagnosticRecording {
 
     func recordLifecycle(_ name: String, detail: String? = nil) {
         append(Event(kind: name, recordedAt: Date(), detail: detail))
+    }
+
+    private func recordTrackingState() {
+        recordLifecycle("study_tracking_state", detail:
+            defaults.bool(forKey: LocationService.studyTrackingDisabledKey) ? "off" : "on")
     }
 
     func recordBatch(_ locations: [CLLocation], receivedAt: Date, sessionStartedAt: Date?) {

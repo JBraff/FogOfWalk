@@ -2,6 +2,10 @@
 
 **Status:** Study build 3's foreground profiler-targeting check Passed. Formal stationary energy qualification awaits locked-screen measurement readiness and attribution; walking-reference qualification remains unresolved. No formal baseline result is recorded here.
 **Study phone:** iPhone 15 Pro Max; record the exact iOS build on each trial.
+**Next preparation:** Study build 4 adds the internal stationary OFF control.
+Follow the [control qualification and comparison protocol](location-energy-tracking-control-protocol.md).
+Prepared build status does not mean build 4 is installed; the last physically
+verified installation remains build 3.
 **Authority:** [Location Energy and Reliable Resume](../proposals/2026-10-09-location-energy-and-reliability.md). If this sheet changes after candidate results are seen, record the revision and repeat affected pairs.
 
 ## Diagnostic contract
@@ -11,6 +15,7 @@ The separate `com.jeremybraff.fogofwalk.study` app has an explicit Start/Stop co
 | Kind | Fields and interpretation |
 |---|---|
 | `capture_start`, `capture_stop`, `process_relaunch` | Capture boundary and process restart. The active capture reopens after a relaunch. |
+| `study_tracking_state`, `study_callback_suppressed` | ON/OFF arm at capture start/relaunch and lifecycle entry; OFF or previous-arm callbacks are suppressed. The new Study-only OFF control intentionally prevents exploration. These markers describe app configuration, not physical GPS-resource release or measured energy. |
 | `tracking_start_or_rearm`, `foreground_rearm`, `authorization_change`, `permission_request`, `permission_upgrade_request`, `permission_unavailable`, `location_paused`, `location_resumed`, `location_error`, `scene_phase` | Legacy lifecycle, with authorization raw value or error domain/code where relevant. A rearm does not imply a new fix. |
 | `batch` | Callback receipt time, batch ID, count, and `legacy` source. |
 | `sample` | Original index, sample time, finite latitude/longitude, horizontal accuracy, speed, age at batch receipt, shadow decision, and `forwarded`. Assessment order is by sample timestamp, while `forwarded` identifies only the original last element. No sample is rejected by this logging path. |

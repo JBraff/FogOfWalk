@@ -3,7 +3,9 @@
 **Prepared:** 2026-10-13.
 **Current isolation method:** Phone-side radio isolation; the development Mac
 stays on and online. The owner's lack of Mac access supersedes the earlier
-shutdown procedure. Setup isolation still needs physical verification.
+shutdown procedure. For the owner's geographically remote setup, isolation may
+be accepted from the explicit connection-path checklist below; the live probe
+remains inconclusive. Sleep/wake instrumentation still needs physical verification.
 **Purpose:** Resolve the remaining instrumentation questions before another
 two-hour stationary baseline. This is a specific background-readiness check,
 not a repeat of the passed foreground targeting check, a battery comparison,
@@ -69,9 +71,15 @@ record that uncertainty rather than assume it.
    unreachable/disconnected result consistent with the phone's recorded settings;
    a lock, authorization, syntax or local-tool error is not proof of disconnection.
    If a custom remote-device/VPN path is configured, resolve it separately.
+   For a phone geographically remote from the Mac, an alternative for this
+   bounded readiness check is explicit owner confirmation of physical separation,
+   no USB, Settings Wi-Fi/Bluetooth off, hotspot off, and no active VPN or
+   remote-device bridge. Record this as connection-path evidence, not a Passed
+   live probe. An inconclusive probe alone never qualifies. This alternative
+   does not establish sleep or qualify a formal energy baseline.
    End the probe before settling; no device queries or live sessions during
-   capture. Ambiguous setup results remain unresolved. Mac UI access is not
-   required for this command-line setup check.
+   capture. If either connection-path evidence or the live result is ambiguous,
+   keep setup unresolved. Mac UI access is not required for the command-line check.
 5. Let the phone settle for at least ten minutes with its final radio settings.
    Record this as a cellular-only readiness condition, separate from earlier
    Wi-Fi-on traces. Keep the Mac's network unchanged.
@@ -85,7 +93,8 @@ disconnection, which leaves connectivity features available. Apple's
 [device-pairing documentation](https://developer.apple.com/documentation/xcode/pairing-your-devices-with-your-mac)
 describes cable and wireless connections. Removing USB and fully disabling the
 phone's Wi-Fi/Bluetooth/hotspot is the reviewed isolation design; physical setup
-and the resulting sleep/wake evidence remain unverified. Preserve pairing and
+must be recorded at its actual evidence scope; sleep/wake evidence remains
+unverified until the recording is inspected. Preserve pairing and
 both app containers; no reinstall or Developer Mode change is required.
 
 ## Next phone check: stationary, locked for about 15 minutes
@@ -149,6 +158,35 @@ result appears. Preserve all adverse/inconclusive observations and the legacy
 production default.
 
 ## Preparation review
+
+The owner subsequently completed the remote readiness capture on 2026-10-14.
+The matched approximately 34-minute exports establish Study background target
+and data availability. Eight brief intermediate display-lighting events are
+owner-reported notifications, with no phone use. Both exported and native
+Instruments sleep lanes remain empty. Full findings and the unresolved
+sleep/consumer-attribution gates are in the
+[verification record](location-energy-diagnostics-verification.md#remote-locked-screen-readiness-capture-2026-10-14).
+Do not request another equivalent capture or advance to a long baseline solely
+from the successful background target check.
+
+On 2026-10-14, the owner confirmed the phone is many miles from the development
+Mac, unlocked and disconnected, with Wi-Fi/Bluetooth/hotspot off and cellular on.
+Tailscale is occasionally used but is currently disconnected; no current remote
+connection was reported. A sandboxed device listing timed out; an unsandboxed
+listing succeeded. Live process probes, including an unlocked retry, returned
+CoreDevice error 4016 with no assertable states. No probe succeeded, but the
+generic error does not independently prove disconnection. Raw output stays in
+private temporary files.
+
+The agent accepts the explicit remote connection-path checklist as practical
+setup evidence for one readiness-only capture, replacing the earlier requirement
+for a specific CLI failure in this situation. This is an agent procedural revision,
+not an independently reviewed amendment or a Passed live connection check.
+The prior same-network positive-control suggestion does not fit the owner's
+remote setup. Preserve the inconclusive probes and require actual sleep/wake
+inspection afterward. No recording, sleep interval, consumer attribution or
+energy benefit is established by this setup evidence; the formal-baseline gates
+below remain unchanged.
 
 On 2026-10-13, the independent Astra reviewer approved this specific 15-minute
 check in principle, subject to two fixes: an executable wireless-disconnection

@@ -26,8 +26,11 @@ struct MapContainerView: UIViewRepresentable {
         // Map fills the container.
         let mapView               = MKMapView(frame: container.bounds)
         mapView.delegate          = context.coordinator
-        mapView.showsUserLocation = true
-        mapView.userTrackingMode  = .follow
+        Self.applyLocationDisplay(to: mapView, enabled: !locationService.isStudyTrackingDisabled)
+        locationService.installStudyMapControl { [weak mapView] enabled in
+            guard let mapView else { return }
+            Self.applyLocationDisplay(to: mapView, enabled: enabled)
+        }
         mapView.autoresizingMask  = [.flexibleWidth, .flexibleHeight]
         container.addSubview(mapView)
 
@@ -47,6 +50,17 @@ struct MapContainerView: UIViewRepresentable {
         context.coordinator.landmarkOverlayView = landmarkView
 
         return container
+    }
+
+    static func applyLocationDisplay(to mapView: MKMapView, enabled: Bool) {
+        if enabled {
+            let wasDisabled = !mapView.showsUserLocation
+            mapView.showsUserLocation = true
+            if wasDisabled { mapView.userTrackingMode = .follow }
+        } else {
+            mapView.userTrackingMode = .none
+            mapView.showsUserLocation = false
+        }
     }
 
     func updateUIView(_ container: UIView, context: Context) {

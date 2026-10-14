@@ -38,5 +38,9 @@ records current measurement limits and the checks needed before another comparis
 The [locked-screen readiness procedure](evidence/location-energy-locked-screen-readiness.md)
 prepares the next bounded stationary check, including concrete Xcode disconnection
 and separate sleep/consumer-attribution decisions.
+The [stationary tracking-control protocol](evidence/location-energy-tracking-control-protocol.md)
+prepares Study build 4's all-consumer OFF control and the subsequent matched
+comparison. Its first phone check qualifies the newly disabled consumers and
+sleep instrumentation before any long pair.
 These records distinguish reporting checks from the unqualified physical
 measurement gates; they do not establish battery savings.

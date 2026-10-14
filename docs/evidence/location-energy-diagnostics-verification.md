@@ -740,3 +740,65 @@ not prove isolation. Phone Wi-Fi/Bluetooth/hotspot stay off until both captures
 stop, cellular and permissions unchanged. Record these changed conditions and
 do not compare energy with the prior Wi-Fi-on trace. No phone setting change,
 setup probe or new physical recording has yet been verified for this revision.
+
+## Remote locked-screen readiness capture, 2026-10-14
+
+The owner supplied a new diagnostic log and power archive after the bounded
+readiness check. The run lasted about 34 minutes, longer than the prepared
+approximately 15 minutes. The owner reports approximate start/end battery
+readings of 75% and 71%, no phone use, and notifications lighting the lock screen.
+Before capture, the owner confirmed geographic separation from the development
+Mac, Wi-Fi/Bluetooth/hotspot off, unplugged operation, cellular on and Tailscale
+disconnected. This is owner-reported connection-path evidence; the generic
+CoreDevice setup errors remain inconclusive and are not a Passed live probe.
+The [procedure](location-energy-locked-screen-readiness.md) records that agent
+revision separately from the earlier independent review.
+
+Private archive extraction, import once into a saved Instruments trace and
+schema/reference-aware XML inspection succeeded. Original source SHA-256 hashes
+are unchanged. Raw files, identifiers, exact timestamps and locations remain
+outside Git. No phone query was made during or after this capture analysis.
+
+| Check | Result and limit |
+| --- | --- |
+| Matching capture | Diagnostic duration 2044.487 s; power duration 2041.999 s. Trace starts 2.678 s before diagnostic Start and ends 5.166 s before diagnostic Stop. Most of the diagnostic is covered; the final gap is retained. |
+| Diagnostic behavior | Ten records, one Start/Stop pair, background entry at diagnostic +6.679 s, one accepted/forwarded legacy sample at +153.293 s and no new cell/discovery. Foreground entry/rearm near Stop. Callback scarcity does not establish sleep or low location cost. |
+| Study target/lifecycle | App-impact rows exclusively name `Fog-Walk-Study`. Foreground for 8.953 trace seconds, then Background for 2033.047 s. Background target/data availability is established; this is not a consumer-specific energy attribution result. |
+| Display | Initial bright interval 8.953 s; eight intermediate bright intervals of about 5 s each; final bright interval 4.053 s. Otherwise dark. The owner attributes intermediate events to notifications and confirms no phone use. |
+| Thermal | Nominal for the trace duration. |
+| Sleep/charging intervals | Both exported tables are empty. Sleep remains unresolved; dark display and failed connection probes do not prove processor sleep. Raw SystemMetrics signposts contain 4086 charging-state values, all code 0; no enum meaning is asserted from that numeric code alone. Uncharged setup is owner-reported. |
+| Study activity | After trace +60 s, subsystem row kind 0 has 1981 available CPU-impact values (40 positive) and CPU-instruction values (740 positive); display impact has 52 positive values. Separate GPU row kind 2 has four positive GPU values. Sentinel values remain unavailable. Row kinds are not pooled into a single process-energy total. |
+| Location-client evidence | Per-app power signposts include desired-accuracy values (4072 at 10; 14 at -2). They do not distinguish the app manager from MapKit or identify location-service energy. The available OS log table has zero rows and no dedicated location-client table is present. MapKit background attribution remains open. |
+
+For descriptive inspection only, the entire trace's duration-weighted exported
+whole-device rate is 4.325%/hour over 2041.948422 valid seconds. The final 0.050972 s
+has no power row and internal gaps total 0.085 ms; no missing interval is imputed.
+This modelled rate is not the observed four-percentage-point battery change,
+which uses rounded readings and approximate timing. Neither measure isolates
+Fog energy. No comparison with prior Wi-Fi-on runs, battery-saving claim or
+fixed two-hour baseline qualification follows.
+
+Native Instruments inspection succeeded after the initial computer-use timeout.
+The saved working trace was opened and the timeline fitted to the full recording.
+The native sleep and charger lanes contain no intervals, matching the exports.
+Native whole-device Summary reports 4.3%/hour and 3% average display brightness,
+consistent with the export calculation at displayed precision. The empty sleep
+lane does not distinguish actual continuous wakefulness from missing sleep
+instrumentation. Determine that distinction before another long baseline; do not
+repeat the same readiness capture merely to seek a favorable sleep result.
+
+Next resolve absent sleep evidence and the attribution method: obtain records
+identifying location consumers,
+or review the existing proposal's study-only stationary control covering the
+legacy manager, significant-change service and MapKit together. No control is
+implemented or approved by this result. The initiative remains at baseline
+measurement; locked-screen sleep readiness and formal attribution remain open.
+
+Documentation links and whitespace checks passed. The unchanged source built and
+the full simulator XCTest scheme succeeded after recording these findings. Raw
+trace/diagnostic exports remain outside the product repository. The workspace
+initiative update is pending because regeneration would overlap existing changes
+in its generated portfolio; preserve those changes. Pending tracking is to record
+background target/data availability, unresolved native/exported sleep evidence,
+notification controls and the next instrumentation/attribution work, keeping
+Active m1 and the existing long-baseline gates.

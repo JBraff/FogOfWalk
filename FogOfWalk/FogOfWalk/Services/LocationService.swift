@@ -1,5 +1,6 @@
 import CoreLocation
 import Observation
+import os
 
 // MARK: - LocationManagerProtocol
 
@@ -41,6 +42,15 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     private let manager: LocationManagerProtocol
     private let diagnostics: LocationDiagnosticRecording
     private var sessionStartedAt: Date?
+    private let defaults: UserDefaults
+    let isStudyApp: Bool
+    private(set) var isStudyTrackingDisabled: Bool
+    static let studyTrackingDisabledKey = "locationStudy.trackingDisabled"
+    private var studyResumeStartedAt: Date?
+    private var applyMapLocation: ((Bool) -> Void)?
+    // Delegate callbacks can arrive before a mode switch and execute afterward.
+    // An epoch captured at receipt prevents those callbacks crossing either switch.
+    nonisolated private let callbackEpoch = OSAllocatedUnfairLock(initialState: UInt64(0))
 
     private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
     private(set) var currentLocation: CLLocation?
@@ -63,10 +73,15 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
 
     init(
         manager: LocationManagerProtocol = CLLocationManager(),
-        diagnostics: LocationDiagnosticRecording? = nil
+        diagnostics: LocationDiagnosticRecording? = nil,
+        isStudyApp: Bool? = nil,
+        defaults: UserDefaults = .standard
     ) {
         self.manager = manager
         self.diagnostics = diagnostics ?? LocationStudyDiagnostics.shared
+        self.defaults = defaults
+        self.isStudyApp = isStudyApp ?? (Bundle.main.bundleIdentifier == LocationStudyDiagnostics.studyBundleID)
+        self.isStudyTrackingDisabled = self.isStudyApp && defaults.bool(forKey: Self.studyTrackingDisabledKey)
         super.init()
         manager.delegate                           = self
         manager.desiredAccuracy                    = kCLLocationAccuracyNearestTenMeters
@@ -79,9 +94,54 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager.activityType                       = .fitness
         manager.enableBackgroundLocationIndicator()
         authorizationStatus                        = manager.authorizationStatus
+        if isStudyTrackingDisabled { stopStudyConsumers() }
+    }
+
+    /// Internal stationary diagnostic control. It is unavailable in the normal app
+    /// and cannot change arms during a capture. Stop Capture only stops logging.
+    @discardableResult
+    func setStudyTrackingDisabled(_ disabled: Bool) -> Bool {
+        guard isStudyApp, !diagnostics.isCapturing else { return false }
+        guard disabled != isStudyTrackingDisabled else { return true }
+        callbackEpoch.withLock { $0 &+= 1 }
+        isStudyTrackingDisabled = disabled
+        defaults.set(disabled, forKey: Self.studyTrackingDisabledKey)
+        sessionStartedAt = nil
+        currentLocation = nil
+        studyResumeStartedAt = disabled ? nil : Date()
+        if disabled {
+            stopStudyConsumers()
+        } else {
+            applyMapLocation?(true)
+            restartIfAuthorized()
+        }
+        recordStudyTrackingState()
+        return true
+    }
+
+    /// The map consumer is changed synchronously with the manager, including
+    /// maps created/recreated while the persisted control is off.
+    func installStudyMapControl(_ apply: @escaping (Bool) -> Void) {
+        guard isStudyApp else { return }
+        applyMapLocation = apply
+        apply(!isStudyTrackingDisabled)
+    }
+
+    func recordStudyTrackingState() {
+        guard isStudyApp else { return }
+        diagnostics.recordLifecycle("study_tracking_state", detail: isStudyTrackingDisabled ? "off" : "on")
+    }
+
+    private func stopStudyConsumers() {
+        manager.stopUpdatingLocation()
+        manager.stopMonitoringSignificantLocationChanges()
+        manager.allowsBackgroundLocationUpdates = false
+        applyMapLocation?(false)
+        isPaused = true
     }
 
     func requestPermissionAndStart() {
+        guard !isStudyTrackingDisabled else { return }
         switch manager.authorizationStatus {
         case .notDetermined:
             diagnostics.recordLifecycle("permission_request", detail: "always")
@@ -104,6 +164,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     private func startTracking() {
+        guard !isStudyTrackingDisabled else { return }
         if sessionStartedAt == nil { sessionStartedAt = Date() }
         diagnostics.recordLifecycle("tracking_start_or_rearm", detail: "legacy")
         manager.allowsBackgroundLocationUpdates = true
@@ -116,6 +177,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     /// `didFailWithError`) without an authorization change to trigger a restart. Does
     /// nothing beyond re-asserting existing "Always" tracking — never requests permission.
     func restartIfAuthorized() {
+        guard !isStudyTrackingDisabled else { return }
         guard manager.authorizationStatus == .authorizedAlways else { return }
         diagnostics.recordLifecycle("foreground_rearm", detail: "legacy")
         startTracking()
@@ -133,6 +195,11 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
             let status = self.manager.authorizationStatus
             self.authorizationStatus = status
             self.diagnostics.recordLifecycle("authorization_change", detail: "\(status.rawValue)")
+            guard !self.isStudyTrackingDisabled else {
+                self.isPermissionDenied = status == .denied || status == .restricted
+                self.stopStudyConsumers()
+                return
+            }
             switch status {
             case .authorizedAlways:
                 self.isPermissionDenied = false
@@ -159,8 +226,19 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         let receivedAt = Date()
+        let epoch = callbackEpoch.withLock { $0 }
         Task { @MainActor [weak self] in
             guard let self else { return }
+            guard !self.isStudyTrackingDisabled,
+                  epoch == self.callbackEpoch.withLock({ $0 }) else {
+                self.diagnostics.recordLifecycle("study_callback_suppressed", detail: "off_or_previous_arm")
+                return
+            }
+            if let start = self.studyResumeStartedAt,
+               let last = locations.last, last.timestamp < start {
+                self.diagnostics.recordLifecycle("study_callback_suppressed", detail: "before_resume")
+                return
+            }
             self.diagnostics.recordBatch(locations, receivedAt: receivedAt,
                                          sessionStartedAt: self.sessionStartedAt)
             guard let location = locations.last else { return }
@@ -172,6 +250,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
 
     nonisolated func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
         Task { @MainActor [weak self] in
+            guard self?.isStudyTrackingDisabled == false else { return }
             self?.isPaused = true
             self?.diagnostics.recordLifecycle("location_paused", detail: nil)
         }
@@ -179,6 +258,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
 
     nonisolated func locationManagerDidResumeLocationUpdates(_ manager: CLLocationManager) {
         Task { @MainActor [weak self] in
+            guard self?.isStudyTrackingDisabled == false else { return }
             self?.isPaused = false
             self?.diagnostics.recordLifecycle("location_resumed", detail: nil)
         }
