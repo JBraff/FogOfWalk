@@ -134,3 +134,20 @@ instrumentation cannot support attribution or the comparison remains within
 measurement uncertainty, record that limit instead of assuming tracking is the
 cause. No candidate implementation, walk or battery-benefit claim follows from
 the current exploratory recording.
+
+## Reviewed locked-screen readiness procedure
+
+The [next-test procedure](location-energy-locked-screen-readiness.md) now records
+the source consumer audit and a concrete 15-minute stationary locked-screen check
+on installed build 3. The independent Astra review required an executable wireless
+disconnection method and conditional progression to a long baseline; both are
+incorporated. The development Mac stays fully shut down until diagnostic and
+power capture stop, preserving pairing and the phone's network configuration.
+Native connection controls could not be inspected while the Mac was locked.
+
+This check targets the missing sleep/wake/background instrumentation evidence;
+the foreground targeting check remains Passed. It does not isolate MapKit cost
+or select/implement the all-consumer control above. If consumer-specific evidence
+is unavailable, that physical audit stays open and needs a reviewed instrumentation
+or attribution-control method. Keep all existing measurement gates and do not
+request another equivalent short trace to resolve absent consumer information.

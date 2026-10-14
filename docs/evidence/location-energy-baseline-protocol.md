@@ -49,6 +49,10 @@ after checking Study on with normal Fog off. This is owner-reported UI evidence;
 the brief foreground preflight now verifies the distinct Study target and
 nonzero app work. This passes foreground instrumentation only. Finish sleep/wake
 and background-consumer readiness before another long run.
+Use the [locked-screen readiness procedure](location-energy-locked-screen-readiness.md)
+for the specific remaining check; the passed foreground preflight need not be
+repeated. Stop Diagnostic Capture ends logging, not tracking. Set Study location
+Never before restoring normal Fog permission when study testing ends.
 Run the normal full XCTest scheme without these Study-only packaging overrides;
 its existing test-host naming remains unchanged.
 

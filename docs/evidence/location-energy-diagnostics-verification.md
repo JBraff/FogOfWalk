@@ -711,3 +711,22 @@ silicon sleep and that sleep/wake events require disconnected on-device capture
 ([Power Profiler guidance](https://developer.apple.com/documentation/Xcode/measuring-your-app-s-power-use-with-power-profiler?changes=_8)).
 The existing long-run empty sleep export remains unresolved; foreground success
 does not fill that gap or qualify the old recording as Study-attributable energy.
+
+### Locked-screen preparation and independent review, 2026-10-13
+
+The [next-test procedure](location-energy-locked-screen-readiness.md) records the
+bounded location-consumer source audit and independent Astra review. The reviewer
+approved one approximately 15-minute stationary locked-screen instrumentation
+check after concrete development-Mac shutdown and conditional progression fixes.
+No native disconnect control was verified while the Mac was locked; the phone's
+paired/available device-list state does not prove timed-run disconnection. MapKit
+requests user location, but its physical background activity/cost remains open.
+Stop Diagnostic Capture ends logging only. No new walk or Motion query is needed.
+
+Documentation-only preparation preserved installed Study build 3, production
+settings and app source. The normal simulator build and full scheme passed 244
+tests with zero failures/skips on iOS 27.0, Xcode 27.0 (27A266a). Existing Swift
+concurrency warnings remain. Battery-document links and whitespace passed;
+workspace record/portfolio validation passed in both checkouts with unrelated
+work preserved. No new physical recording, sleep/wake readiness, background
+attribution, formal baseline, departure gate or battery saving is claimed.

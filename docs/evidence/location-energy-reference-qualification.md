@@ -214,5 +214,7 @@ route/tool and that limited purpose are agreed. Unsupported clock or distance
 allowances remain unqualified; such a pilot cannot pass the formal gate or qualify
 long idle. Retain measured-route uncertainty evidence and obtain the post-pilot
 gate review before formal scoring. A procedure review is not physical qualification. The study
-build stays version 1.0/build 2 and legacy tracking remains unchanged; there is
-no reason to reinstall for this documentation change.
+build was version 1.0/build 2 when this reference procedure was prepared. The
+current installed build is 1.0/build 3, with distinct Study packaging and the
+same capture-origin motion behavior; use its current build metadata for future
+trials. Legacy tracking remains unchanged, and this procedure needs no reinstall.

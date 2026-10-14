@@ -137,3 +137,15 @@ No repeat of the short check is needed. The next preparation is explicit Xcode
 disconnection, sleep/wake evidence and the background MapKit consumer audit before
 another long window. Foreground success does not repair the old long recording's
 normal-app attribution or empty sleep data. Legacy tracking is preserved.
+
+## Next locked-screen preparation
+
+The [reviewed readiness procedure](location-energy-locked-screen-readiness.md)
+provides a specific 15-minute stationary locked-screen check on installed build 3,
+with the development Mac fully shut down during capture to prevent wireless
+Xcode reconnection. It retains phone network settings and app pairing/container.
+The source audit confirms MapKit requests user location, but actual background
+consumer activity and energy remain unverified. Use the new check for sleep/wake
+instrumentation readiness; if it lacks location-client evidence, specify the
+remaining attribution method rather than repeating the same check. No new
+physical result or long-window readiness is claimed by this preparation.

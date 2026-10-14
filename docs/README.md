@@ -35,5 +35,8 @@ The [analysis readiness record](evidence/location-energy-analysis-readiness.md)
 documents offline trace-export checks and remaining preflight work.
 The [attribution preparation draft](evidence/location-energy-attribution-preparation.md)
 records current measurement limits and the checks needed before another comparison.
+The [locked-screen readiness procedure](evidence/location-energy-locked-screen-readiness.md)
+prepares the next bounded stationary check, including concrete Xcode disconnection
+and separate sleep/consumer-attribution decisions.
 These records distinguish reporting checks from the unqualified physical
 measurement gates; they do not establish battery savings.
