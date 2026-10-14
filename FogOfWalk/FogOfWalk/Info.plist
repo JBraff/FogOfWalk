@@ -12,6 +12,8 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundleDisplayName</key>
+	<string>$(FOG_APP_DISPLAY_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
@@ -24,6 +26,8 @@
 	<string>Background location lets Fog of Walk track your path even when your phone is in your pocket.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Fog of Walk uncovers the map as you explore your neighborhood.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>The separate location study app reads past motion and step data after a trial to estimate when walking began.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

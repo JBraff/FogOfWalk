@@ -54,6 +54,9 @@ struct FogOfWalkApp: App {
                     landmarkStore.sweepAllUndiscovered(visitedCells: store.visitedCellsCache)
                 }
                 .onChange(of: scenePhase) { _, newPhase in
+                    LocationStudyDiagnostics.shared.recordLifecycle(
+                        "scene_phase", detail: "\(newPhase)"
+                    )
                     // Safety net: re-arm tracking whenever the app returns to the
                     // foreground, in case location updates silently stopped while
                     // backgrounded. `.task` above only fires once per process launch,

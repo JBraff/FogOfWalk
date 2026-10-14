@@ -291,4 +291,19 @@ final class LocationServiceTests: XCTestCase {
 
         await fulfillment(of: [expectation], timeout: 2)
     }
+
+    func testLocationBatchStillForwardsOnlyLastSample() async {
+        let expectation = XCTestExpectation(description: "last sample forwarded")
+        await MainActor.run {
+            let service = LocationService(manager: MockLocationManager())
+            let first = CLLocation(latitude: 40, longitude: -74)
+            let last = CLLocation(latitude: 41, longitude: -75)
+            service.onLocationUpdate = { location in
+                XCTAssertEqual(location.coordinate.latitude, last.coordinate.latitude)
+                expectation.fulfill()
+            }
+            service.locationManager(CLLocationManager(), didUpdateLocations: [first, last])
+        }
+        await fulfillment(of: [expectation], timeout: 2)
+    }
 }

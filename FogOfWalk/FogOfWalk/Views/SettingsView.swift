@@ -14,6 +14,9 @@ struct SettingsView: View {
     @State private var showImportError = false
     @State private var importErrorMessage = ""
     @State private var importSummaryMessage: String?
+    @State private var study = LocationStudyDiagnostics.shared
+    @State private var studyMessage: String?
+    @State private var isQueryingMotion = false
 
     var body: some View {
         NavigationStack {
@@ -38,6 +41,46 @@ struct SettingsView: View {
                     Section {
                         Text(importSummaryMessage)
                             .foregroundStyle(.secondary)
+                    }
+                }
+
+                if study.isStudyApp {
+                    Section {
+                        if study.isCapturing {
+                            Button("Stop Diagnostic Capture") { study.stopCapture() }
+                            Text("Capture running since \(study.captureStartedAt?.formatted() ?? "unknown time").")
+                        } else {
+                            Button("Start Diagnostic Capture") {
+                                do { try study.startCapture() }
+                                catch { studyMessage = error.localizedDescription }
+                            }
+                        }
+
+                        if let url = study.currentFileURL, !study.isCapturing {
+                            ShareLink(item: url) {
+                                Label("Export Location Diagnostic Log", systemImage: "square.and.arrow.up")
+                            }
+                        }
+
+                        Button("Query Motion History for Last Capture") {
+                            queryMotionHistory()
+                        }
+                        .disabled(study.isCapturing || study.captureStartedAt == nil
+                                  || study.captureEndedAt == nil || isQueryingMotion)
+
+                        if let url = study.motionFileURL {
+                            ShareLink(item: url) {
+                                Label("Export Motion Reference", systemImage: "square.and.arrow.up")
+                            }
+                        }
+                        if isQueryingMotion { ProgressView("Querying motion history…") }
+                        if let message = study.lastError ?? studyMessage {
+                            Text(message).foregroundStyle(.orange)
+                        }
+                    } header: {
+                        Text("Location Study")
+                    } footer: {
+                        Text("For the separate study app only. Start before a trial and stop afterward. Logs contain precise locations and stay on this phone until you export them; old files are removed after seven days. Query motion only after a run has ended.")
                     }
                 }
             }
@@ -101,6 +144,22 @@ struct SettingsView: View {
                 importErrorMessage = error.localizedDescription
                 showImportError = true
             }
+        }
+    }
+
+    private func queryMotionHistory() {
+        guard let start = study.captureStartedAt, let end = study.captureEndedAt else { return }
+        isQueryingMotion = true
+        studyMessage = nil
+        Task {
+            do {
+                let result = try await StudyMotionReference.query(from: start, to: end)
+                try study.saveMotionReference(result)
+                studyMessage = "Motion history saved. Review its timing and distance uncertainty before scoring a departure."
+            } catch {
+                studyMessage = "Motion history unavailable: \(error.localizedDescription)"
+            }
+            isQueryingMotion = false
         }
     }
 }
