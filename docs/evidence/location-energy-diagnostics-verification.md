@@ -730,3 +730,13 @@ concurrency warnings remain. Battery-document links and whitespace passed;
 workspace record/portfolio validation passed in both checkouts with unrelated
 work preserved. No new physical recording, sleep/wake readiness, background
 attribution, formal baseline, departure gate or battery saving is claimed.
+
+The owner then clarified that the Mac must remain on and cannot be operated
+remotely. The current procedure replaces Mac shutdown with reviewed phone-side
+radio isolation and a bounded live CoreDevice setup check before settling.
+Independent Astra review approved this readiness-only alternative, conditional
+on actual unreachable/disconnected evidence; tool/lock/authorization errors do
+not prove isolation. Phone Wi-Fi/Bluetooth/hotspot stay off until both captures
+stop, cellular and permissions unchanged. Record these changed conditions and
+do not compare energy with the prior Wi-Fi-on trace. No phone setting change,
+setup probe or new physical recording has yet been verified for this revision.

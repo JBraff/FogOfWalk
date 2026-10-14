@@ -1,6 +1,9 @@
 # Locked-screen measurement readiness
 
 **Prepared:** 2026-10-13.
+**Current isolation method:** Phone-side radio isolation; the development Mac
+stays on and online. The owner's lack of Mac access supersedes the earlier
+shutdown procedure. Setup isolation still needs physical verification.
 **Purpose:** Resolve the remaining instrumentation questions before another
 two-hour stationary baseline. This is a specific background-readiness check,
 not a repeat of the passed foreground targeting check, a battery comparison,
@@ -53,17 +56,37 @@ record that uncertainty rather than assume it.
 2. In Settings > Developer > Performance Trace, verify Power Profiler, Study
    monitoring on and normal Fog monitoring off. Finish any existing recording
    deliberately before starting a new one; preserve its saved file.
-3. Save Mac work and stop any Xcode/Instruments live recording or debug session.
-   Unplug USB and remove MagSafe charging, then **fully shut down the development
-   Mac** and leave it off until both recordings have stopped. Sleep or screen
-   lock is not shutdown. This prevents that Mac's wireless Xcode reconnection
-   without changing phone network settings or deleting its pairing. Verify no
-   other development host is connected. Record the Mac-off control in the trial
-   note. An installed-Xcode disconnect control may replace shutdown only after
-   its operation is verified; no such UI control was verified in this preparation.
-4. Confirm the Study diagnostics are inactive and there is no unresolved log
+3. Leave the development Mac on and online. On the **phone**, turn Wi-Fi off in
+   Settings > Wi-Fi and Bluetooth off in Settings > Bluetooth; turn Personal
+   Hotspot off if enabled. Unplug USB and remove MagSafe charging. Leave cellular,
+   Location Services, Developer Mode and profiler settings unchanged. Do not use
+   Airplane Mode. Keep these radio settings through both recordings. This also
+   disconnects Bluetooth accessories, including the paired watch/earphones.
+4. Before settling or starting either recording, have the agent perform one
+   bounded live CoreDevice connection check, such as `device info processes`,
+   with private output. `list devices` alone can reflect known/cached pairing.
+   Successful live communication means isolation failed. Require an actual
+   unreachable/disconnected result consistent with the phone's recorded settings;
+   a lock, authorization, syntax or local-tool error is not proof of disconnection.
+   If a custom remote-device/VPN path is configured, resolve it separately.
+   End the probe before settling; no device queries or live sessions during
+   capture. Ambiguous setup results remain unresolved. Mac UI access is not
+   required for this command-line setup check.
+5. Let the phone settle for at least ten minutes with its final radio settings.
+   Record this as a cellular-only readiness condition, separate from earlier
+   Wi-Fi-on traces. Keep the Mac's network unchanged.
+6. Confirm the Study diagnostics are inactive and there is no unresolved log
    write/full error. Leave Study ready to start capture. Keep permissions and
    installed build unchanged during the run.
+
+Apple's [radio-control instructions](https://support.apple.com/en-us/102412)
+distinguish fully disabling radios in Settings from the temporary Control Center
+disconnection, which leaves connectivity features available. Apple's
+[device-pairing documentation](https://developer.apple.com/documentation/xcode/pairing-your-devices-with-your-mac)
+describes cable and wireless connections. Removing USB and fully disabling the
+phone's Wi-Fi/Bluetooth/hotspot is the reviewed isolation design; physical setup
+and the resulting sleep/wake evidence remain unverified. Preserve pairing and
+both app containers; no reinstall or Developer Mode change is required.
 
 ## Next phone check: stationary, locked for about 15 minutes
 
@@ -76,9 +99,12 @@ times; the phone itself stays untouched while locked.
 2. Return to Study > Settings and start Diagnostic Capture; confirm it is running.
 3. Lock the phone promptly. Leave it stationary and unused for about 15 minutes.
 4. Unlock, note the ending battery percentage, stop Diagnostic Capture, then stop
-   Performance Trace. Stop both before starting the Mac or reconnecting USB.
-5. AirDrop the new stopped diagnostic log and the new saved power archive to the
-   Mac. Preserve original files locally and identify them as one matched check.
+   Performance Trace. Stop both before restoring radios or reconnecting USB.
+5. Restore the phone's original radio settings, then AirDrop the new stopped
+   diagnostic log and saved power archive to the Mac. Preserve original files
+   locally and identify them as one matched check. If transfer requires unavailable
+   Mac interaction, retain the files on the phone until transfer is possible;
+   the study app's seven-day cleanup still applies.
    Do not export an older saved trace or an unrelated Motion report.
 
 ## Inspection and decision
@@ -101,6 +127,11 @@ coordinates, filenames and absolute timestamps outside Git.
 This check can establish locked-screen instrumentation readiness; it cannot prove
 MapKit's absence, quantify energy savings or qualify the 100 m departure screen.
 The source audit is complete, while physical consumer attribution remains pending.
+Phone-radio isolation changes connectivity and may affect location behavior and
+system power. Do not compare this readiness check's energy with the prior Wi-Fi-on
+run or assert equivalent positioning. Any later matched energy arms must share
+the same predeclared radio configuration and its settling conditions; separately
+evaluate representative-use conditions. The numeric gates are unchanged.
 If attribution remains ambiguous, review a study-only stationary diagnostic
 control covering **all** location consumers under the existing proposal before
 implementing or measuring it. Diagnostic Stop and callback silence are not that
@@ -132,7 +163,17 @@ The Mac was locked during attempted native Xcode inspection; no connection UI
 setting was inspected or changed. A read-only device listing found the physical
 phone paired/available, which does not establish future timed-run disconnection.
 
-Preparation validation passed on 2026-10-13: the unchanged app source built and
+The owner subsequently clarified that shutdown is unavailable and they cannot
+operate the Mac remotely. The current phone-side procedure supersedes the
+Mac-off instruction. Independent Astra review approved it as readiness-only,
+subject to a live unreachable/disconnected setup result before settling/capture.
+Successful communication fails isolation; lock, authorization and local-tool
+errors remain ambiguous. No additional capture is required to check setup.
+The Mac remains on and online; no Mac settings, pairing, Developer Mode or app
+data are changed. Phone radio conditions differ and must be recorded. No physical
+isolation result is claimed before the owner performs setup and the probe runs.
+
+The initial procedure's preparation validation passed on 2026-10-13: the unchanged app source built and
 the full FogOfWalk XCTest scheme passed 244 tests, zero failures and zero skips,
 on the iPhone 18 Pro simulator with iOS 27.0 and Xcode 27.0 (27A266a). Existing
 Swift concurrency warnings remain; no source or build settings were edited.
@@ -140,3 +181,7 @@ Relative battery-document links and whitespace checks passed. Both workspace
 checkouts regenerated their portfolios and passed schema, reference, lifecycle
 and portfolio validation; unrelated main-checkout edits were preserved. These
 checks verify preparation and repository consistency, not physical evidence.
+
+The phone-side revision also passed the normal build and all 244 XCTest tests,
+zero failures/skips, on the same simulator/Xcode setup. Record/portfolio validation
+passed with unrelated workspace changes preserved. Setup isolation remains pending.

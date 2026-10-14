@@ -151,3 +151,14 @@ or select/implement the all-consumer control above. If consumer-specific evidenc
 is unavailable, that physical audit stays open and needs a reviewed instrumentation
 or attribution-control method. Keep all existing measurement gates and do not
 request another equivalent short trace to resolve absent consumer information.
+
+The owner subsequently clarified that the development Mac must remain on and
+cannot be operated remotely. This supersedes the shutdown instruction above.
+Independent Astra review approved a readiness-only phone-side alternative,
+conditional on setup verification: Settings Wi-Fi/Bluetooth off, hotspot off,
+USB unplugged, cellular/permissions unchanged, and a bounded live CoreDevice
+unreachable result before settling/capture. Lock, authorization and tool failures
+are not disconnection evidence. Restore radios only after both recordings stop.
+The revised procedure records changed radio conditions and prohibits energy
+comparison with prior Wi-Fi-on recordings. No physical isolation or sleep result
+is claimed; subsequent matched energy arms need identical declared radio settings.

@@ -142,8 +142,11 @@ normal-app attribution or empty sleep data. Legacy tracking is preserved.
 
 The [reviewed readiness procedure](location-energy-locked-screen-readiness.md)
 provides a specific 15-minute stationary locked-screen check on installed build 3,
-with the development Mac fully shut down during capture to prevent wireless
-Xcode reconnection. It retains phone network settings and app pairing/container.
+with reviewed phone-side radio isolation so the development Mac stays on and
+online. Disable phone Wi-Fi/Bluetooth in Settings, hotspot off and USB unplugged;
+verify live CoreDevice unreachability before settling/capture. It preserves app
+pairing/container but changes the phone's radio configuration, which must be
+recorded separately from prior Wi-Fi-on runs. Actual setup isolation is pending.
 The source audit confirms MapKit requests user location, but actual background
 consumer activity and energy remain unverified. Use the new check for sleep/wake
 instrumentation readiness; if it lacks location-client evidence, specify the
