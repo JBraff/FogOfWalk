@@ -16,11 +16,29 @@ enum StudyMotionReference {
 
     struct DistancePoint: Codable {
         let through: Date
-        let metersFromWalkingOnset: Double?
-        let stepsFromWalkingOnset: Int?
+        let metersFromCaptureStart: Double?
+        let stepsFromCaptureStart: Int?
+    }
+
+    struct PedometerReading {
+        let meters: Double?
+        let steps: Int
+    }
+
+    struct TimelinePlan: Codable {
+        let origin: Date
+        let end: Date
+        let coarseIntervalSeconds: Double
+        let detailIntervalSeconds: Double
+        let detailStart: Date?
+        let detailEnd: Date?
+        let endpoints: [Date]
     }
 
     struct Result: Codable {
+        // Version 1 measured its timeline from walking classification. Version 2
+        // measures every point from capture start, including earlier movement.
+        let schemaVersion: Int
         let queriedAt: Date
         let intervalStart: Date
         let intervalEnd: Date
@@ -30,6 +48,7 @@ enum StudyMotionReference {
         let firstReportedWalking: Date?
         let wholeIntervalMeters: Double?
         let wholeIntervalSteps: Int?
+        let timelinePlan: TimelinePlan
         let distanceTimeline: [DistancePoint]
     }
 
@@ -66,33 +85,79 @@ enum StudyMotionReference {
                      automotive: $0.automotive, unknown: $0.unknown)
         }
         let pedometer = CMPedometer()
-        let whole = try await pedometerData(pedometer, from: start, to: end)
-        let onset = mapped.first(where: { $0.walking })?.start
-        var points: [DistancePoint] = []
-        if let onset, onset < end {
-            // Fifteen-second cumulative history bounds the distance at a logged fix
-            // receipt without running a second location consumer during the trial.
-            let limit = min(end, onset.addingTimeInterval(10 * 60))
-            var through = onset.addingTimeInterval(15)
-            while through < limit {
-                let data = try await pedometerData(pedometer, from: onset, to: through)
-                points.append(DistancePoint(through: through,
-                                            metersFromWalkingOnset: data.distance?.doubleValue,
-                                            stepsFromWalkingOnset: data.numberOfSteps.intValue))
+        return try await makeResult(from: start, to: end, activities: mapped) { from, to in
+            let data = try await pedometerData(pedometer, from: from, to: to)
+            return PedometerReading(meters: data.distance?.doubleValue,
+                                    steps: data.numberOfSteps.intValue)
+        }
+    }
+
+    /// Covers even captures with no walking classification. Long idle periods use
+    /// at most 80 coarse queries, plus at most 49 detail queries around the first
+    /// reported walking transition. These are sampling intervals, not accuracy
+    /// bounds on Core Motion or an independently noted departure time.
+    static func timelinePlan(from start: Date, to end: Date,
+                             firstReportedWalking: Date?) throws -> TimelinePlan {
+        let duration = end.timeIntervalSince(start)
+        guard duration.isFinite, duration > 0 else { throw QueryError.invalidInterval }
+        let coarseInterval = max(15, ceil(duration / 80 / 15) * 15)
+        var endpoints: Set<Date> = [end]
+        var through = start.addingTimeInterval(coarseInterval)
+        while through < end {
+            endpoints.insert(through)
+            through.addTimeInterval(coarseInterval)
+        }
+
+        var detailStart: Date?
+        var detailEnd: Date?
+        if let reported = firstReportedWalking, reported >= start, reported < end {
+            // The two-minute lookback provides detail before classification; it
+            // does not assume manual onset lies within this window. The full
+            // capture remains available at the exported coarse cadence.
+            let lower = max(start, reported.addingTimeInterval(-120))
+            let upper = min(end, reported.addingTimeInterval(600))
+            detailStart = lower
+            detailEnd = upper
+            if lower > start { endpoints.insert(lower) }
+            through = lower.addingTimeInterval(15)
+            while through < upper {
+                endpoints.insert(through)
                 through.addTimeInterval(15)
             }
-            let data = try await pedometerData(pedometer, from: onset, to: limit)
-            points.append(DistancePoint(through: limit,
-                                        metersFromWalkingOnset: data.distance?.doubleValue,
-                                        stepsFromWalkingOnset: data.numberOfSteps.intValue))
+            endpoints.insert(upper)
         }
-        return Result(queriedAt: Date(), intervalStart: start, intervalEnd: end,
-                      activityAvailable: activityAvailable,
-                      pedometerAvailable: pedometerAvailable,
-                      activities: mapped, firstReportedWalking: onset,
-                      wholeIntervalMeters: whole.distance?.doubleValue,
-                      wholeIntervalSteps: whole.numberOfSteps.intValue,
-                      distanceTimeline: points)
+        return TimelinePlan(origin: start, end: end,
+                            coarseIntervalSeconds: coarseInterval,
+                            detailIntervalSeconds: 15,
+                            detailStart: detailStart, detailEnd: detailEnd,
+                            endpoints: endpoints.sorted())
+    }
+
+    /// Injectable historical reader lets regression tests verify the actual query
+    /// ranges and exported counts without live motion streams or device hardware.
+    static func makeResult(
+        from start: Date, to end: Date, activities: [Activity],
+        readPedometer: (Date, Date) async throws -> PedometerReading
+    ) async throws -> Result {
+        let onset = activities.filter { $0.walking }.map(\.start).min()
+        let plan = try timelinePlan(from: start, to: end, firstReportedWalking: onset)
+        var points: [DistancePoint] = []
+        for through in plan.endpoints {
+            let reading = try await readPedometer(start, through)
+            points.append(DistancePoint(through: through,
+                                        metersFromCaptureStart: reading.meters,
+                                        stepsFromCaptureStart: reading.steps))
+        }
+        // The endpoint query is also the whole-capture total: avoid querying it
+        // twice and risking inconsistent results from separate history reads.
+        let whole = points.last!
+        return Result(schemaVersion: 2, queriedAt: Date(),
+                      intervalStart: start, intervalEnd: end,
+                      activityAvailable: true, pedometerAvailable: true,
+                      activities: activities, firstReportedWalking: onset,
+                      wholeIntervalMeters: whole.metersFromCaptureStart,
+                      wholeIntervalSteps: whole.stepsFromCaptureStart,
+                      timelinePlan: plan, distanceTimeline: points)
     }
 
     private static func pedometerData(
