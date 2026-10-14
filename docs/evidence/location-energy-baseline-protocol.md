@@ -4,8 +4,8 @@
 **Study phone:** iPhone 15 Pro Max; record the exact iOS build on each trial.
 **Next preparation:** Study build 4 adds the internal stationary OFF control.
 Follow the [control qualification and comparison protocol](location-energy-tracking-control-protocol.md).
-Prepared build status does not mean build 4 is installed; the last physically
-verified installation remains build 3.
+Study 1.0/build 4 is now installed and launched on the physical phone through
+the paired Wi-Fi connection. Physical OFF/sleep qualification remains pending.
 **Authority:** [Location Energy and Reliable Resume](../proposals/2026-10-09-location-energy-and-reliability.md). If this sheet changes after candidate results are seen, record the revision and repeat affected pairs.
 
 ## Diagnostic contract

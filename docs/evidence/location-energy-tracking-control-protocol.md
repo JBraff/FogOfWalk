@@ -1,7 +1,8 @@
 # Stationary tracking attribution comparison
 
 **Prepared:** 2026-10-14. Study-only implementation and independent review are
-complete; build and full-suite verification passed. No physical on/off comparison
+complete; build and full-suite verification passed. Study build 4 is now installed
+and launched on the phone. No physical on/off comparison
 or battery saving has been established.
 **Authority:** [Replacement proposal](../proposals/2026-10-09-location-energy-and-reliability.md),
 stage 1's all-consumer stationary diagnostic control, and the
@@ -38,9 +39,9 @@ after control resume. Capture Start and capture relaunch record
 `study_tracking_state` with `on` or `off`. Mode changes are rejected while logging
 is active; Stop Diagnostic Capture stops logging only.
 
-Before measured runs, install Study build 4 over the existing Study container.
-The current remote phone cannot be installed from this Mac without a supported
-connection/distribution path; build preparation does not constitute installation.
+Study build 4 has been installed over the existing Study app through the paired
+wireless connection. Installation/launch verification does not qualify the OFF
+control's physical resource behavior or sleep instrumentation.
 Do not reinstall normal Fog, clear app data, unpair, or reset permissions.
 
 Verify on the installed build, outside timed runs: OFF disables the map user dot,
@@ -166,7 +167,8 @@ the same `.study` bundle ID, `Fog-Walk-Study` executable and display name, with
 iOS 18.6 minimum. Local signature and provisioning checks passed, including the
 existing development profile authorizing that signed identity. Build overrides
 only are used; normal product identity/version defaults remain unchanged.
-The app is prepared locally and has not been installed on the remote phone.
+The app was prepared locally and subsequently installed wirelessly as recorded
+below.
 
 Initial tests exposed actor isolation in test-helper construction and a test
 assuming MapKit would accept follow mode without an authorized simulator fix;
@@ -176,3 +178,24 @@ the recovered simulator passed the normal build and all 252 XCTest tests with
 zero failures and zero skips on iPhone 18 Pro/iOS 27.0, Xcode 27.0. These are
 preparation issues, not physical
 tracking observations. Preserve previous incomplete/failed run evidence privately.
+
+### Wireless installation verified, 2026-10-14
+
+After the owner reported the phone and Mac were on the same Wi-Fi network, a
+bounded live CoreDevice connection succeeded. Installed Study 1.0/build 3 had no
+active diagnostic capture and the OFF preference was false. Private copies of
+its Application Support files and preferences were saved before updating.
+
+The signed build 4 installed successfully using the same Study identity. Device
+app metadata confirms Study 1.0/build 4. iOS changed bundle/data container paths
+during the update, but all 16 original Application Support files were byte-identical
+in the post-install copy before launch, and all existing `locationStudy.*`
+preferences were preserved. Raw data and paths remain private and outside Git.
+The normal app was not an installation target.
+
+Debugger-free launch succeeded and a live process check confirmed the distinct
+Study executable. The first launch command had a local argument-order error;
+the corrected invocation succeeded without a phone setting change. Diagnostic
+capture remained inactive through the installation checks. No physical OFF
+qualification or measured savings follows from installation. End device queries
+before settling or recording the next test.
