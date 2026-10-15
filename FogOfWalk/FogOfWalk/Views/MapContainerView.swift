@@ -26,7 +26,7 @@ struct MapContainerView: UIViewRepresentable {
         // Map fills the container.
         let mapView               = MKMapView(frame: container.bounds)
         mapView.delegate          = context.coordinator
-        Self.applyLocationDisplay(to: mapView, enabled: !locationService.isStudyTrackingDisabled)
+        Self.applyLocationDisplay(to: mapView, enabled: locationService.usesMapLocation)
         locationService.installStudyMapControl { [weak mapView] enabled in
             guard let mapView else { return }
             Self.applyLocationDisplay(to: mapView, enabled: enabled)
@@ -77,8 +77,11 @@ struct MapContainerView: UIViewRepresentable {
 
         // Always rewire so location updates are never dropped after a SwiftUI rebuild.
         let coordinator = context.coordinator
-        locationService.onLocationUpdate = { [weak coordinator] location in
-            coordinator?.handle(location: location)
+        // Study recording is owned by the app so map recreation cannot drop it.
+        if !locationService.isStudyApp {
+            locationService.onLocationUpdate = { [weak coordinator] location in
+                coordinator?.handle(location: location)
+            }
         }
 
         // Navigate to target if it's new
@@ -142,34 +145,9 @@ struct MapContainerView: UIViewRepresentable {
         // MARK: - Location handling
 
         func handle(location: CLLocation) {
-            store.configure()
-            // Must run before addCell: without it, cells walked just after midnight would
-            // increment yesterday's todayVisitedCount. There is no view update while the app
-            // is backgrounded, so this is the only trigger guaranteed to run at all then —
-            // force a fog repaint here since nothing else will.
-            let dayRollover = store.refreshForDayChangeIfNeeded()
-            if dayRollover {
+            if ExplorationRecorder(store: store, landmarks: landmarkStore).record(location) {
                 invalidateFogTiles()
             }
-            let cell  = GridMath.cellID(for: location.coordinate)
-            let isNew = store.addCell(cell)
-            var discoveryCount = 0
-            if isNew {
-                // Push the updated cell set into the renderer; MapKit re-renders
-                // only the affected visible tiles asynchronously.
-                invalidateFogTiles()
-
-                // Only the cell just walked can produce a new discovery, so hand over that one
-                // cell rather than the whole visited set. Cost is then independent of how much
-                // ground the user has covered.
-                //
-                // The count is diagnostic only. This app has no haptics: a buzz every
-                // 50 m during hours of background tracking would be noise.
-                discoveryCount = landmarkStore.checkDiscovery(newCell: cell).count
-            }
-            LocationStudyDiagnostics.shared.recordDownstream(
-                cell: cell, isNew: isNew, discoveries: discoveryCount, dayRollover: dayRollover
-            )
         }
 
         // MARK: - Fog tile management

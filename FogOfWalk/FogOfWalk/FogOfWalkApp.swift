@@ -5,7 +5,7 @@ struct FogOfWalkApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var store:          ExplorationStore
     @State private var gridSettings:    GridSettings
-    @State private var locationService = LocationService()
+    @State private var locationService: LocationService
     @State private var geocoder        = LocalityGeocoder()
     @State private var landmarkStore:  LandmarkStore
     @State private var searchService:  LandmarkSearchService
@@ -14,9 +14,21 @@ struct FogOfWalkApp: App {
         let g = GridSettings()
         let s = ExplorationStore()
         s.configure()
+        let landmarks = LandmarkStore(container: s.container)
+        let location = LocationService()
+        if location.isStudyApp {
+            let recorder = ExplorationRecorder(store: s, landmarks: landmarks)
+            location.onLocationUpdate = { recorder.record($0) }
+            // Rejoin persisted live sessions promptly on background launch; do not
+            // wait for a SwiftUI map/task to appear. Initial selection is made in UI.
+            if location.studyLocationSource == .liveUpdates {
+                location.restartIfAuthorized()
+            }
+        }
+        _locationService = State(initialValue: location)
         _store         = State(initialValue: s)
         _gridSettings  = State(initialValue: g)
-        _landmarkStore = State(initialValue: LandmarkStore(container: s.container))
+        _landmarkStore = State(initialValue: landmarks)
         _searchService = State(initialValue: LandmarkSearchService.makeBundled())
     }
 

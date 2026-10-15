@@ -48,6 +48,16 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     static let studyTrackingDisabledKey = "locationStudy.trackingDisabled"
     private var studyResumeStartedAt: Date?
     private var applyMapLocation: ((Bool) -> Void)?
+    private let makeStationarySource: @MainActor () -> StationaryLocationSource
+    private var stationarySource: StationaryLocationSource?
+    private var lastLiveSampleAt: Date?
+    private(set) var studyLocationSource: StudyLocationSource
+    private(set) var studyStationary: Bool?
+    private(set) var studySourceStatus = "Not started"
+
+    var usesMapLocation: Bool {
+        !isStudyTrackingDisabled && studyLocationSource == .legacy
+    }
     // Delegate callbacks can arrive before a mode switch and execute afterward.
     // An epoch captured at receipt prevents those callbacks crossing either switch.
     nonisolated private let callbackEpoch = OSAllocatedUnfairLock(initialState: UInt64(0))
@@ -75,13 +85,16 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager: LocationManagerProtocol = CLLocationManager(),
         diagnostics: LocationDiagnosticRecording? = nil,
         isStudyApp: Bool? = nil,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        makeStationarySource: @escaping @MainActor () -> StationaryLocationSource = { LiveStationaryLocationSource() }
     ) {
         self.manager = manager
         self.diagnostics = diagnostics ?? LocationStudyDiagnostics.shared
         self.defaults = defaults
         self.isStudyApp = isStudyApp ?? (Bundle.main.bundleIdentifier == LocationStudyDiagnostics.studyBundleID)
         self.isStudyTrackingDisabled = self.isStudyApp && defaults.bool(forKey: Self.studyTrackingDisabledKey)
+        self.studyLocationSource = self.isStudyApp ? StudyLocationSource.selected(in: defaults) : .legacy
+        self.makeStationarySource = makeStationarySource
         super.init()
         manager.delegate                           = self
         manager.desiredAccuracy                    = kCLLocationAccuracyNearestTenMeters
@@ -112,9 +125,25 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         if disabled {
             stopStudyConsumers()
         } else {
-            applyMapLocation?(true)
+            applyMapLocation?(usesMapLocation)
             restartIfAuthorized()
         }
+        recordStudyTrackingState()
+        return true
+    }
+
+    @discardableResult
+    func setStudyLocationSource(_ source: StudyLocationSource) -> Bool {
+        guard isStudyApp, !diagnostics.isCapturing else { return false }
+        guard source != studyLocationSource else { return true }
+        stopStudyConsumers()
+        studyLocationSource = source
+        defaults.set(source.rawValue, forKey: StudyLocationSource.defaultsKey)
+        currentLocation = nil
+        sessionStartedAt = nil
+        studyResumeStartedAt = Date()
+        applyMapLocation?(usesMapLocation)
+        restartIfAuthorized()
         recordStudyTrackingState()
         return true
     }
@@ -124,20 +153,32 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     func installStudyMapControl(_ apply: @escaping (Bool) -> Void) {
         guard isStudyApp else { return }
         applyMapLocation = apply
-        apply(!isStudyTrackingDisabled)
+        apply(usesMapLocation)
     }
 
     func recordStudyTrackingState() {
         guard isStudyApp else { return }
         diagnostics.recordLifecycle("study_tracking_state", detail: isStudyTrackingDisabled ? "off" : "on")
+        diagnostics.recordLifecycle("study_source", detail: studyLocationSource.rawValue)
+        diagnostics.recordLifecycle("study_source_status", detail: studySourceStatus)
+        if let studyStationary {
+            diagnostics.recordLifecycle("live_stationary_snapshot", detail: "\(studyStationary)")
+        }
     }
 
     private func stopStudyConsumers() {
+        callbackEpoch.withLock { $0 &+= 1 }
+        stationarySource?.stop()
+        stationarySource = nil
+        studyStationary = nil
+        lastLiveSampleAt = nil
         manager.stopUpdatingLocation()
         manager.stopMonitoringSignificantLocationChanges()
         manager.allowsBackgroundLocationUpdates = false
         applyMapLocation?(false)
         isPaused = true
+        studySourceStatus = "Stopped"
+        diagnostics.recordLifecycle("study_source_stop", detail: studyLocationSource.rawValue)
     }
 
     func requestPermissionAndStart() {
@@ -165,11 +206,69 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
 
     private func startTracking() {
         guard !isStudyTrackingDisabled else { return }
+        if studyLocationSource == .liveUpdates {
+            startStationarySource()
+            return
+        }
         if sessionStartedAt == nil { sessionStartedAt = Date() }
         diagnostics.recordLifecycle("tracking_start_or_rearm", detail: "legacy")
         manager.allowsBackgroundLocationUpdates = true
         manager.startMonitoringSignificantLocationChanges()
         manager.startUpdatingLocation()
+    }
+
+    private func startStationarySource() {
+        guard stationarySource == nil, manager.authorizationStatus == .authorizedAlways else { return }
+        // The legacy manager remains the authorization delegate only. Neither it
+        // nor MapKit should request locations alongside the live sequence.
+        stopStudyConsumers()
+        let epoch = callbackEpoch.withLock { $0 }
+        sessionStartedAt = Date()
+        lastLiveSampleAt = nil
+        studySourceStatus = "Waiting for framework update"
+        let source = makeStationarySource()
+        stationarySource = source
+        diagnostics.recordLifecycle("study_source_start", detail: "liveUpdates")
+        source.start { [weak self] event in
+            self?.receiveLiveEvent(event, epoch: epoch)
+        }
+    }
+
+    private func receiveLiveEvent(_ event: StationaryLocationEvent, epoch: UInt64) {
+        guard !isStudyTrackingDisabled, studyLocationSource == .liveUpdates,
+              stationarySource != nil, manager.authorizationStatus == .authorizedAlways,
+              epoch == callbackEpoch.withLock({ $0 }) else { return }
+        switch event {
+        case .ended(let reason):
+            diagnostics.recordLifecycle("live_source_ended", detail: reason)
+            stopStudyConsumers()
+            studySourceStatus = "Source ended — reopen to retry or select Legacy"
+        case let .update(location, stationary, diagnostic):
+            let receivedAt = Date()
+            diagnostics.recordLifecycle("live_update", detail: "stationary=\(stationary) \(diagnostic)")
+            if studyStationary != stationary {
+                diagnostics.recordLifecycle("live_stationary", detail: "\(stationary)")
+            }
+            studyStationary = stationary
+            isPaused = stationary
+            studySourceStatus = stationary ? "Framework reports stationary" : "Framework reports nonstationary"
+            guard let location else { return }
+            // A cached fix cannot establish walking resume or add old exploration.
+            // Do not change the legacy policy or invent locations between samples.
+            let age = receivedAt.timeIntervalSince(location.timestamp)
+            guard CLLocationCoordinate2DIsValid(location.coordinate),
+                  location.horizontalAccuracy.isFinite, location.horizontalAccuracy >= 0,
+                  (0...15).contains(age),
+                  location.timestamp >= (sessionStartedAt ?? receivedAt),
+                  lastLiveSampleAt.map({ location.timestamp > $0 }) ?? true else {
+                diagnostics.recordLifecycle("live_sample_suppressed", detail: "invalid_cached_or_out_of_order")
+                return
+            }
+            lastLiveSampleAt = location.timestamp
+            diagnostics.recordBatch([location], receivedAt: receivedAt, sessionStartedAt: sessionStartedAt)
+            currentLocation = location
+            onLocationUpdate?(location)
+        }
     }
 
     /// Re-arms tracking when the app returns to the foreground. This is a safety net for
@@ -179,7 +278,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     func restartIfAuthorized() {
         guard !isStudyTrackingDisabled else { return }
         guard manager.authorizationStatus == .authorizedAlways else { return }
-        diagnostics.recordLifecycle("foreground_rearm", detail: "legacy")
+        diagnostics.recordLifecycle("foreground_rearm", detail: studyLocationSource.rawValue)
         startTracking()
     }
 
@@ -206,6 +305,12 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
                 self.startTracking()
             #if os(iOS)
             case .authorizedWhenInUse:
+                if self.studyLocationSource == .liveUpdates {
+                    self.stopStudyConsumers()
+                    self.isPermissionDenied = false
+                    self.manager.requestAlwaysAuthorization()
+                    return
+                }
                 // Foreground-only permission: start updates for now, but do not set
                 // allowsBackgroundLocationUpdates (requires Always auth).
                 self.isPermissionDenied = false
@@ -216,9 +321,11 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
                 self.manager.requestAlwaysAuthorization()
             #endif
             case .denied, .restricted:
+                if self.isStudyApp { self.stopStudyConsumers() }
                 self.isPermissionDenied = true
                 self.sessionStartedAt = nil
             default:
+                if self.studyLocationSource == .liveUpdates { self.stopStudyConsumers() }
                 break
             }
         }
@@ -230,6 +337,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard !self.isStudyTrackingDisabled,
+                  self.studyLocationSource == .legacy,
                   epoch == self.callbackEpoch.withLock({ $0 }) else {
                 self.diagnostics.recordLifecycle("study_callback_suppressed", detail: "off_or_previous_arm")
                 return
@@ -249,24 +357,29 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     nonisolated func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
+        let epoch = callbackEpoch.withLock { $0 }
         Task { @MainActor [weak self] in
-            guard self?.isStudyTrackingDisabled == false else { return }
-            self?.isPaused = true
-            self?.diagnostics.recordLifecycle("location_paused", detail: nil)
+            guard let self, !self.isStudyTrackingDisabled, self.studyLocationSource == .legacy,
+                  epoch == self.callbackEpoch.withLock({ $0 }) else { return }
+            self.isPaused = true
+            self.diagnostics.recordLifecycle("location_paused", detail: nil)
         }
     }
 
     nonisolated func locationManagerDidResumeLocationUpdates(_ manager: CLLocationManager) {
+        let epoch = callbackEpoch.withLock { $0 }
         Task { @MainActor [weak self] in
-            guard self?.isStudyTrackingDisabled == false else { return }
-            self?.isPaused = false
-            self?.diagnostics.recordLifecycle("location_resumed", detail: nil)
+            guard let self, !self.isStudyTrackingDisabled, self.studyLocationSource == .legacy,
+                  epoch == self.callbackEpoch.withLock({ $0 }) else { return }
+            self.isPaused = false
+            self.diagnostics.recordLifecycle("location_resumed", detail: nil)
         }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         print("LocationService: \(error.localizedDescription)")
         Task { @MainActor [weak self] in
+            guard self?.studyLocationSource == .legacy else { return }
             let nsError = error as NSError
             self?.diagnostics.recordLifecycle(
                 "location_error", detail: "\(nsError.domain):\(nsError.code)"

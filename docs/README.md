@@ -14,6 +14,8 @@ blockers, and next actions; it does not replace these product documents.
   and answer whether stationary tracking can pause and walking resumes automatically
   with the screen locked. Start with one focused idle-to-walk trial after software
   verification. Extensive battery-comparison trials are outside this delivery.
+  The [Study prototype and focused trial](evidence/automatic-pause-resume-prototype.md)
+  records its supported source design, software evidence and phone procedure.
 - [Location Energy and Reliable Resume](proposals/2026-10-09-location-energy-and-reliability.md)
   retains the earlier measurement-first study. Its measurement prerequisites and
   repetition matrix are superseded for current work. The original
