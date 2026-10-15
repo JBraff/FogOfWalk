@@ -1,5 +1,8 @@
 # Location energy study: legacy baseline protocol and trial sheet
 
+> Scope update, 2026-10-15: this document retains the earlier measurement procedure and its original evidence limits. Follow [Automatic stationary pause and walking resume](../proposals/2026-10-15-automatic-stationary-pause-and-resume.md) for current delivery. The long comparison/qualification gates and old next-test instructions below are historical, not prerequisites for the focused prototype and idle-to-walk check. Manual tracking OFF is not an automatic-resume candidate.
+
+
 **Status:** Study build 3's foreground profiler-targeting check Passed. Formal stationary energy qualification awaits locked-screen measurement readiness and attribution; walking-reference qualification remains unresolved. No formal baseline result is recorded here.
 **Study phone:** iPhone 15 Pro Max; record the exact iOS build on each trial.
 **Next preparation:** Study build 4 adds the internal stationary OFF control.

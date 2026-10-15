@@ -1,5 +1,8 @@
 # Location energy analysis readiness
 
+> Scope update, 2026-10-15: this document preserves earlier measurement preparation and observations. Current delivery follows [Automatic stationary pause and walking resume](../proposals/2026-10-15-automatic-stationary-pause-and-resume.md): a minimal Study-only prototype and one focused locked-screen idle-to-walk check. Old next-test directions, formal energy qualification and repetition requirements below are historical, not prototype prerequisites. Manual OFF/sleep evidence does not establish automatic pause/resume.
+
+
 **Date:** 2026-10-12; updated 2026-10-13.
 **Scope:** Offline preparation, export verification, and subsequent trace-analysis
 readiness checks. The build-3 foreground profiler-targeting check Passed; formal

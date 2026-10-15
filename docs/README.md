@@ -9,11 +9,17 @@ blockers, and next actions; it does not replace these product documents.
 
 - [System architecture](SYSTEM.md) describes the enduring application structure,
   data ownership, and operational constraints.
+- [Automatic stationary pause and walking resume](proposals/2026-10-15-automatic-stationary-pause-and-resume.md)
+  is the owner-directed feasibility plan: build the smallest Study-only prototype
+  and answer whether stationary tracking can pause and walking resumes automatically
+  with the screen locked. Start with one focused idle-to-walk trial after software
+  verification. Extensive battery-comparison trials are outside this delivery.
 - [Location Energy and Reliable Resume](proposals/2026-10-09-location-energy-and-reliability.md)
-  is the current proposal for measuring and reducing battery use. The original
+  retains the earlier measurement-first study. Its measurement prerequisites and
+  repetition matrix are superseded for current work. The original
   [Adaptive Location Tracking plan](proposals/2026-09-04-adaptive-location-tracking.md)
-  is deprecated. Its workspace initiative is tracked
-  separately under `agent-workspace/work/initiatives/`.
+  remains deprecated. Lifecycle and next actions live in the authorized
+  `agent-workspace/work/initiatives/fog-adaptive-location-tracking.md` record.
 
 ## Documentation areas
 
@@ -26,7 +32,7 @@ blockers, and next actions; it does not replace these product documents.
 - `evidence/` will contain material implementation or physical-device evidence
   when it supports a product decision, verification claim, or release outcome.
 
-Location-energy study records include the
+Historical location-energy study records include the
 [baseline protocol](evidence/location-energy-baseline-protocol.md) and
 [diagnostics and physical-pilot verification](evidence/location-energy-diagnostics-verification.md).
 The [departure reference qualification procedure](evidence/location-energy-reference-qualification.md)
@@ -42,5 +48,6 @@ The [stationary tracking-control protocol](evidence/location-energy-tracking-con
 prepares Study build 4's all-consumer OFF control and the subsequent matched
 comparison. Its first phone check qualifies the newly disabled consumers and
 sleep instrumentation before any long pair.
-These records distinguish reporting checks from the unqualified physical
-measurement gates; they do not establish battery savings.
+These records preserve their original evidence and limits; they do not establish
+automatic pause/resume or battery savings. Their old next-test instructions do not
+override the current focused feasibility plan.

@@ -1,6 +1,6 @@
 # Location Energy and Reliable Resume
 
-**Status:** Proposed. This document authorizes no implementation or default change.
+**Status:** Superseded for current delivery on 2026-10-15 by [Automatic stationary pause and walking resume](2026-10-15-automatic-stationary-pause-and-resume.md). Retained as the earlier measurement-first study; its long measurement, qualification and repetition gates are not current prerequisites. No historical result is upgraded by this scope change.
 **Date:** 2026-10-09
 **Supersedes:** [Adaptive Location Tracking](2026-09-04-adaptive-location-tracking.md), deprecated on 2026-10-09.
 

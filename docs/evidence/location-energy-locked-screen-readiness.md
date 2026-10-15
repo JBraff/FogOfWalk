@@ -1,5 +1,8 @@
 # Locked-screen measurement readiness
 
+> Scope update, 2026-10-15: this document retains the earlier measurement procedure and its original evidence limits. Follow [Automatic stationary pause and walking resume](../proposals/2026-10-15-automatic-stationary-pause-and-resume.md) for current delivery. The long comparison/qualification gates and old next-test instructions below are historical, not prerequisites for the focused prototype and idle-to-walk check. Manual tracking OFF is not an automatic-resume candidate.
+
+
 **Prepared:** 2026-10-13.
 **Current isolation method:** Phone-side radio isolation; the development Mac
 stays on and online. The owner's lack of Mac access supersedes the earlier

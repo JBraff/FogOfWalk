@@ -1,6 +1,9 @@
 # Location energy baseline preparation — verification
 
-**Date:** 2026-10-10; updated 2026-10-13.
+> Scope update, 2026-10-15: this document preserves earlier measurement preparation and observations. Current delivery follows [Automatic stationary pause and walking resume](../proposals/2026-10-15-automatic-stationary-pause-and-resume.md): a minimal Study-only prototype and one focused locked-screen idle-to-walk check. Old next-test directions, formal energy qualification and repetition requirements below are historical, not prototype prerequisites. Manual OFF/sleep evidence does not establish automatic pause/resume.
+
+
+**Date:** 2026-10-10; updated 2026-10-15.
 **Scope:** Diagnostics-only legacy study builds, simulator verification, physical installation, motion-history checks, exploratory stationary recordings, and the completed build-3 foreground profiler-targeting check. No protocol-qualified physical energy baseline is recorded.
 
 ## Checks performed
@@ -802,3 +805,50 @@ in its generated portfolio; preserve those changes. Pending tracking is to recor
 background target/data availability, unresolved native/exported sleep evidence,
 notification controls and the next instrumentation/attribution work, keeping
 Active m1 and the existing long-baseline gates.
+
+
+## Manual OFF result and focused feasibility scope, 2026-10-15
+
+The new matched diagnostic and power submission records approximately 69 minutes
+of manual tracking OFF, rather than the planned approximately 15 minutes. The
+eight diagnostic records include OFF at Start and no location forwarding or
+exploration events. The trace identifies Fog-Walk-Study, with the app suspended
+for most of the run. It contains 63 exported sleep intervals totaling 55.974
+minutes (81.036% of trace duration); display is dark for the central 68.677 minutes
+and thermal state is Nominal. Populated OFF sleep data does not explain the
+earlier ON recording's empty lane or prove automatic stationary/resume behavior.
+
+The trace starts 6.451 seconds before diagnostic Start and ends 5.414 seconds
+before diagnostic Stop; retain that uncovered diagnostic tail. Valid power
+intervals total 4143.397459 seconds, with internal gaps of 0.035184 ms and a final
+uncovered 0.956474 seconds. The duration-weighted whole-device rate is
+1.034949%/hour over those valid intervals, retaining all adverse samples and
+without imputation. This is exploratory, not an ON/OFF comparison, isolated app
+cost, fixed-window baseline or saving. Charging interval export is empty and
+does not independently prove no charging. Native inspection was blocked by the
+locked Mac; exported results are verified, native cross-check remains unperformed.
+Original input hashes were privately recorded and remain unchanged.
+
+The owner reports Start battery 70% and corrects a later typo to 68%, observed
+approximately 30 minutes after the run ended. The exact ending reading is
+missing; the delayed value cannot measure test drain. Do Not Disturb was enabled.
+The live disconnection probe remained inconclusive and was explicitly waived
+for that readiness run. The owner subsequently confirmed the manual OFF switch
+is off again and the location dot has returned; fresh automatic background
+resume has not yet been tested. Raw source files, identities and exact capture
+timestamps remain private.
+
+The owner then explicitly restored automatic stationary pause and walking resume
+as the initiative's question and requested a quick practical answer. The
+[focused plan](../proposals/2026-10-15-automatic-stationary-pause-and-resume.md)
+supersedes the extensive measurement-first gates. The next implementation work
+is a supported Study-only stationary-aware prototype with legacy fallback, then
+a bounded locked-screen stationary-to-walking check. Another manual OFF run,
+new energy baseline and the blocked native UI check are not prerequisites.
+The normal app default and historical evidence limits remain unchanged.
+
+The documentation-refinement source snapshot built successfully and passed all
+252 XCTest tests, zero failures/skips, on the iPhone 18 Pro simulator with iOS
+27.0 and Xcode 27.0. Existing Swift concurrency warnings remain. These checks
+verify existing software and documentation delivery; no automatic pause/resume
+prototype or physical result is claimed.

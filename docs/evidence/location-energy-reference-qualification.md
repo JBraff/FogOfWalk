@@ -1,5 +1,8 @@
 # Departure reference qualification after the build-2 pilot
 
+> Scope update, 2026-10-15: this document preserves earlier measurement preparation and observations. Current delivery follows [Automatic stationary pause and walking resume](../proposals/2026-10-15-automatic-stationary-pause-and-resume.md): a minimal Study-only prototype and one focused locked-screen idle-to-walk check. Old next-test directions, formal energy qualification and repetition requirements below are historical, not prototype prerequisites. Manual OFF/sleep evidence does not establish automatic pause/resume.
+
+
 **Date:** 2026-10-12
 **Status:** Preparation procedure; timing and distance references are not yet qualified.
 **Authority:** [Replacement proposal](../proposals/2026-10-09-location-energy-and-reliability.md)

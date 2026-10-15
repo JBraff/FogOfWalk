@@ -46,9 +46,11 @@ Exploration is based on actual location samples; the application never invents a
 route between sparse samples. Standard location updates prioritize continuity:
 background updates stay enabled, automatic pausing remains disabled, and
 significant-change monitoring remains a recovery/relaunch safety net rather than
-the primary tracker. The measurement-first replacement proposal is documented in
-[Location Energy and Reliable Resume](proposals/2026-10-09-location-energy-and-reliability.md).
-It evaluates stationary-aware delivery without changing the current architecture.
+the primary tracker. The Study-only feasibility proposal is documented in
+[Automatic stationary pause and walking resume](proposals/2026-10-15-automatic-stationary-pause-and-resume.md).
+It evaluates framework-managed stationary/resume behavior without changing the
+production default. The earlier measurement-first study is historical; proving
+a battery-saving percentage is not a prerequisite for this feasibility answer.
 The earlier explored-area adaptive-location proposal is deprecated.
 
 ## Operational constraints

@@ -1,5 +1,8 @@
 # Stationary tracking attribution comparison
 
+> Scope update, 2026-10-15: this document retains the earlier measurement procedure and its original evidence limits. Follow [Automatic stationary pause and walking resume](../proposals/2026-10-15-automatic-stationary-pause-and-resume.md) for current delivery. The long comparison/qualification gates and old next-test instructions below are historical, not prerequisites for the focused prototype and idle-to-walk check. Manual tracking OFF is not an automatic-resume candidate.
+
+
 **Prepared:** 2026-10-14. Study-only implementation and independent review are
 complete; build and full-suite verification passed. Study build 4 is now installed
 and launched on the phone. No physical on/off comparison

@@ -1,5 +1,8 @@
 # Stationary location-energy attribution preparation
 
+> Scope update, 2026-10-15: this document preserves earlier measurement preparation and observations. Current delivery follows [Automatic stationary pause and walking resume](../proposals/2026-10-15-automatic-stationary-pause-and-resume.md): a minimal Study-only prototype and one focused locked-screen idle-to-walk check. Old next-test directions, formal energy qualification and repetition requirements below are historical, not prototype prerequisites. Manual OFF/sleep evidence does not establish automatic pause/resume.
+
+
 **Status:** Attribution comparison draft for review; Study build 3's foreground
 target/data-availability preflight Passed. Locked-screen measurement readiness,
 background consumer attribution and formal energy qualification remain pending.
