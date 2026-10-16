@@ -1,6 +1,8 @@
 # Fog of Walk — Claude Code Instructions
 
-See [AGENTS.md](AGENTS.md) for full project context: architecture, data flow, key constraints, build commands, and feature-addition checklist.
+@AGENTS.md
+
+`AGENTS.md` above holds the full project context: architecture, data flow, key constraints, build commands, and feature-addition checklist.
 
 ## Quick reference
 

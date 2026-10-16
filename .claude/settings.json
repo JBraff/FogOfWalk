@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcodebuild -project FogOfWalk/FogOfWalk.xcodeproj -scheme FogOfWalk *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)"
+    ]
+  }
+}
