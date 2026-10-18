@@ -172,7 +172,7 @@ final class LocationStudyDiagnostics: LocationDiagnosticRecording {
         defaults.set(date, forKey: "locationStudy.startedAt")
         defaults.removeObject(forKey: "locationStudy.endedAt")
         defaults.set(true, forKey: "locationStudy.active")
-        append(Event(kind: "capture_start", recordedAt: date, detail: "legacy"))
+        append(Event(kind: "capture_start", recordedAt: date, detail: selectedSource))
         recordTrackingState()
     }
 
@@ -198,13 +198,16 @@ final class LocationStudyDiagnostics: LocationDiagnosticRecording {
     private func recordTrackingState() {
         recordLifecycle("study_tracking_state", detail:
             defaults.bool(forKey: LocationService.studyTrackingDisabledKey) ? "off" : "on")
+        recordLifecycle("study_source", detail: selectedSource)
     }
+
+    private var selectedSource: String { StudyLocationSource.selected(in: defaults).rawValue }
 
     func recordBatch(_ locations: [CLLocation], receivedAt: Date, sessionStartedAt: Date?) {
         guard isCapturing else { return }
         let batchID = UUID().uuidString
         append(Event(kind: "batch", recordedAt: receivedAt,
-                     detail: "legacy", batchID: batchID, batchCount: locations.count))
+                     detail: selectedSource, batchID: batchID, batchCount: locations.count))
         if shadowSessionStartedAt != sessionStartedAt {
             shadowSessionStartedAt = sessionStartedAt
             shadowLastAcceptedAt = nil

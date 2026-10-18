@@ -47,6 +47,15 @@ struct SettingsView: View {
 
                 if study.isStudyApp {
                     Section {
+                        Picker("Tracking source", selection: Binding(
+                            get: { locationService.studyLocationSource },
+                            set: { _ = locationService.setStudyLocationSource($0) }
+                        )) {
+                            Text("Legacy").tag(StudyLocationSource.legacy)
+                            Text("Automatic pause/resume").tag(StudyLocationSource.liveUpdates)
+                        }
+                        .disabled(study.isCapturing)
+                        .accessibilityIdentifier("studyLocationSource")
                         Toggle("Tracking off — stationary control", isOn: Binding(
                             get: { locationService.isStudyTrackingDisabled },
                             set: { _ = locationService.setStudyTrackingDisabled($0) }
@@ -55,7 +64,9 @@ struct SettingsView: View {
                         .accessibilityIdentifier("studyTrackingOff")
                         Text(locationService.isStudyTrackingDisabled
                              ? "Tracking OFF: no exploration is recorded. Use only while stationary."
-                             : "Tracking ON: current legacy tracking and map location are enabled.")
+                             : locationService.studyLocationSource == .legacy
+                                ? "Tracking ON: legacy tracking and map location are enabled."
+                                : "Automatic tracking: \(locationService.studySourceStatus). The map dot and follow are disabled during this experiment.")
 
                         if study.isCapturing {
                             Button("Stop Diagnostic Capture") { study.stopCapture() }
@@ -64,6 +75,7 @@ struct SettingsView: View {
                             Button("Start Diagnostic Capture") {
                                 do {
                                     try study.startCapture()
+                                    locationService.recordStudyTrackingState()
                                 }
                                 catch { studyMessage = error.localizedDescription }
                             }
@@ -93,7 +105,7 @@ struct SettingsView: View {
                     } header: {
                         Text("Location Study")
                     } footer: {
-                        Text("Choose tracking ON or OFF before recording. The mode stays selected after relaunch. Stop Diagnostic Capture stops logging only; it does not change tracking. Restore tracking ON after stationary controls before walking. Logs contain precise locations and stay on this phone until exported; old files are removed after seven days. Query motion only after a run has ended.")
+                        Text("Choose a source before recording and leave Tracking off unchecked for a walk. Selection persists after relaunch. Automatic pause/resume requires Always permission. Stop Diagnostic Capture stops logging only. Select Legacy to restore the original tracker and map dot. Logs contain precise locations and stay on this phone until exported; old files are removed after seven days.")
                     }
                 }
             }

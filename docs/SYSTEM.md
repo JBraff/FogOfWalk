@@ -53,6 +53,17 @@ production default. The earlier measurement-first study is historical; proving
 a battery-saving percentage is not a prerequisite for this feasibility answer.
 The earlier explored-area adaptive-location proposal is deprecated.
 
+The isolated Study app can select a persisted `CLLocationUpdate.liveUpdates(.fitness)`
+source. `LocationService` retains its background and Always service sessions,
+keeps the sequence open during framework stationary suspension, and cancels old
+generations when sources or permissions change. This arm disables legacy manager
+location requests and MapKit user location, including the native dot/follow.
+Study exploration recording is owned by the app and wired before map creation;
+`ExplorationRecorder` shares the existing cell/day-rollover/discovery path with
+the normal map coordinator. Normal Fog and missing/unknown selections retain
+legacy behavior. See the [prototype record](evidence/automatic-pause-resume-prototype.md)
+for the focused trial and evidence limits.
+
 ## Operational constraints
 
 - The grid coordinate system is globally aligned at `(0°, 0°)` and uses a 50 m
