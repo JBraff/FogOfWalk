@@ -67,7 +67,9 @@ struct ContentView: View {
             }
             .animation(.easeInOut, value: visiblePermissionPrompt)
         }
-        .alert("Exploration History Reset", isPresented: showRecoveryAlert) {
+        .alert(store.recoveryNotice?.storeIsUsable == true
+               ? "Exploration History Reset" : "Exploration Storage Unavailable",
+               isPresented: showRecoveryAlert) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(recoveryMessage)

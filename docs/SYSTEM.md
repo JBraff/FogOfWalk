@@ -93,7 +93,9 @@ trial and evidence limits.
 - The grid coordinate system is globally aligned at `(0°, 0°)` and uses a 50 m
   cell size for all new visits.
 - Core Data model changes must be lightweight-migratable. A store that fails to
-  load is copied aside (including its WAL), recreated empty, and the user is told.
+  load is copied aside (including its WAL and SHM) before being recreated empty, and the
+  user is told. Any backup or reset failure stops recovery and disables writes for that
+  launch; originals are never deleted as a fallback. The UI reports unavailable storage.
 - XCTest is the test framework. Tests for main-actor observable stores use the
   repository's established async pattern to avoid an iOS simulator deallocation
   crash.

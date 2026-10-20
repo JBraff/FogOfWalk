@@ -329,7 +329,9 @@ in commit 938ef32, so ignore older docs that describe it.
   manually, and in-memory stores use a manual delete loop (batch delete raises `NSException`).
 - **Core Data load failure.** `ExplorationStore.init` copies the store and its `-wal`/`-shm`
   sidecars to `<name>.corrupt-<timestamp>` (never overwriting an older copy), destroys the store,
-  retries, and sets `recoveryNotice`. `ContentView` shows it once as an alert. The copies are
+  retries, and sets `recoveryNotice`. If any file cannot be backed up or the reset fails,
+  recovery stops; it never falls back to deleting originals. `loadError` disables writes
+  and `ContentView` shows a storage error instead of claiming history was reset. The copies are
   recoverable only by hand. A model change that lightweight migration can't infer takes this
   path, so the user's history is reset.
 - **`@Observable` / iOS 17 APIs** are required. Don't back-port to `ObservableObject`.

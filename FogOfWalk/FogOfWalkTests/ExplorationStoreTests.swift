@@ -82,14 +82,53 @@ final class ExplorationStoreTests: XCTestCase {
         }
     }
 
+    /// Exercise both total and partial copy failures through the actual recovery path.
+    func testBackupFailurePreservesEveryOriginalAndDisablesWrites() async throws {
+        for failingSuffix in ["", "-wal", "-shm"] {
+            let url = try makeTempDirectory().appendingPathComponent("Fog.sqlite")
+            let originals = ["": Data("not a sqlite database".utf8),
+                             "-wal": Data("only copy of recent visits".utf8),
+                             "-shm": Data("shared memory".utf8)]
+            for (suffix, bytes) in originals {
+                try bytes.write(to: URL(fileURLWithPath: url.path + suffix))
+            }
+            try await MainActor.run {
+                var copied: [URL] = []
+                let failure = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError)
+                let store = ExplorationStore(storeURL: url) { source, destination in
+                    if source.path == url.path + failingSuffix { throw failure }
+                    try FileManager.default.copyItem(at: source, to: destination)
+                    copied.append(destination)
+                }
+                XCTAssertEqual((store.loadError as NSError?)?.code, failure.code)
+                XCTAssertEqual(store.recoveryNotice?.storeIsUsable, false)
+                XCTAssertEqual(copied.count, ["", "-wal", "-shm"].firstIndex(of: failingSuffix))
+                for (suffix, bytes) in originals {
+                    XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: url.path + suffix)), bytes)
+                }
+                XCTAssertTrue(store.container.persistentStoreCoordinator.persistentStores.isEmpty)
+                store.configure()
+                XCTAssertFalse(store.addCell(CellID(x: 1, y: 1)))
+                XCTAssertTrue(store.visitedCellsCache.isEmpty)
+                XCTAssertThrowsError(try store.addCells([
+                    BackupVisitedCell(cellX: 1, cellY: 1, cellSizeMeters: kCellSizeMeters,
+                                      firstVisited: nil, locality: nil, state: nil, country: nil)
+                ]))
+                store.acknowledgeRecoveryNotice()
+                XCTAssertNil(store.recoveryNotice)
+                XCTAssertNotNil(store.loadError, "Acknowledging the alert must not re-enable writes")
+            }
+        }
+    }
+
     func testStoreBackupNeverOverwritesAnEarlierBackup() async throws {
         let url = try makeTempDirectory().appendingPathComponent("Fog.sqlite")
         try Data("first".utf8).write(to: url)
         let now = Date(timeIntervalSince1970: 1_700_000_000)
-        await MainActor.run {
-            let first = ExplorationStore.backUpStoreFiles(at: url, now: now)
+        try await MainActor.run {
+            let first = try ExplorationStore.backUpStoreFiles(at: url, now: now)
             try? Data("second".utf8).write(to: url)
-            let second = ExplorationStore.backUpStoreFiles(at: url, now: now)
+            let second = try ExplorationStore.backUpStoreFiles(at: url, now: now)
             XCTAssertEqual(first.count, 1)
             XCTAssertEqual(second.count, 1)
             XCTAssertNotEqual(first, second)
