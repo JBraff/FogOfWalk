@@ -110,10 +110,10 @@ final class LandmarkStore {
 
     /// Reloads every cached derivation of the persisted rows, including the bucket index.
     ///
-    /// This is the single rebuild point for `undiscoveredBuckets`. Every path that can change
-    /// which landmarks are undiscovered already routes through here — `init`, a successful
-    /// `addLandmarks` save, and the rollback path in `discover` — so the index cannot be left
-    /// stale by adding a new caller. The only incremental update is the removal in `discover`.
+    /// This is the single rebuild point for `undiscoveredBuckets`: `init` and every rollback
+    /// path route through here. The only incremental updates are the removal in `discover`
+    /// and the append of freshly saved rows in `persistLandmarks`, which runs during walks and
+    /// must not refetch every stored landmark per new bucket.
     private func loadFromStore() {
         let request = Landmark.fetchRequest()
         guard let results = try? container.viewContext.fetch(request) else { return }
@@ -140,8 +140,19 @@ final class LandmarkStore {
     /// Returns the landmarks discovered by the post-insert sweep.
     @discardableResult
     func addLandmarks(_ items: [WikidataLandmark], visitedCells: Set<CellID>) -> [Landmark] {
+        do {
+            return try persistLandmarks(items, visitedCells: visitedCells)
+        } catch {
+            print("LandmarkStore: save failed: \(error)")
+            return []
+        }
+    }
+
+    /// Throws only when insertion fails, so walk-time ingest can leave its buckets retryable.
+    private func persistLandmarks(_ items: [WikidataLandmark],
+                                  visitedCells: Set<CellID>) throws -> [Landmark] {
         let ctx = container.viewContext
-        var addedIdentifiers: Set<String> = []
+        var inserted: [Landmark] = []
         for item in items {
             guard !knownIdentifiers.contains(item.id) else { continue }
 
@@ -158,25 +169,28 @@ final class LandmarkStore {
             entity.firstSeen             = Date()
 
             knownIdentifiers.insert(item.id)
-            addedIdentifiers.insert(item.id)
+            inserted.append(entity)
         }
 
-        guard !addedIdentifiers.isEmpty else { return [] }
+        guard !inserted.isEmpty else { return [] }
 
         do {
             try ctx.save()
-            loadFromStore()
+            allLandmarks.append(contentsOf: inserted)
+            for landmark in inserted {
+                undiscoveredBuckets[bucket(for: landmark), default: []].append(landmark)
+            }
         } catch {
-            print("LandmarkStore: save failed: \(error)")
             ctx.rollback()
-            return []
+            // Discard identifiers added before the failed save, preserving persisted rows.
+            loadFromStore()
+            throw error
         }
 
         // Sweep only the rows just inserted, not every undiscovered landmark. Only new rows can
         // produce a new discovery here, and sweeping everything straight after a bulk insert
         // would reintroduce the O(landmarks x cells) cost at the worst possible moment.
         guard !visitedCells.isEmpty else { return [] }
-        let inserted = allLandmarks.filter { addedIdentifiers.contains($0.identifier) }
         return discover(among: inserted, visitedCells: visitedCells)
     }
 
@@ -186,11 +200,12 @@ final class LandmarkStore {
     /// Map panning is otherwise the only ingest path, so without this a walk through an area
     /// never shown on the map (phone in a pocket, Study recording with no map) discovers
     /// nothing until the area is viewed, and then records the viewing time as the discovery.
-    /// Each bucket is queried at most once per launch.
+    /// Successful bucket ingests are cached per launch; failed inserts remain retryable and
+    /// throw, so callers can tell a failure from an area with no landmarks.
     @discardableResult
     func ingestLandmarks(near cell: CellID,
                          from source: any LandmarkDataProviding,
-                         visitedCells: Set<CellID>) -> [Landmark] {
+                         visitedCells: Set<CellID>) throws -> [Landmark] {
         let box = GridMath.cellBox(around: GridMath.center(for: cell),
                                    radiusMeters: Self.maxDiscoveryRadius)
         let minBX = box.minX >> 5, maxBX = box.maxX >> 5
@@ -211,8 +226,9 @@ final class LandmarkStore {
             span: MKCoordinateSpan(latitudeDelta: maxLat - minLat,
                                    longitudeDelta: maxLon - minLon))
         let items = source.landmarks(in: region)
+        let discovered = try persistLandmarks(items, visitedCells: visitedCells)
         ingestedBuckets.formUnion(keys)
-        return addLandmarks(items, visitedCells: visitedCells)
+        return discovered
     }
 
     /// Merge-imports discovered-landmark state from a backup. For each record whose
@@ -443,18 +459,28 @@ final class LandmarkStore {
     // MARK: - Migration
 
     /// Deletes any landmarks whose identifier is not a Wikidata QID (`Q` + digits).
-    /// Runs exactly once, guarded by a UserDefaults flag.
+    /// Guarded by a UserDefaults flag that is set only once the purge has succeeded, so a
+    /// launch whose store failed to open retries on the next launch. With no store loaded a
+    /// fetch returns nothing rather than throwing, so that case is checked explicitly.
     private func purgeNonWikidataLandmarksIfNeeded() {
         guard !UserDefaults.standard.bool(forKey: Self.wikidataMigrationKey) else { return }
-        defer { UserDefaults.standard.set(true, forKey: Self.wikidataMigrationKey) }
+        guard !container.persistentStoreCoordinator.persistentStores.isEmpty else { return }
 
         let ctx = container.viewContext
         let request = Landmark.fetchRequest()
         // Keep only identifiers that match the Wikidata QID pattern: Q followed by digits.
         request.predicate = NSPredicate(format: "NOT (identifier MATCHES %@)", "Q[0-9]+")
-        guard let old = try? ctx.fetch(request), !old.isEmpty else { return }
-        old.forEach { ctx.delete($0) }
-        try? ctx.save()
+        do {
+            let old = try ctx.fetch(request)
+            if !old.isEmpty {
+                old.forEach { ctx.delete($0) }
+                try ctx.save()
+            }
+            UserDefaults.standard.set(true, forKey: Self.wikidataMigrationKey)
+        } catch {
+            ctx.rollback()
+            print("LandmarkStore: Wikidata migration deferred: \(error)")
+        }
     }
 
     // MARK: - Private helpers

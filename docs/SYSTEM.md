@@ -39,9 +39,12 @@ which draws the overlay on MapKit's background rendering threads.
   counts. It owns Core Data access for the visited-cell history.
 - `LandmarkStore` owns landmark rows copied from the bundled Wikidata database
   and their discovery state. Rows are copied when the map shows a region and
-  around each newly walked cell.
+  around each newly walked cell. Successful walk-time ingests are cached per launch;
+  failed inserts reset the identifier cache, leave their areas retryable, and are
+  logged as `landmark_ingest_failed` in a Study capture.
 - `LocalityGeocoder` annotates visited cells with locality, state, and country
-  for the statistics sheet.
+  for the statistics sheet. Newly walked cells are geocoded ahead of the launch
+  backfill of older untagged cells.
 - `GridSettings` owns persisted presentation settings.
 - `BackupService` performs manual, versioned export/import and merge of
   exploration and discovery state. It does not provide automatic sync.
@@ -92,10 +95,13 @@ trial and evidence limits.
 
 - The grid coordinate system is globally aligned at `(0°, 0°)` and uses a 50 m
   cell size for all new visits.
-- Core Data model changes must be lightweight-migratable. A store that fails to
-  load is copied aside (including its WAL and SHM) before being recreated empty, and the
-  user is told. Any backup or reset failure stops recovery and disables writes for that
-  launch; originals are never deleted as a fallback. The UI reports unavailable storage.
+- Core Data model changes must be lightweight-migratable. An unreadable store
+  (corrupt, or a model change migration can't open) is copied aside (including its WAL
+  and SHM) before being recreated empty, and the user is told. Other load errors may be
+  transient, so that store is left untouched. Generic migration errors require a definitive
+  unreadable cause; unknown or mixed causes preserve storage. That case and any backup or
+  reset failure disable writes for that launch; originals are never deleted as a fallback. The UI
+  reports unavailable storage.
 - XCTest is the test framework. Tests for main-actor observable stores use the
   repository's established async pattern to avoid an iOS simulator deallocation
   crash.

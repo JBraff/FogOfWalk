@@ -19,10 +19,11 @@ The separate `com.jeremybraff.fogofwalk.study` app has an explicit Start/Stop co
 |---|---|
 | `capture_start`, `capture_stop`, `process_relaunch` | Capture boundary and process restart. The active capture reopens after a relaunch. |
 | `study_tracking_state`, `study_callback_suppressed` | ON/OFF arm at capture start/relaunch and lifecycle entry; OFF or previous-arm callbacks are suppressed. The new Study-only OFF control intentionally prevents exploration. These markers describe app configuration, not physical GPS-resource release or measured energy. |
-| `tracking_start_or_rearm`, `foreground_rearm`, `authorization_change`, `permission_request`, `permission_upgrade_request`, `permission_unavailable`, `location_paused`, `location_resumed`, `location_error`, `scene_phase` | Legacy lifecycle, with authorization raw value or error domain/code where relevant. A rearm does not imply a new fix. |
+| `tracking_start_or_rearm`, `launch_rearm`, `foreground_rearm`, `authorization_change`, `permission_request`, `permission_upgrade_request`, `permission_unavailable`, `location_paused`, `location_resumed`, `location_error`, `scene_phase` | Legacy lifecycle, with authorization raw value or error domain/code where relevant. A rearm does not imply a new fix. |
 | `batch` | Callback receipt time, batch ID, count, and `legacy` source. |
 | `sample` | Original index, sample time, finite latitude/longitude, horizontal accuracy, speed, age at batch receipt, shadow decision, and `forwarded`. Assessment order is by sample timestamp, while `forwarded` identifies only the original last element. No sample is rejected by this logging path. |
 | `downstream` | Cell ID, whether Core Data inserted a new cell, discoveries, and day rollover after actual forwarding. This cell ID is location sensitive. |
+| `landmark_ingest_failed` | A new cell's walk-time landmark insert failed (error domain and code). That cell's `downstream` discoveries count is not evidence of an empty area; the bucket is retried on the next new cell. |
 
 Shadow decisions use the proposal's provisional values: valid finite coordinate, 0–25 m finite horizontal accuracy, 0–15 s age, timestamp at or after source-session start, and strictly increasing accepted timestamps. Unknown speed is allowed. The contract records all batch samples, including rejected and non-forwarded samples. A capture started during an already-running location session uses the service's original session start. No diagnostic event is a claim that iOS delivered a fresh fix after movement.
 

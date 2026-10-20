@@ -24,7 +24,9 @@ to regenerate the bundled landmark database if you need to.
   `.xccurrentversion` selecting v3. They are not separate `.xcdatamodeld` directories. `VisitedCell`
   is in all three versions. v2 added `Landmark` and the `byCellSizeAndCoords` fetch index, and v3
   added the optional `VisitedCell.state` and `country` attributes. The store relies on automatic
-  lightweight migration. Before resetting an unreadable store, recovery copies the database
+  lightweight migration. Only a corrupt store or one migration can't open is reset; other load
+  errors (I/O, permissions, file protection) leave the store untouched with writes disabled for
+  that launch. Before resetting, recovery copies the database
   and all existing WAL/SHM sidecars to unique `.corrupt-<timestamp>` siblings. Any backup
   failure preserves the originals and stops recovery; a reset failure also stops recovery
   without fallback deletion. The user sees a storage error and writes are disabled for that

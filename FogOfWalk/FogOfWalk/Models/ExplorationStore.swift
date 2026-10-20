@@ -47,9 +47,7 @@ final class ExplorationStore {
     /// - Parameter storeURL: Overrides the default SQLite location. Tests use this to
     ///   exercise recovery against a real on-disk store.
     init(storeURL: URL? = nil,
-         copyStoreFile: (URL, URL) throws -> Void = {
-             try FileManager.default.copyItem(at: $0, to: $1)
-         }) {
+         copyStoreFile: (URL, URL) throws -> Void = ExplorationStore.copyStoreFile) {
         let c = NSPersistentContainer(name: "FogOfWalk")
         let description = c.persistentStoreDescriptions.first ?? NSPersistentStoreDescription()
         if let storeURL { description.url = storeURL }
@@ -61,7 +59,11 @@ final class ExplorationStore {
         if let error = Self.loadStores(c) {
             loadError = error
             var backups: [URL] = []
-            if let url = description.url {
+            if !Self.isUnreadableStoreError(error) {
+                // Possibly transient (I/O, permissions, file protection, disk full): the same
+                // file may open next launch, so keep it untouched and only disable writes.
+                print("Core Data failed to load: \(error.localizedDescription). Store left untouched.")
+            } else if let url = description.url {
                 print("Core Data failed to load: \(error.localizedDescription). Attempting recovery.")
                 do {
                     // Every existing file must be copied before any original is removed.
@@ -96,22 +98,61 @@ final class ExplorationStore {
         return box.error
     }
 
+    /// Whether a load error means the store's contents can never be opened by this model
+    /// (corrupt or not a database, or a model change migration cannot handle). Only then
+    /// may recovery back up and replace the store. Anything else might be transient and
+    /// must leave the store untouched.
+    static func isUnreadableStoreError(_ error: Error) -> Bool {
+        let current = error as NSError
+        // Migration/store errors can wrap I/O, permission, or disk-full failures. Classify
+        // the cause before the wrapper, and preserve ambiguous or mixed failures.
+        var causes = current.userInfo[NSDetailedErrorsKey] as? [NSError] ?? []
+        if let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError {
+            causes.append(underlying)
+        }
+        if !causes.isEmpty {
+            return causes.allSatisfy { isUnreadableStoreError($0) }
+        }
+        let cocoaCodes: Set<Int> = [
+            NSFileReadCorruptFileError,
+            NSPersistentStoreIncompatibleSchemaError,
+            NSPersistentStoreIncompatibleVersionHashError,
+            NSMigrationMissingSourceModelError,
+            NSMigrationMissingMappingModelError,
+            NSInferredMappingModelError,
+        ]
+        let sqliteCorrupt = 11, sqliteNotADatabase = 26
+        let sqliteCode = current.domain == NSSQLiteErrorDomain
+            ? current.code : (current.userInfo[NSSQLiteErrorDomain] as? Int)
+        if let sqliteCode {
+            return sqliteCode == sqliteCorrupt || sqliteCode == sqliteNotADatabase
+        }
+        // NSMigrationError alone is generic, so it cannot authorize a reset.
+        return current.domain == NSCocoaErrorDomain && cocoaCodes.contains(current.code)
+    }
+
+    /// Suffixes of the SQLite store file and its sidecars. The WAL may hold the only copy
+    /// of recent visits, so every one of these must be backed up together.
+    nonisolated static let storeFileSuffixes = ["", "-wal", "-shm"]
+
+    nonisolated static func copyStoreFile(from source: URL, to destination: URL) throws {
+        try FileManager.default.copyItem(at: source, to: destination)
+    }
+
     /// The SQLite store file and its sidecars.
     static func storeFiles(at url: URL) -> [URL] {
-        ["", "-wal", "-shm"].map { URL(fileURLWithPath: url.path + $0) }
+        storeFileSuffixes.map { URL(fileURLWithPath: url.path + $0) }
     }
 
     /// Copies every existing store file to a unique sibling, without overwriting a backup.
     /// Throws on any inspection/copy failure; the caller must then preserve all originals.
     static func backUpStoreFiles(at url: URL, now: Date = Date(),
-                                 copyFile: (URL, URL) throws -> Void = {
-                                     try FileManager.default.copyItem(at: $0, to: $1)
-                                 }) throws -> [URL] {
+                                 copyFile: (URL, URL) throws -> Void = copyStoreFile) throws -> [URL] {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         let fm = FileManager.default
-        let suffixes = ["", "-wal", "-shm"]
+        let suffixes = storeFileSuffixes
         let timestamp = formatter.string(from: now)
         var stamp = timestamp
         while suffixes.contains(where: { fm.fileExists(atPath: url.path + ".corrupt-\(stamp)" + $0) }) {

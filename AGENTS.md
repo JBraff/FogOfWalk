@@ -256,9 +256,9 @@ the static, tested `Coordinator.gestureTransform`) and `regionDidChangeAnimated`
 
 - Data: `landmarks.sqlite` (14,943 Wikidata items in 10 categories). Rows are copied into Core
   Data when the map shows a region, and by `LandmarkStore.ingestLandmarks(near:from:visitedCells:)`
-  around each newly walked cell. The walk-time path queries each 32×32-cell bucket at most once
-  per launch, covering `maxDiscoveryRadius`, so landmarks are discovered during the walk even
-  with no map on screen.
+  around each newly walked cell. The walk-time path caches each successfully ingested
+  32×32-cell bucket per launch and retries failed inserts on later new cells, covering
+  `maxDiscoveryRadius`, so landmarks are discovered during the walk even with no map on screen.
 - Discovery hot path: `checkDiscovery(newCell:)` looks up undiscovered landmarks in 32×32-cell
   buckets (`LandmarkStore.bucket(for:)`, `>> 5`) within `maxDiscoveryRadius`, then does an
   equirectangular distance check. Its cost must not grow with the visited set. Tests assert this
@@ -327,13 +327,19 @@ in commit 938ef32, so ignore older docs that describe it.
 - **Core Data context:** always `container.viewContext`, with
   `automaticallyMergesChangesFromParent = true`. `NSBatchDeleteRequest` results are merged back
   manually, and in-memory stores use a manual delete loop (batch delete raises `NSException`).
-- **Core Data load failure.** `ExplorationStore.init` copies the store and its `-wal`/`-shm`
-  sidecars to `<name>.corrupt-<timestamp>` (never overwriting an older copy), destroys the store,
-  retries, and sets `recoveryNotice`. If any file cannot be backed up or the reset fails,
-  recovery stops; it never falls back to deleting originals. `loadError` disables writes
-  and `ContentView` shows a storage error instead of claiming history was reset. The copies are
-  recoverable only by hand. A model change that lightweight migration can't infer takes this
-  path, so the user's history is reset.
+- **Core Data load failure.** Only an unreadable store
+  (`ExplorationStore.isUnreadableStoreError`: corrupt or not a database, or a model change
+  migration can't handle) is reset. `ExplorationStore.init` then copies the store and its
+  `-wal`/`-shm` sidecars to `<name>.corrupt-<timestamp>` (never overwriting an older copy),
+  destroys the store, retries, and sets `recoveryNotice`. Any other load error (I/O,
+  permissions, file protection, disk full) may be transient: the store is left untouched.
+  Generic migration errors alone never authorize a reset; underlying and detailed causes
+  are classified first, and unknown or mixed failures preserve storage.
+  That case, a failed backup and a failed reset all leave `loadError` set, which disables
+  writes; recovery never falls back to deleting originals, and `ContentView` shows a storage
+  error instead of claiming history was reset. The copies are recoverable only by hand. A model
+  change that lightweight migration can't infer takes the reset path, so the user's history is
+  reset.
 - **`@Observable` / iOS 17 APIs** are required. Don't back-port to `ObservableObject`.
 - **XCTest only; no SwiftUI previews.** There are no `import Testing`, `@Test`, `#expect`, or
   `#Preview` uses. Test rendering in the simulator.
@@ -364,6 +370,9 @@ in commit 938ef32, so ignore older docs that describe it.
   known gap, and backup import only merges.
 - **Permission UI:** `LocationService.permissionPrompt` (`.denied` or `.upgradeToAlways`) drives
   `LocationPermissionBanner`. Dismissal is per prompt, so a later different problem still shows.
+- **Geocoding queue:** at most `LocalityGeocoder.maxQueueSize` (200) clusters. Newly walked
+  cells go ahead of launch backfill and, when the queue is full, displace the newest backfill
+  cluster (its cells stay untagged for a later launch).
 - **Geocoding:** the launch backfill groups untagged cells into
   `LocalityGeocoder.backfillClusterDegrees` (0.01°, ~1.1 km) clusters and writes one placemark's
   names into every nil field in the cluster. Cells mislabelled by the old 0.5° clustering are not

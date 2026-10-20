@@ -71,6 +71,25 @@ final class LandmarkStoreTests: XCTestCase {
 
     // MARK: - addLandmarks
 
+    func testAddLandmarksRetriesIdentifiersAfterSaveFailure() async throws {
+        try await MainActor.run {
+            let container = makeInMemoryContainer()
+            let store = LandmarkStore(container: container)
+            let existing = makeWikidataLandmark(id: "Q10", name: "Existing")
+            let retry = makeWikidataLandmark(id: "Q20", name: "Retry")
+            seed(store, [existing])
+            let persistentStore = try XCTUnwrap(container.persistentStoreCoordinator.persistentStores.first)
+            persistentStore.isReadOnly = true
+            seed(store, [retry])
+            XCTAssertEqual(store.allLandmarks.map(\.identifier), ["Q10"])
+
+            persistentStore.isReadOnly = false
+            seed(store, [existing, retry, retry])
+            XCTAssertEqual(Set(store.allLandmarks.map(\.identifier)), ["Q10", "Q20"])
+            XCTAssertEqual(try container.viewContext.count(for: Landmark.fetchRequest()), 2)
+        }
+    }
+
     func testAddLandmarksDeduplicatesByIdentifier() async {
         await MainActor.run {
             let store = makeStore()
@@ -116,6 +135,28 @@ final class LandmarkStoreTests: XCTestCase {
     }
 
     // MARK: - Category discovery radii
+
+    /// Walk-time ingest runs per new bucket, so a successful insert must update the caches
+    /// in place rather than refetch every stored landmark. A row written behind the store's
+    /// back is the observable sign of a refetch.
+    func testAddLandmarksUpdatesCachesWithoutRefetching() async {
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let store = LandmarkStore(container: container)
+            insertRawLandmark(id: "Q77", into: container)
+
+            let coord = CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)
+            seed(store, [makeWikidataLandmark(id: "Q1", lat: coord.latitude, lon: coord.longitude)])
+
+            XCTAssertEqual(store.allLandmarks.map(\.identifier), ["Q1"],
+                           "Only the inserted row is appended; nothing else is refetched")
+            XCTAssertEqual(store.checkDiscovery(newCell: GridMath.cellID(for: coord))
+                                .map(\.identifier), ["Q1"],
+                           "The bucket index must include the inserted row")
+            XCTAssertEqual(LandmarkStore(container: container).allLandmarks.count, 2,
+                           "Both rows are persisted")
+        }
+    }
 
     func testCategoryRadiusForWikidataCategories() async {
         await MainActor.run {
@@ -843,6 +884,23 @@ final class LandmarkStoreTests: XCTestCase {
             let store2 = LandmarkStore(container: container)
             XCTAssertEqual(store2.allLandmarks.count, 1,
                            "Landmarks inserted after migration should not be purged on second init")
+        }
+    }
+
+    /// Regression: the flag was set in a `defer`, so a launch whose store had failed to open
+    /// marked the purge done and pre-Wikidata rows were never removed on later launches.
+    func testMigrationIsRetriedWhenTheStoreIsUnavailable() async {
+        await MainActor.run {
+            let unloaded = NSPersistentContainer(name: "FogOfWalk") // no persistent store
+            _ = LandmarkStore(container: unloaded)
+            XCTAssertFalse(UserDefaults.standard.bool(forKey: LandmarkStore.wikidataMigrationKey),
+                           "A purge that could not run must not be marked done")
+
+            let container = makeInMemoryContainer()
+            insertRawLandmark(id: "MKPOICategoryZoo|40.0|-74.0", into: container)
+            let store = LandmarkStore(container: container)
+            XCTAssertTrue(store.allLandmarks.isEmpty, "The next launch must still purge old rows")
+            XCTAssertTrue(UserDefaults.standard.bool(forKey: LandmarkStore.wikidataMigrationKey))
         }
     }
 

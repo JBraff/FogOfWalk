@@ -31,6 +31,20 @@ final class MockGeocoder: GeocoderProtocol, @unchecked Sendable {
     }
 }
 
+/// Records each requested location, in order.
+private final class RecordingGeocoder: GeocoderProtocol, @unchecked Sendable {
+    private(set) var locations: [CLLocation] = []
+    let onCall: (Int) -> Void
+
+    init(onCall: @escaping (Int) -> Void) { self.onCall = onCall }
+
+    func reverseGeocodeLocation(_ location: CLLocation) async throws -> [CLPlacemark] {
+        locations.append(location)
+        onCall(locations.count)
+        return [MockPlacemark(locality: "RecordedCity")]
+    }
+}
+
 /// Minimal CLPlacemark subclass that overrides locality/administrativeArea/country.
 private final class MockPlacemark: CLPlacemark, @unchecked Sendable {
     private let localityValue: String?
@@ -182,6 +196,47 @@ final class LocalityGeocoderTests: XCTestCase {
         }
         // Processing speed with .zero delay makes it hard to catch the queue mid-drain,
         // so this test primarily validates there is no crash or hang.
+    }
+
+    /// Regression: with ~1 km backfill clusters a large backfill fills the queue, and a cell
+    /// walked meanwhile was silently dropped. It must displace backfill and be geocoded next.
+    func testNewCellIsGeocodedAheadOfAFullBackfill() async {
+        let secondCall = XCTestExpectation(description: "second geocode request")
+        let mock = RecordingGeocoder(onCall: { count in if count == 2 { secondCall.fulfill() } })
+        var geocoder: LocalityGeocoder?
+        var walkedID: NSManagedObjectID?
+        var context: NSManagedObjectContext?
+        let walked = CellID(x: -5_000, y: -5_000)
+
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let ctx = container.viewContext
+            context = ctx
+            // 30 cells apart is ~0.0135°, so every cell is its own backfill cluster.
+            for i in Int32(0)..<Int32(LocalityGeocoder.maxQueueSize + 50) {
+                insertCell(in: ctx, x: i * 30, y: 0)
+            }
+            geocoder = LocalityGeocoder(geocoder: mock, requestDelay: .milliseconds(20))
+            geocoder!.geocodeUntaggedCells(context: ctx)
+
+            let cell = insertCell(in: ctx, x: walked.x, y: walked.y)
+            walkedID = cell.objectID
+            geocoder!.enqueue(cell)
+        }
+
+        await fulfillment(of: [secondCall], timeout: 5)
+        try? await Task.sleep(for: .milliseconds(10))
+
+        await MainActor.run {
+            let centre = GridMath.center(for: walked)
+            let second = mock.locations[1].coordinate
+            XCTAssertEqual(second.latitude, centre.latitude, accuracy: 1e-9,
+                           "The walked cell must be geocoded before the remaining backfill")
+            XCTAssertEqual(second.longitude, centre.longitude, accuracy: 1e-9)
+            let cell = try? context!.existingObject(with: walkedID!) as? VisitedCell
+            XCTAssertEqual(cell?.locality, "RecordedCity")
+            geocoder = nil
+        }
     }
 
     func testGeocodesUntaggedCells() async {

@@ -23,7 +23,7 @@ struct FogOfWalkApp: App {
         // the map nor any view `.task` runs. Wire recording and re-arm tracking here.
         ExplorationRecorder.connect(location: location, store: s, landmarks: landmarks,
                                     geocoder: geocoder, landmarkSource: landmarkSource)
-        location.restartIfAuthorized()
+        location.restartIfAuthorized(reason: .launch)
         _locationService = State(initialValue: location)
         _store         = State(initialValue: s)
         _gridSettings  = State(initialValue: g)

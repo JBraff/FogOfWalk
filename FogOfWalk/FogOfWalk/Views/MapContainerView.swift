@@ -102,8 +102,11 @@ struct MapContainerView: UIViewRepresentable {
             || currentRecentGen != coordinator.lastRecentCellGeneration {
             coordinator.invalidateFogTiles()
         }
-        coordinator.refreshLandmarks(in: mapView.region, mapView: mapView)
-        coordinator.landmarkOverlayView?.setNeedsDisplay()
+        // A new cell re-runs this method; rebuild pins only when landmark state changed.
+        // Region changes refresh pins through `regionDidChangeAnimated`.
+        if coordinator.refreshLandmarksIfChanged(in: mapView.region, mapView: mapView) {
+            coordinator.landmarkOverlayView?.setNeedsDisplay()
+        }
     }
 
     // MARK: - Coordinator
@@ -133,6 +136,21 @@ struct MapContainerView: UIViewRepresentable {
 
         /// Tracks the last navigation target ID applied so `updateUIView` only animates once per tap.
         var lastNavigationTargetID: UUID?
+
+        /// The landmark inputs pins were last built from. Pins depend only on these and the
+        /// region, so `updateUIView` can skip the rebuild when neither changed.
+        struct LandmarkRenderState: Equatable {
+            let showLandmarks: Bool
+            let landmarkCount: Int
+            let discoveredCount: Int
+        }
+        private(set) var lastLandmarkRenderState: LandmarkRenderState?
+
+        private var currentLandmarkRenderState: LandmarkRenderState {
+            LandmarkRenderState(showLandmarks: gridSettings.showLandmarks,
+                                landmarkCount: landmarkStore.allLandmarks.count,
+                                discoveredCount: landmarkStore.totalDiscovered)
+        }
 
         init(store: ExplorationStore, gridSettings: GridSettings,
              landmarkStore: LandmarkStore, searchService: LandmarkSearchService) {
@@ -171,7 +189,17 @@ struct MapContainerView: UIViewRepresentable {
 
         // MARK: - Landmark refresh
 
+        /// Rebuilds pins only if landmark state changed since the last refresh. Returns
+        /// whether it did.
+        @discardableResult
+        func refreshLandmarksIfChanged(in region: MKCoordinateRegion, mapView: MKMapView) -> Bool {
+            guard currentLandmarkRenderState != lastLandmarkRenderState else { return false }
+            refreshLandmarks(in: region, mapView: mapView)
+            return true
+        }
+
         func refreshLandmarks(in region: MKCoordinateRegion, mapView: MKMapView) {
+            lastLandmarkRenderState = currentLandmarkRenderState
             // Clear rather than early-return so stale pins from before the toggle was
             // flipped off (or from the previous region) stop drawing; both this guard and
             // the wide-zoom one below rely on that to keep the overlay in sync.
