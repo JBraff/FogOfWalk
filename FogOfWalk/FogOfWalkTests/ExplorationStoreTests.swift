@@ -28,6 +28,76 @@ final class ExplorationStoreTests: XCTestCase {
 
     // MARK: - Tests
 
+    // MARK: - On-disk load failure and recovery
+
+    private func makeTempDirectory() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fog-store-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        return dir
+    }
+
+    func testHealthyOnDiskStoreHasNoRecoveryNotice() async throws {
+        let url = try makeTempDirectory().appendingPathComponent("Fog.sqlite")
+        await MainActor.run {
+            let store = ExplorationStore(storeURL: url)
+            XCTAssertNil(store.recoveryNotice)
+            XCTAssertNil(store.loadError)
+        }
+    }
+
+    /// Regression: recovery copied only the main `.sqlite` (losing WAL-resident writes),
+    /// overwrote any earlier `.bak`, and never told the user their history was reset.
+    func testUnreadableStoreIsBackedUpWithSidecarsReplacedAndReported() async throws {
+        let dir = try makeTempDirectory()
+        let url = dir.appendingPathComponent("Fog.sqlite")
+        let mainBytes = Data("not a sqlite database".utf8)
+        let walBytes = Data("recent writes".utf8)
+        try mainBytes.write(to: url)
+        try walBytes.write(to: URL(fileURLWithPath: url.path + "-wal"))
+
+        await MainActor.run {
+            let store = ExplorationStore(storeURL: url)
+            guard let notice = store.recoveryNotice else {
+                return XCTFail("An unreadable store must produce a recovery notice")
+            }
+            XCTAssertTrue(notice.storeIsUsable)
+            XCTAssertNil(store.loadError)
+
+            let names = notice.backupURLs.map(\.lastPathComponent)
+            XCTAssertEqual(names.count, 2, "Main file and WAL must both be copied: \(names)")
+            XCTAssertTrue(names.allSatisfy { $0.hasPrefix("Fog.sqlite.corrupt-") })
+            let mainCopy = notice.backupURLs.first { !$0.lastPathComponent.hasSuffix("-wal") }!
+            let walCopy  = notice.backupURLs.first { $0.lastPathComponent.hasSuffix("-wal") }!
+            XCTAssertEqual(try? Data(contentsOf: mainCopy), mainBytes)
+            XCTAssertEqual(try? Data(contentsOf: walCopy), walBytes)
+
+            // The replacement store works.
+            store.configure()
+            XCTAssertTrue(store.addCell(CellID(x: 1, y: 1)))
+
+            store.acknowledgeRecoveryNotice()
+            XCTAssertNil(store.recoveryNotice)
+        }
+    }
+
+    func testStoreBackupNeverOverwritesAnEarlierBackup() async throws {
+        let url = try makeTempDirectory().appendingPathComponent("Fog.sqlite")
+        try Data("first".utf8).write(to: url)
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        await MainActor.run {
+            let first = ExplorationStore.backUpStoreFiles(at: url, now: now)
+            try? Data("second".utf8).write(to: url)
+            let second = ExplorationStore.backUpStoreFiles(at: url, now: now)
+            XCTAssertEqual(first.count, 1)
+            XCTAssertEqual(second.count, 1)
+            XCTAssertNotEqual(first, second)
+            XCTAssertEqual(try? Data(contentsOf: first[0]), Data("first".utf8))
+            XCTAssertEqual(try? Data(contentsOf: second[0]), Data("second".utf8))
+        }
+    }
+
     func testLoadErrorIsNilOnSuccess() async {
         await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())

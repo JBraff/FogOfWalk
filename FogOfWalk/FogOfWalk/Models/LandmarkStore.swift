@@ -29,6 +29,10 @@ final class LandmarkStore {
     /// thousands of times per location update, inside the very loop being measured.
     @ObservationIgnored private(set) var lastDiscoveryProbeCount: Int = 0
 
+    /// Buckets whose bundled landmarks have already been ingested by `ingestLandmarks(near:)`
+    /// this launch, so walking stays at one SQLite query per ~1.6 km bucket.
+    @ObservationIgnored private var ingestedBuckets: Set<BucketKey> = []
+
     // MARK: - Spatial bucketing
 
     /// Coarse spatial key covering 32x32 cells (~1600 m of latitude).
@@ -132,7 +136,10 @@ final class LandmarkStore {
     /// any forgetful call site silently drop those discoveries — the same class of bug this
     /// method's sweep exists to prevent. Tests that genuinely don't care pass `[]` through the
     /// `seed` helper, where the intent is visible.
-    func addLandmarks(_ items: [WikidataLandmark], visitedCells: Set<CellID>) {
+    ///
+    /// Returns the landmarks discovered by the post-insert sweep.
+    @discardableResult
+    func addLandmarks(_ items: [WikidataLandmark], visitedCells: Set<CellID>) -> [Landmark] {
         let ctx = container.viewContext
         var addedIdentifiers: Set<String> = []
         for item in items {
@@ -154,7 +161,7 @@ final class LandmarkStore {
             addedIdentifiers.insert(item.id)
         }
 
-        guard !addedIdentifiers.isEmpty else { return }
+        guard !addedIdentifiers.isEmpty else { return [] }
 
         do {
             try ctx.save()
@@ -162,15 +169,50 @@ final class LandmarkStore {
         } catch {
             print("LandmarkStore: save failed: \(error)")
             ctx.rollback()
-            return
+            return []
         }
 
         // Sweep only the rows just inserted, not every undiscovered landmark. Only new rows can
         // produce a new discovery here, and sweeping everything straight after a bulk insert
         // would reintroduce the O(landmarks x cells) cost at the worst possible moment.
-        guard !visitedCells.isEmpty else { return }
+        guard !visitedCells.isEmpty else { return [] }
         let inserted = allLandmarks.filter { addedIdentifiers.contains($0.identifier) }
-        discover(among: inserted, visitedCells: visitedCells)
+        return discover(among: inserted, visitedCells: visitedCells)
+    }
+
+    /// Ingests bundled landmarks that could be discovered from `cell`, then sweeps them
+    /// against `visitedCells`. Returns the landmarks that sweep discovered.
+    ///
+    /// Map panning is otherwise the only ingest path, so without this a walk through an area
+    /// never shown on the map (phone in a pocket, Study recording with no map) discovers
+    /// nothing until the area is viewed, and then records the viewing time as the discovery.
+    /// Each bucket is queried at most once per launch.
+    @discardableResult
+    func ingestLandmarks(near cell: CellID,
+                         from source: any LandmarkDataProviding,
+                         visitedCells: Set<CellID>) -> [Landmark] {
+        let box = GridMath.cellBox(around: GridMath.center(for: cell),
+                                   radiusMeters: Self.maxDiscoveryRadius)
+        let minBX = box.minX >> 5, maxBX = box.maxX >> 5
+        let minBY = box.minY >> 5, maxBY = box.maxY >> 5
+        var keys: [BucketKey] = []
+        for by in minBY...maxBY {
+            for bx in minBX...maxBX { keys.append(BucketKey(bx: bx, by: by)) }
+        }
+        guard keys.contains(where: { !ingestedBuckets.contains($0) }) else { return [] }
+
+        // Query the whole buckets so marking them ingested is accurate.
+        let bucketDegrees = 32 * kCellSizeMeters / GridMath.metersPerDegree
+        let minLat = Double(minBY) * bucketDegrees, maxLat = Double(Int(maxBY) + 1) * bucketDegrees
+        let minLon = Double(minBX) * bucketDegrees, maxLon = Double(Int(maxBX) + 1) * bucketDegrees
+        let region = MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2,
+                                           longitude: (minLon + maxLon) / 2),
+            span: MKCoordinateSpan(latitudeDelta: maxLat - minLat,
+                                   longitudeDelta: maxLon - minLon))
+        let items = source.landmarks(in: region)
+        ingestedBuckets.formUnion(keys)
+        return addLandmarks(items, visitedCells: visitedCells)
     }
 
     /// Merge-imports discovered-landmark state from a backup. For each record whose

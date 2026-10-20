@@ -51,7 +51,7 @@ authorized product work.
 FogOfWalk/
   FogOfWalk.xcodeproj                # Synchronized folders; no shared scheme (see Build & test)
   FogOfWalk/
-    FogOfWalkApp.swift               # @main: creates the six environment objects; wires Study recording
+    FogOfWalkApp.swift               # @main: creates the six environment objects; wires recording + re-arms tracking
     ContentView.swift                # Root: MapContainerView + StatsView HUD + sheets; day-rollover listeners
     Info.plist                       # Location + motion purpose strings, UIBackgroundModes [location],
                                      # single scene, CFBundleDisplayName = $(FOG_APP_DISPLAY_NAME)
@@ -73,7 +73,7 @@ FogOfWalk/
       BackupService.swift            # Versioned JSON export/import with merge semantics
     Services/
       LocationService.swift          # CLLocationManager wrapper: legacy tracking + Study source switching
-      ExplorationRecorder.swift      # Shared location → cell → discovery path for both app identities
+      ExplorationRecorder.swift      # The recording path (location → cell → landmark ingest/discovery); connect()
       StationaryLocationSource.swift # Study-only CLLocationUpdate.liveUpdates source; StudyLocationSource enum
       LocationStudyDiagnostics.swift # Study-only opt-in JSONL capture; shadow sample validator
       StudyMotionReference.swift     # Study-only post-run Core Motion/pedometer history query
@@ -87,7 +87,7 @@ FogOfWalk/
       StatsView.swift                # Bottom HUD: "N new today" (toggles highlight), landmark count, Paused, buttons
       DiscoveryStatsView.swift       # Stats sheet (Swift Charts)
       SettingsView.swift             # Backup export/import; Study-only "Location Study" section
-      AlwaysLocationBanner.swift     # Prompt to upgrade While Using → Always
+      LocationPermissionBanner.swift # Banner for denied location or While Using → Always upgrade
   FogOfWalkTests/                    # XCTest unit tests: roughly one <Type>Tests.swift per production type, plus
                                      # FogOfWalkTests.swift (GridMath) and StudyTrackingControlTests.swift (Study OFF)
   FogOfWalkUITests/                  # Template only: FogOfWalkUITests has no test methods; the launch test
@@ -116,7 +116,6 @@ compile-time flag, so Study code is compiled into the normal binary too.
 | Bundle ID | `com.jeremybraff.fogofwalk` (checked-in) | `com.jeremybraff.fogofwalk.study` (build override) |
 | Display / product name | `Fog-Of-Walk` / `Fog-Of-Walk` | `Fog Walk Study` / `Fog-Walk-Study` |
 | Tracking source | Legacy `CLLocationManager` only | Persisted choice: Legacy, or `liveUpdates` ("Automatic pause/resume") |
-| Who records cells | Map `Coordinator` (closure set in `updateUIView`) | `ExplorationRecorder` closure set in `FogOfWalkApp.init`, before any view exists |
 | Extra UI | none | Settings → Location Study: source picker, tracking-OFF control, diagnostic capture/export, motion query |
 
 Rules:
@@ -150,28 +149,34 @@ CLLocationManager (legacy)                       CLLocationUpdate.liveUpdates(.f
   epoch-checked, forwards locations.last            (valid, ≤15 s old, after session start, in order)
                  └───────────────► LocationService.onLocationUpdate ◄──────────────┘
                                           │
-          normal: Coordinator.handle(location:)          Study: closure from FogOfWalkApp.init
+                 closure installed by ExplorationRecorder.connect in FogOfWalkApp.init (both identities)
                                           ▼
                            ExplorationRecorder.record(_:)
                              store.configure()                       (no-op after first call)
                              store.refreshForDayChangeIfNeeded()     (resets "today" at midnight)
                              store.addCell(GridMath.cellID(for:))    (Core Data save + caches; onNewCell → geocoder)
-                             landmarks.checkDiscovery(newCell:)      (only when the cell is new)
+                             only when the cell is new:
+                               landmarks.ingestLandmarks(near:...)   (bundled DB, once per bucket per launch)
+                               landmarks.checkDiscovery(newCell:)
                              diagnostics.recordDownstream(...)       (no-op unless a Study capture runs)
-                                          ▼  returns true on new cell or day rollover
-                           Coordinator.invalidateFogTiles() → fresh CellSnapshot → renderer.setNeedsDisplay()
+                                          ▼
+                           ContentView re-renders (visitedCellCount / highlightGeneration change)
+                           → MapContainerView.updateUIView → Coordinator.invalidateFogTiles()
+                           → fresh CellSnapshot → renderer.setNeedsDisplay()
 ```
 
 Other flows:
-- **Launch** (`FogOfWalkApp` `.task`): `requestPermissionAndStart()`, wire `store.onNewCell` →
-  `LocalityGeocoder.enqueue`, backfill untagged cells, then `landmarkStore.sweepAllUndiscovered`
-  (self-heals discoveries lost to a rolled-back save).
+- **Launch, `FogOfWalkApp.init`** (runs even for a scene-less background relaunch):
+  `ExplorationRecorder.connect` wires recording and `store.onNewCell` → `LocalityGeocoder.enqueue`,
+  then `restartIfAuthorized()` re-arms already-authorized tracking. The map is not involved.
+- **Launch, `.task`** (needs a scene): `requestPermissionAndStart()`, backfill untagged cells,
+  then `landmarkStore.sweepAllUndiscovered` (self-heals discoveries lost to a rolled-back save).
 - **Foreground** (`scenePhase == .active`): `restartIfAuthorized()` and a day-rollover check.
   `ContentView` also listens for `.NSCalendarDayChanged` and `significantTimeChangeNotification`.
-- **Landmark ingest:** `mapView(_:regionDidChangeAnimated:)` → `LandmarkSearchService.searchIfNeeded`
+- **Landmark ingest (map):** `mapView(_:regionDidChangeAnimated:)` → `LandmarkSearchService.searchIfNeeded`
   (span ≤ 1.0°, 30 s / 500 m rate limit) → `BundledLandmarkSource` R-tree query (LIMIT 500) →
   `LandmarkStore.addLandmarks(_:visitedCells:)`, which immediately sweeps the new rows against
-  already-walked cells.
+  already-walked cells. Walking also ingests around each new cell (see Landmarks).
 
 ### Environment objects
 
@@ -240,18 +245,20 @@ Hole radius is 0.9 × the projected cell size, floored at `kMinCellScreenPoints`
 renderer applies no cell-count cap. The `radius > 0.5` guards are inert because of that floor.
 
 `Coordinator.invalidateFogTiles()` is the only way to push new state to the renderer.
-`updateUIView` calls it when the cached cell count or `recentCellsGeneration` changes, and
-`ContentView` passes `highlightGeneration` so SwiftUI re-runs `updateUIView` on highlight
-rebuilds. Fog pans and zooms natively. `LandmarkOverlayView` is a plain `UIView` sibling, so
+`updateUIView` calls it when the cached cell count or `recentCellsGeneration` changes.
+Recording happens outside the map, so `ContentView` passes `visitedCellCount` and
+`highlightGeneration` as inputs to guarantee SwiftUI re-runs `updateUIView`. Keep those
+inputs if you restructure the view. Fog pans and zooms natively. `LandmarkOverlayView` is a plain `UIView` sibling, so
 `mapViewDidChangeVisibleRegion(_:)` applies a manual `CATransform3D` during gestures (math in
 the static, tested `Coordinator.gestureTransform`) and `regionDidChangeAnimated` resets it.
 
 ### Landmarks
 
-- Data: `landmarks.sqlite` (14,943 Wikidata items in 10 categories). Rows are copied into Core Data only when
-  the map shows a region (see Landmark ingest). An area walked with the app in the background and
-  never viewed on the map has no landmark rows yet. Its landmarks are discovered when the area is
-  first viewed, and `firstDiscovered` records that later time.
+- Data: `landmarks.sqlite` (14,943 Wikidata items in 10 categories). Rows are copied into Core
+  Data when the map shows a region, and by `LandmarkStore.ingestLandmarks(near:from:visitedCells:)`
+  around each newly walked cell. The walk-time path queries each 32×32-cell bucket at most once
+  per launch, covering `maxDiscoveryRadius`, so landmarks are discovered during the walk even
+  with no map on screen.
 - Discovery hot path: `checkDiscovery(newCell:)` looks up undiscovered landmarks in 32×32-cell
   buckets (`LandmarkStore.bucket(for:)`, `>> 5`) within `maxDiscoveryRadius`, then does an
   equirectangular distance check. Its cost must not grow with the visited set. Tests assert this
@@ -262,8 +269,8 @@ the static, tested `Coordinator.gestureTransform`) and `regionDidChangeAnimated`
   (re-measure density before raising the span). `LandmarkStore.maxRenderedPins` = 300.
 - `showLandmarks` is **off by default**. Discovery always runs, and only pin display is gated
   (`Coordinator.refreshLandmarks`). Check the toggle before suspecting a discovery bug.
-- If `landmarks.sqlite` is missing or unreadable, `LandmarkSearchService.makeBundled()` silently
-  falls back to `EmptyLandmarkSource`.
+- If `landmarks.sqlite` is missing or unreadable, `LandmarkSearchService.bundledSource()` logs one
+  line and falls back to `EmptyLandmarkSource`; landmarks then silently do nothing.
 
 ### Backup export/import
 
@@ -313,15 +320,18 @@ in commit 938ef32, so ignore older docs that describe it.
 
 - **`@MainActor` everywhere.** `CLLocationManagerDelegate` methods are `nonisolated` and hop
   back with `Task { @MainActor in ... }`, re-checking the callback epoch.
-- **Callback wiring.** The normal app reassigns `locationService.onLocationUpdate` in every
-  `updateUIView` so it always captures the live coordinator. The Study app sets it once in
-  `FogOfWalkApp.init`, and `updateUIView` must not overwrite it (the `!isStudyApp` guard).
+- **Callback wiring.** `locationService.onLocationUpdate` and `store.onNewCell` are set once,
+  in `FogOfWalkApp.init`, through `ExplorationRecorder.connect`. Don't wire recording from a view:
+  iOS can relaunch the app in the background without creating a scene, and samples delivered
+  then would be dropped.
 - **Core Data context:** always `container.viewContext`, with
   `automaticallyMergesChangesFromParent = true`. `NSBatchDeleteRequest` results are merged back
   manually, and in-memory stores use a manual delete loop (batch delete raises `NSException`).
-- **Core Data load failure.** `ExplorationStore.init` copies the main `.sqlite` file to `.bak`,
-  deletes it, and retries. `loadError` is then set, but no UI reads it. A model change that is not
-  a lightweight (inferable) migration takes this path and the user silently starts empty.
+- **Core Data load failure.** `ExplorationStore.init` copies the store and its `-wal`/`-shm`
+  sidecars to `<name>.corrupt-<timestamp>` (never overwriting an older copy), destroys the store,
+  retries, and sets `recoveryNotice`. `ContentView` shows it once as an alert. The copies are
+  recoverable only by hand. A model change that lightweight migration can't infer takes this
+  path, so the user's history is reset.
 - **`@Observable` / iOS 17 APIs** are required. Don't back-port to `ObservableObject`.
 - **XCTest only; no SwiftUI previews.** There are no `import Testing`, `@Test`, `#expect`, or
   `#Preview` uses. Test rendering in the simulator.
@@ -350,12 +360,13 @@ in commit 938ef32, so ignore older docs that describe it.
   cap, used only by tests), `ExplorationStore.deleteAllCells`/`visitedCellCount(in:)`, and
   `Coordinator.replaceFogOverlay`. The running app cannot delete location history. That is a
   known gap, and backup import only merges.
-- **Silent states:** `LocationService.isPermissionDenied` has no UI consumer, so a user who
-  denies location sees no prompt and the fog never lifts.
-- **Geocoding:** live geocoding needs `store.onNewCell`, which is wired in the launch `.task`.
-  The launch backfill groups untagged cells into 0.5° (~55 km) buckets and writes one
-  placemark's names into every nil field in the bucket. `CLGeocoder` and `MKPlacemark` are
-  deprecated as of iOS 26, which is not yet a warning at the 18.6 floor.
+- **Permission UI:** `LocationService.permissionPrompt` (`.denied` or `.upgradeToAlways`) drives
+  `LocationPermissionBanner`. Dismissal is per prompt, so a later different problem still shows.
+- **Geocoding:** the launch backfill groups untagged cells into
+  `LocalityGeocoder.backfillClusterDegrees` (0.01°, ~1.1 km) clusters and writes one placemark's
+  names into every nil field in the cluster. Cells mislabelled by the old 0.5° clustering are not
+  corrected. `CLGeocoder` and `MKPlacemark` are deprecated as of iOS 26, which is not yet a
+  warning at the 18.6 floor.
 - **Shared Info.plist:** both identities ship the same plist, including the Study-worded
   `NSMotionUsageDescription`.
 

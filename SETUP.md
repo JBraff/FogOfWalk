@@ -113,10 +113,10 @@ Both `scripts/landmarks.sqlite` and `FogOfWalk/FogOfWalk/landmarks.sqlite` (~4 M
 git-tracked binaries — the copy under `FogOfWalk/FogOfWalk/` is what actually ships, picked up
 implicitly by the synchronized root group (it appears nowhere by name in `project.pbxproj`).
 
-**If this file goes missing or fails to load, the failure is silent.**
-`LandmarkSearchService.makeBundled()` falls back to an `EmptyLandmarkSource()` with no log line —
-the landmark feature just quietly stops working. If pins and discovery both go dead with no
-error, check that this file is actually present and loadable before looking anywhere else.
+**If this file goes missing or fails to load, the app shows no error.**
+`LandmarkSearchService.bundledSource()` prints one console line and falls back to an
+`EmptyLandmarkSource()`, and the landmark feature quietly stops working. If pins and discovery
+both go dead, check that this file is present and loadable before looking anywhere else.
 
 To regenerate it:
 

@@ -41,12 +41,19 @@ final class LandmarkSearchService {
     /// Convenience initialiser that opens the bundled `landmarks.sqlite` database.
     @MainActor
     static func makeBundled() -> LandmarkSearchService {
+        LandmarkSearchService(source: bundledSource())
+    }
+
+    /// Opens the bundled `landmarks.sqlite`, or returns an empty source if it is missing
+    /// or unreadable (the landmark feature then quietly does nothing).
+    static func bundledSource() -> any LandmarkDataProviding {
         guard let url = Bundle.main.url(forResource: "landmarks", withExtension: "sqlite"),
               let bundledSource = try? BundledLandmarkSource(databaseURL: url)
         else {
-            return LandmarkSearchService(source: EmptyLandmarkSource())
+            print("LandmarkSearchService: bundled landmarks.sqlite unavailable; landmarks disabled")
+            return EmptyLandmarkSource()
         }
-        return LandmarkSearchService(source: bundledSource)
+        return bundledSource
     }
 
     // MARK: - Public API

@@ -14,6 +14,10 @@ struct MapContainerView: UIViewRepresentable {
     /// on a day-rollover highlight rebuild even when no other input changed, forcing
     /// `updateUIView` to run and pick up the new snapshot.
     var highlightGeneration: UInt64 = 0
+    /// Mirrors `store.visitedCellsCache.count` for the same reason: recording happens outside
+    /// the map (see `ExplorationRecorder`), and this input guarantees `updateUIView` runs and
+    /// pushes a fresh fog snapshot when a cell is added.
+    var visitedCellCount: Int = 0
 
     func makeCoordinator() -> Coordinator {
         Coordinator(store: store, gridSettings: gridSettings,
@@ -75,14 +79,10 @@ struct MapContainerView: UIViewRepresentable {
             landmarkView.onPinTapped = onLandmarkTapped
         }
 
-        // Always rewire so location updates are never dropped after a SwiftUI rebuild.
+        // Recording is wired once in FogOfWalkApp.init; the map only reflects the store.
+        // `visitedCellCount`/`highlightGeneration` inputs make SwiftUI re-run this method
+        // when a new cell or highlight rebuild lands.
         let coordinator = context.coordinator
-        // Study recording is owned by the app so map recreation cannot drop it.
-        if !locationService.isStudyApp {
-            locationService.onLocationUpdate = { [weak coordinator] location in
-                coordinator?.handle(location: location)
-            }
-        }
 
         // Navigate to target if it's new
         if let target = navigateTo, target.id != coordinator.lastNavigationTargetID {
@@ -140,14 +140,6 @@ struct MapContainerView: UIViewRepresentable {
             self.gridSettings  = gridSettings
             self.landmarkStore = landmarkStore
             self.searchService = searchService
-        }
-
-        // MARK: - Location handling
-
-        func handle(location: CLLocation) {
-            if ExplorationRecorder(store: store, landmarks: landmarkStore).record(location) {
-                invalidateFogTiles()
-            }
         }
 
         // MARK: - Fog tile management

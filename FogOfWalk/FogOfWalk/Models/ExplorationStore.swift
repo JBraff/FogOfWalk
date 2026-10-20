@@ -8,8 +8,8 @@ import Observation
 final class ExplorationStore {
     private(set) var container: NSPersistentContainer
 
-    /// Set if Core Data failed to load and could not recover. The app remains usable
-    /// but exploration history will be empty until the user reinstalls.
+    /// Set if Core Data failed to load and the recovery retry also failed. The app stays
+    /// open, but new exploration cannot be saved this launch.
     private(set) var loadError: Error?
 
     /// In-memory cache of visited cells — O(1) fog lookups.
@@ -40,33 +40,84 @@ final class ExplorationStore {
     /// The Core Data view context. Use for queries in DiscoveryStatsModel and LocalityGeocoder.
     var viewContext: NSManagedObjectContext { container.viewContext }
 
-    init() {
+    /// Set when the on-disk store could not be opened and was replaced by an empty one.
+    /// The UI shows this once so the user knows their history was moved aside, not lost.
+    private(set) var recoveryNotice: StoreRecoveryNotice?
+
+    /// - Parameter storeURL: Overrides the default SQLite location. Tests use this to
+    ///   exercise recovery against a real on-disk store.
+    init(storeURL: URL? = nil) {
         let c = NSPersistentContainer(name: "FogOfWalk")
         let description = c.persistentStoreDescriptions.first ?? NSPersistentStoreDescription()
+        if let storeURL { description.url = storeURL }
         description.shouldMigrateStoreAutomatically = true
         description.shouldInferMappingModelAutomatically = true
         c.persistentStoreDescriptions = [description]
         container = c
-        c.loadPersistentStores { [weak self] storeDescription, error in
-            guard let error else { return }
+
+        if let error = Self.loadStores(c), let url = description.url {
             print("Core Data failed to load: \(error.localizedDescription). Attempting recovery.")
-
-            if let url = storeDescription.url {
-                // Back up the corrupt store before removing it so data is not
-                // permanently destroyed by a transient failure (e.g. disk full).
-                let backupURL = url.appendingPathExtension("bak")
-                try? FileManager.default.copyItem(at: url, to: backupURL)
-                try? FileManager.default.removeItem(at: url)
+            // Copy the store *and* its WAL/SHM sidecars before resetting: recent writes live
+            // in the WAL until a checkpoint, so copying only the main file loses them.
+            let backups = Self.backUpStoreFiles(at: url)
+            do {
+                try c.persistentStoreCoordinator.destroyPersistentStore(at: url, type: .sqlite)
+            } catch {
+                for file in Self.storeFiles(at: url) { try? FileManager.default.removeItem(at: file) }
             }
-
-            c.loadPersistentStores { _, retryError in
-                if let retryError {
-                    print("Core Data recovery failed: \(retryError.localizedDescription)")
-                    self?.loadError = retryError
-                }
+            if let retryError = Self.loadStores(c) {
+                print("Core Data recovery failed: \(retryError.localizedDescription)")
+                loadError = retryError
             }
+            recoveryNotice = StoreRecoveryNotice(backupURLs: backups, storeIsUsable: loadError == nil)
         }
         c.viewContext.automaticallyMergesChangesFromParent = true
+    }
+
+    /// Call after the UI has shown `recoveryNotice` so it is not shown again this launch.
+    func acknowledgeRecoveryNotice() {
+        recoveryNotice = nil
+    }
+
+    /// Loads the container's stores synchronously (the SQLite default) and returns the
+    /// first error, if any.
+    private static func loadStores(_ container: NSPersistentContainer) -> Error? {
+        final class ErrorBox { var error: Error? }
+        let box = ErrorBox()
+        container.loadPersistentStores { _, error in
+            if let error, box.error == nil { box.error = error }
+        }
+        return box.error
+    }
+
+    /// The SQLite store file and its sidecars.
+    static func storeFiles(at url: URL) -> [URL] {
+        ["", "-wal", "-shm"].map { URL(fileURLWithPath: url.path + $0) }
+    }
+
+    /// Copies every existing store file to a uniquely named `.corrupt-<timestamp>` sibling,
+    /// never overwriting an earlier backup. Returns the copies that were made.
+    static func backUpStoreFiles(at url: URL, now: Date = Date()) -> [URL] {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        var stamp = formatter.string(from: now)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: url.path + ".corrupt-\(stamp)") {
+            stamp += "-\(UUID().uuidString.prefix(8))"
+        }
+        var copies: [URL] = []
+        for (file, suffix) in zip(storeFiles(at: url), ["", "-wal", "-shm"])
+        where fm.fileExists(atPath: file.path) {
+            let copy = URL(fileURLWithPath: url.path + ".corrupt-\(stamp)" + suffix)
+            do {
+                try fm.copyItem(at: file, to: copy)
+                copies.append(copy)
+            } catch {
+                print("ExplorationStore: could not back up \(file.lastPathComponent): \(error)")
+            }
+        }
+        return copies
     }
 
     /// Testability hook — inject a pre-configured container (e.g. in-memory).
@@ -322,4 +373,12 @@ final class ExplorationStore {
         hasConfigured     = false
         cacheDay          = .distantPast
     }
+}
+
+/// Describes a store that failed to open and was replaced with an empty one.
+struct StoreRecoveryNotice: Equatable {
+    /// Copies of the unreadable store files, kept next to the new store.
+    let backupURLs: [URL]
+    /// False when even the fresh store failed to open, so nothing new will be saved.
+    let storeIsUsable: Bool
 }

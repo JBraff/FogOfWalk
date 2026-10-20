@@ -78,6 +78,20 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         #endif
     }
 
+    /// The location-permission problem the UI should surface, if any.
+    enum PermissionPrompt: Equatable {
+        /// Location is denied or restricted: no exploration is recorded at all.
+        case denied
+        /// While Using only: walks are recorded only while the app is open.
+        case upgradeToAlways
+    }
+
+    var permissionPrompt: PermissionPrompt? {
+        if isPermissionDenied { return .denied }
+        if needsAlwaysUpgrade { return .upgradeToAlways }
+        return nil
+    }
+
     /// Called on the main actor on every significant location update.
     var onLocationUpdate: ((CLLocation) -> Void)?
 
@@ -107,6 +121,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager.activityType                       = .fitness
         manager.enableBackgroundLocationIndicator()
         authorizationStatus                        = manager.authorizationStatus
+        isPermissionDenied = authorizationStatus == .denied || authorizationStatus == .restricted
         if isStudyTrackingDisabled { stopStudyConsumers() }
     }
 
