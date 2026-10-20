@@ -380,8 +380,8 @@ final class LocalityGeocoderTests: XCTestCase {
     }
 
     func testClusteringReducesGeocoderCalls() async {
-        // Two cells in the same 0.5° bucket should produce only one geocoder call.
-        // At 50m cell size, cells (0,0) and (1,1) map to ~0.00045°, same 0.5° bucket.
+        // Two adjacent cells share a backfill cluster and should produce one geocoder call.
+        // At 50m cell size, cells (0,0) and (1,1) are ~0.00045° apart.
         let geocodeExpectation = XCTestExpectation(description: "geocoder called")
         geocodeExpectation.expectedFulfillmentCount = 1
 
@@ -402,6 +402,46 @@ final class LocalityGeocoderTests: XCTestCase {
 
         await MainActor.run {
             XCTAssertEqual(mock.callCount, 1, "Adjacent cells should be clustered into a single geocoder call")
+        }
+    }
+
+    /// Regression: backfill clustered at 0.5° (~55 km) and stamped one town's name on every
+    /// untagged cell in the cluster. Cells ~11 km apart must be geocoded separately.
+    func testBackfillDoesNotShareOneTownAcrossDistantCells() async {
+        final class EastWestGeocoder: GeocoderProtocol, @unchecked Sendable {
+            let called: XCTestExpectation
+            init(called: XCTestExpectation) { self.called = called }
+            func reverseGeocodeLocation(_ location: CLLocation) async throws -> [CLPlacemark] {
+                defer { called.fulfill() }
+                let town = location.coordinate.longitude < 0.05 ? "Westtown" : "Easttown"
+                return [MockPlacemark(locality: town, administrativeArea: "State", country: "Country")]
+            }
+        }
+        let called = XCTestExpectation(description: "both clusters geocoded")
+        called.expectedFulfillmentCount = 2
+        let mock = EastWestGeocoder(called: called)
+
+        var west: NSManagedObjectID?
+        var east: NSManagedObjectID?
+        var context: NSManagedObjectContext?
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            context = container.viewContext
+            // x = 222 is ~0.1° east of x = 0: inside one old 0.5° bucket, two 0.01° clusters.
+            west = insertCell(in: context!, x: 0, y: 0, locality: nil).objectID
+            east = insertCell(in: context!, x: 222, y: 0, locality: nil).objectID
+            let geocoder = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
+            geocoder.geocodeUntaggedCells(context: context!)
+        }
+
+        await fulfillment(of: [called], timeout: 5)
+        try? await Task.sleep(for: .milliseconds(100))
+
+        await MainActor.run {
+            let westCell = try? context?.existingObject(with: west!) as? VisitedCell
+            let eastCell = try? context?.existingObject(with: east!) as? VisitedCell
+            XCTAssertEqual(westCell?.locality, "Westtown")
+            XCTAssertEqual(eastCell?.locality, "Easttown")
         }
     }
 

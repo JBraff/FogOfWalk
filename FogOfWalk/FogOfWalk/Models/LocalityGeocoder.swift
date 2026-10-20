@@ -41,6 +41,12 @@ final class LocalityGeocoder {
     /// to prevent the queue from growing unboundedly when many cells are untagged.
     static let maxQueueSize = 200
 
+    /// Backfill cluster size in degrees (~1.1 km of latitude). Every untagged cell in a cluster
+    /// receives the representative cell's placemark, so this must stay well below town scale:
+    /// at 0.5° (~55 km) a whole region was labelled with one town's name. Clusters beyond
+    /// `maxQueueSize` are picked up on later launches, since their cells stay untagged.
+    static let backfillClusterDegrees = 0.01
+
     // MARK: - Dependencies
 
     private let geocoder: any GeocoderProtocol
@@ -77,13 +83,13 @@ final class LocalityGeocoder {
         )
         guard let cells = try? context.fetch(request), !cells.isEmpty else { return }
 
-        // Group cells into ~0.5° geographic buckets (~55 km) to minimise CLGeocoder requests.
+        // Group nearby cells to limit CLGeocoder requests without crossing town boundaries.
         var buckets: [BucketKey: [VisitedCell]] = [:]
         for cell in cells {
             let coord = GridMath.center(for: CellID(x: cell.cellX, y: cell.cellY))
             let key = BucketKey(
-                lat: Int(floor(coord.latitude / 0.5)),
-                lon: Int(floor(coord.longitude / 0.5))
+                lat: Int(floor(coord.latitude / Self.backfillClusterDegrees)),
+                lon: Int(floor(coord.longitude / Self.backfillClusterDegrees))
             )
             buckets[key, default: []].append(cell)
         }

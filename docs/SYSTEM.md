@@ -12,13 +12,14 @@ CLLocationManager (legacy)   CLLocationUpdate.liveUpdates (Study app only)
             \                  /
              LocationService.onLocationUpdate
                       |
-        map Coordinator (normal app) | app-owned closure (Study app)
+        closure wired at app launch (both identities)
                       |
              ExplorationRecorder
                -> ExplorationStore -> Core Data VisitedCell     -> LocalityGeocoder
-               -> LandmarkStore    -> Core Data Landmark (discovery)
+               -> LandmarkStore    -> bundled landmarks.sqlite (ingest near new cells)
+                                   -> Core Data Landmark (discovery)
                       |
-             CellSnapshot -> FogOverlayRenderer (MapKit tile threads)
+             map Coordinator -> CellSnapshot -> FogOverlayRenderer (MapKit tile threads)
 
 Map region change -> LandmarkSearchService -> bundled landmarks.sqlite -> LandmarkStore
 ```
@@ -26,17 +27,19 @@ Map region change -> LandmarkSearchService -> bundled landmarks.sqlite -> Landma
 `LocationService` turns Core Location callbacks into single location samples.
 `ExplorationRecorder` converts each sample to a `CellID` through `GridMath`,
 handles day rollover, persists a newly visited cell through `ExplorationStore`,
-and checks landmark discovery for that cell. The map coordinator then publishes
-an immutable `CellSnapshot` to the renderer, which draws the overlay on MapKit's
-background rendering threads.
+ingests nearby bundled landmarks, and checks landmark discovery for that cell. It
+is wired when the app launches, not by the map, so recording also works when iOS
+relaunches the app in the background without a visible scene. When the map is
+on screen, its coordinator publishes an immutable `CellSnapshot` to the renderer,
+which draws the overlay on MapKit's background rendering threads.
 
 ## Data ownership
 
 - `ExplorationStore` is the source of truth for visited cells and exploration
   counts. It owns Core Data access for the visited-cell history.
 - `LandmarkStore` owns landmark rows copied from the bundled Wikidata database
-  and their discovery state. Rows are copied only when the map shows a region,
-  so discovery in an area the user has never viewed waits until it is viewed.
+  and their discovery state. Rows are copied when the map shows a region and
+  around each newly walked cell.
 - `LocalityGeocoder` annotates visited cells with locality, state, and country
   for the statistics sheet.
 - `GridSettings` owns persisted presentation settings.
@@ -80,10 +83,8 @@ source. `LocationService` retains its background and Always service sessions,
 keeps the sequence open while the framework suspends updates for a stationary
 user, and cancels old generations when sources or permissions change. This arm
 disables location requests from the legacy manager and MapKit user location,
-including the native dot and follow mode. The app owns Study exploration
-recording and wires it before the map is created. `ExplorationRecorder` gives
-Study the same cell, day-rollover, and discovery path the normal map coordinator
-uses. Normal Fog and missing or unknown selections keep legacy behavior. See the
+including the native dot and follow mode. Both identities record through the
+same app-owned `ExplorationRecorder`, wired before the map is created. Normal Fog and missing or unknown selections keep legacy behavior. See the
 [prototype record](evidence/automatic-pause-resume-prototype.md) for the focused
 trial and evidence limits.
 
@@ -92,7 +93,9 @@ trial and evidence limits.
 - The grid coordinate system is globally aligned at `(0°, 0°)` and uses a 50 m
   cell size for all new visits.
 - Core Data model changes must be lightweight-migratable. A store that fails to
-  load is moved aside and recreated empty.
+  load is copied aside (including its WAL and SHM) before being recreated empty, and the
+  user is told. Any backup or reset failure stops recovery and disables writes for that
+  launch; originals are never deleted as a fallback. The UI reports unavailable storage.
 - XCTest is the test framework. Tests for main-actor observable stores use the
   repository's established async pattern to avoid an iOS simulator deallocation
   crash.

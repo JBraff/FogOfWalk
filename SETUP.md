@@ -24,8 +24,11 @@ to regenerate the bundled landmark database if you need to.
   `.xccurrentversion` selecting v3. They are not separate `.xcdatamodeld` directories. `VisitedCell`
   is in all three versions. v2 added `Landmark` and the `byCellSizeAndCoords` fetch index, and v3
   added the optional `VisitedCell.state` and `country` attributes. The store relies on automatic
-  lightweight migration. A store that fails to load is copied to `.bak` and recreated empty,
-  so every new version must be inferable.
+  lightweight migration. Before resetting an unreadable store, recovery copies the database
+  and all existing WAL/SHM sidecars to unique `.corrupt-<timestamp>` siblings. Any backup
+  failure preserves the originals and stops recovery; a reset failure also stops recovery
+  without fallback deletion. The user sees a storage error and writes are disabled for that
+  launch. Successful recovery reports the history reset. Every new version must be inferable.
 - **Deployment target:** app target `IPHONEOS_DEPLOYMENT_TARGET = 18.6`; test targets `26.2`;
   project-level default `26.2`. Building needs Xcode 26.2 or later (it was last verified with
   Xcode 27), because the project uses `SWIFT_DEFAULT_ACTOR_ISOLATION` and
@@ -113,10 +116,10 @@ Both `scripts/landmarks.sqlite` and `FogOfWalk/FogOfWalk/landmarks.sqlite` (~4 M
 git-tracked binaries — the copy under `FogOfWalk/FogOfWalk/` is what actually ships, picked up
 implicitly by the synchronized root group (it appears nowhere by name in `project.pbxproj`).
 
-**If this file goes missing or fails to load, the failure is silent.**
-`LandmarkSearchService.makeBundled()` falls back to an `EmptyLandmarkSource()` with no log line —
-the landmark feature just quietly stops working. If pins and discovery both go dead with no
-error, check that this file is actually present and loadable before looking anywhere else.
+**If this file goes missing or fails to load, the app shows no error.**
+`LandmarkSearchService.bundledSource()` prints one console line and falls back to an
+`EmptyLandmarkSource()`, and the landmark feature quietly stops working. If pins and discovery
+both go dead, check that this file is present and loadable before looking anywhere else.
 
 To regenerate it:
 

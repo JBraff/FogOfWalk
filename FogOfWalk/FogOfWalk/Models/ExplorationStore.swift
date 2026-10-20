@@ -8,8 +8,8 @@ import Observation
 final class ExplorationStore {
     private(set) var container: NSPersistentContainer
 
-    /// Set if Core Data failed to load and could not recover. The app remains usable
-    /// but exploration history will be empty until the user reinstalls.
+    /// Set if Core Data failed to load and recovery could not safely complete. The app stays
+    /// open, but new exploration cannot be saved this launch.
     private(set) var loadError: Error?
 
     /// In-memory cache of visited cells — O(1) fog lookups.
@@ -40,33 +40,96 @@ final class ExplorationStore {
     /// The Core Data view context. Use for queries in DiscoveryStatsModel and LocalityGeocoder.
     var viewContext: NSManagedObjectContext { container.viewContext }
 
-    init() {
+    /// Set when the on-disk store could not be opened, whether recovery succeeded or stopped.
+    /// The UI shows the storage outcome once per launch.
+    private(set) var recoveryNotice: StoreRecoveryNotice?
+
+    /// - Parameter storeURL: Overrides the default SQLite location. Tests use this to
+    ///   exercise recovery against a real on-disk store.
+    init(storeURL: URL? = nil,
+         copyStoreFile: (URL, URL) throws -> Void = {
+             try FileManager.default.copyItem(at: $0, to: $1)
+         }) {
         let c = NSPersistentContainer(name: "FogOfWalk")
         let description = c.persistentStoreDescriptions.first ?? NSPersistentStoreDescription()
+        if let storeURL { description.url = storeURL }
         description.shouldMigrateStoreAutomatically = true
         description.shouldInferMappingModelAutomatically = true
         c.persistentStoreDescriptions = [description]
         container = c
-        c.loadPersistentStores { [weak self] storeDescription, error in
-            guard let error else { return }
-            print("Core Data failed to load: \(error.localizedDescription). Attempting recovery.")
 
-            if let url = storeDescription.url {
-                // Back up the corrupt store before removing it so data is not
-                // permanently destroyed by a transient failure (e.g. disk full).
-                let backupURL = url.appendingPathExtension("bak")
-                try? FileManager.default.copyItem(at: url, to: backupURL)
-                try? FileManager.default.removeItem(at: url)
-            }
-
-            c.loadPersistentStores { _, retryError in
-                if let retryError {
-                    print("Core Data recovery failed: \(retryError.localizedDescription)")
-                    self?.loadError = retryError
+        if let error = Self.loadStores(c) {
+            loadError = error
+            var backups: [URL] = []
+            if let url = description.url {
+                print("Core Data failed to load: \(error.localizedDescription). Attempting recovery.")
+                do {
+                    // Every existing file must be copied before any original is removed.
+                    // In particular, the WAL may hold the only copy of recent visits.
+                    backups = try Self.backUpStoreFiles(at: url, copyFile: copyStoreFile)
+                    try c.persistentStoreCoordinator.destroyPersistentStore(at: url, type: .sqlite)
+                    loadError = Self.loadStores(c)
+                } catch {
+                    // Stop on backup/reset failure. Do not fall back to deleting originals.
+                    print("Core Data recovery stopped: \(error.localizedDescription)")
+                    loadError = error
                 }
             }
+            recoveryNotice = StoreRecoveryNotice(backupURLs: backups, storeIsUsable: loadError == nil)
         }
         c.viewContext.automaticallyMergesChangesFromParent = true
+    }
+
+    /// Call after the UI has shown `recoveryNotice` so it is not shown again this launch.
+    func acknowledgeRecoveryNotice() {
+        recoveryNotice = nil
+    }
+
+    /// Loads the container's stores synchronously (the SQLite default) and returns the
+    /// first error, if any.
+    private static func loadStores(_ container: NSPersistentContainer) -> Error? {
+        final class ErrorBox { var error: Error? }
+        let box = ErrorBox()
+        container.loadPersistentStores { _, error in
+            if let error, box.error == nil { box.error = error }
+        }
+        return box.error
+    }
+
+    /// The SQLite store file and its sidecars.
+    static func storeFiles(at url: URL) -> [URL] {
+        ["", "-wal", "-shm"].map { URL(fileURLWithPath: url.path + $0) }
+    }
+
+    /// Copies every existing store file to a unique sibling, without overwriting a backup.
+    /// Throws on any inspection/copy failure; the caller must then preserve all originals.
+    static func backUpStoreFiles(at url: URL, now: Date = Date(),
+                                 copyFile: (URL, URL) throws -> Void = {
+                                     try FileManager.default.copyItem(at: $0, to: $1)
+                                 }) throws -> [URL] {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let fm = FileManager.default
+        let suffixes = ["", "-wal", "-shm"]
+        let timestamp = formatter.string(from: now)
+        var stamp = timestamp
+        while suffixes.contains(where: { fm.fileExists(atPath: url.path + ".corrupt-\(stamp)" + $0) }) {
+            stamp = timestamp + "-" + UUID().uuidString
+        }
+        var copies: [URL] = []
+        for (file, suffix) in zip(storeFiles(at: url), suffixes) {
+            do {
+                _ = try fm.attributesOfItem(atPath: file.path)
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain
+                && error.code == NSFileReadNoSuchFileError {
+                continue
+            }
+            let copy = URL(fileURLWithPath: url.path + ".corrupt-\(stamp)" + suffix)
+            try copyFile(file, copy)
+            copies.append(copy)
+        }
+        return copies
     }
 
     /// Testability hook — inject a pre-configured container (e.g. in-memory).
@@ -79,7 +142,7 @@ final class ExplorationStore {
 
     /// Call on app launch to populate the in-memory cache from Core Data.
     func configure() {
-        guard !hasConfigured else { return }
+        guard loadError == nil, !hasConfigured else { return }
         reloadCache()
     }
 
@@ -162,7 +225,7 @@ final class ExplorationStore {
     /// Idempotent insert. Returns true when a new cell was recorded.
     @discardableResult
     func addCell(_ cell: CellID) -> Bool {
-        guard !visitedCellsCache.contains(cell) else { return false }
+        guard loadError == nil, !visitedCellsCache.contains(cell) else { return false }
 
         let ctx    = container.viewContext
         let entity = VisitedCell(context: ctx)
@@ -203,6 +266,7 @@ final class ExplorationStore {
     /// merge and there is nothing to roll back.
     @discardableResult
     func addCells(_ records: [BackupVisitedCell]) throws -> Int {
+        if let loadError { throw loadError }
         guard !records.isEmpty else { return 0 }
 
         let ctx = container.viewContext
@@ -278,6 +342,7 @@ final class ExplorationStore {
     // MARK: - Delete
 
     func deleteAllCells() {
+        guard loadError == nil else { return }
         let isInMemory = container.persistentStoreCoordinator.persistentStores.contains {
             $0.type == NSInMemoryStoreType
         }
@@ -322,4 +387,12 @@ final class ExplorationStore {
         hasConfigured     = false
         cacheDay          = .distantPast
     }
+}
+
+/// Describes the outcome after a store failed to open.
+struct StoreRecoveryNotice: Equatable {
+    /// Complete backup copies, when all existing files were successfully copied.
+    let backupURLs: [URL]
+    /// False when recovery stopped or the fresh store failed to open.
+    let storeIsUsable: Bool
 }

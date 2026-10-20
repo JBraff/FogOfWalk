@@ -16,11 +16,30 @@ struct ContentView: View {
     @State private var showStats          = false
     @State private var selectedLandmark: Landmark?
     @State private var mapTarget: MapNavigationTarget?
-    @State private var upgradeBannerDismissed = false
+    /// The prompt the user dismissed. A different prompt (e.g. permission later revoked)
+    /// still shows.
+    @State private var dismissedPermissionPrompt: LocationService.PermissionPrompt?
     @State private var showSettings = false
 
-    private var showUpgradeBanner: Bool {
-        locationService.needsAlwaysUpgrade && !upgradeBannerDismissed
+    private var visiblePermissionPrompt: LocationService.PermissionPrompt? {
+        guard let prompt = locationService.permissionPrompt,
+              prompt != dismissedPermissionPrompt else { return nil }
+        return prompt
+    }
+
+    private var showRecoveryAlert: Binding<Bool> {
+        Binding(get: { store.recoveryNotice != nil },
+                set: { if !$0 { store.acknowledgeRecoveryNotice() } })
+    }
+
+    private var recoveryMessage: String {
+        guard let notice = store.recoveryNotice else { return "" }
+        if !notice.storeIsUsable {
+            return "Fog of Walk couldn\u{2019}t open its storage, so new exploration won\u{2019}t be saved. Try restarting the app."
+        }
+        return notice.backupURLs.isEmpty
+            ? "Fog of Walk couldn\u{2019}t read your saved exploration history and started a new one."
+            : "Fog of Walk couldn\u{2019}t read your saved exploration history and started a new one. A copy of the old data was kept on this device."
     }
 
     var body: some View {
@@ -30,14 +49,15 @@ struct ContentView: View {
                     selectedLandmark = landmarkStore.allLandmarks.first(where: { $0.identifier == id })
                 },
                 navigateTo: mapTarget,
-                highlightGeneration: store.recentCellsGeneration
+                highlightGeneration: store.recentCellsGeneration,
+                visitedCellCount: store.visitedCellsCache.count
             )
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                if showUpgradeBanner {
-                    AlwaysLocationBanner {
-                        upgradeBannerDismissed = true
+                if let prompt = visiblePermissionPrompt {
+                    LocationPermissionBanner(prompt: prompt) {
+                        dismissedPermissionPrompt = prompt
                     }
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
@@ -45,7 +65,14 @@ struct ContentView: View {
                 StatsView(showStats: $showStats, showSettings: $showSettings)
                     .padding(.bottom, 8)
             }
-            .animation(.easeInOut, value: showUpgradeBanner)
+            .animation(.easeInOut, value: visiblePermissionPrompt)
+        }
+        .alert(store.recoveryNotice?.storeIsUsable == true
+               ? "Exploration History Reset" : "Exploration Storage Unavailable",
+               isPresented: showRecoveryAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(recoveryMessage)
         }
         .sheet(isPresented: $showStats) {
             DiscoveryStatsView(onNavigate: { target in

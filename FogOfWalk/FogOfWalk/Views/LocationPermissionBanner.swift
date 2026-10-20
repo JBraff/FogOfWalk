@@ -1,21 +1,38 @@
 import SwiftUI
 
-/// A top-of-screen banner shown when the user has "While Using" location permission
-/// but not "Always". Tapping "Open Settings" deep-links to the app's location settings page.
-struct AlwaysLocationBanner: View {
+/// A top-of-screen banner for a location-permission problem: location denied, or
+/// "While Using" granted without "Always". "Open Settings" deep-links to the app's settings.
+struct LocationPermissionBanner: View {
+    let prompt: LocationService.PermissionPrompt
     var onDismiss: () -> Void
+
+    private var title: String {
+        switch prompt {
+        case .denied:          return "Location Access Is Off"
+        case .upgradeToAlways: return "Enable Background Location"
+        }
+    }
+
+    private var message: String {
+        switch prompt {
+        case .denied:
+            return "Fog of Walk can\u{2019}t uncover the map without your location. Turn on location access in Settings and choose \u{201C}Always\u{201D} to record walks in the background."
+        case .upgradeToAlways:
+            return "Fog of Walk can only track your walks when the app is open. Allow \u{201C}Always\u{201D} in Settings to record your path in the background."
+        }
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "location.fill")
+            Image(systemName: prompt == .denied ? "location.slash.fill" : "location.fill")
                 .foregroundStyle(.white)
                 .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Enable Background Location")
+                Text(title)
                     .font(.subheadline.bold())
                     .foregroundStyle(.white)
-                Text("Fog of Walk can only track your walks when the app is open. Allow \u{201C}Always\u{201D} in Settings to record your path in the background.")
+                Text(message)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true)
@@ -43,7 +60,7 @@ struct AlwaysLocationBanner: View {
             .accessibilityLabel("Dismiss")
         }
         .padding()
-        .background(Color.accentColor)
+        .background(prompt == .denied ? Color.orange : Color.accentColor)
         .accessibilityElement(children: .contain)
     }
 }

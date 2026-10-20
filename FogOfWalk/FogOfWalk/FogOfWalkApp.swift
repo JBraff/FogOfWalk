@@ -6,7 +6,7 @@ struct FogOfWalkApp: App {
     @State private var store:          ExplorationStore
     @State private var gridSettings:    GridSettings
     @State private var locationService: LocationService
-    @State private var geocoder        = LocalityGeocoder()
+    @State private var geocoder:        LocalityGeocoder
     @State private var landmarkStore:  LandmarkStore
     @State private var searchService:  LandmarkSearchService
 
@@ -16,20 +16,20 @@ struct FogOfWalkApp: App {
         s.configure()
         let landmarks = LandmarkStore(container: s.container)
         let location = LocationService()
-        if location.isStudyApp {
-            let recorder = ExplorationRecorder(store: s, landmarks: landmarks)
-            location.onLocationUpdate = { recorder.record($0) }
-            // Rejoin persisted live sessions promptly on background launch; do not
-            // wait for a SwiftUI map/task to appear. Initial selection is made in UI.
-            if location.studyLocationSource == .liveUpdates {
-                location.restartIfAuthorized()
-            }
-        }
+        let geocoder = LocalityGeocoder()
+        let landmarkSource = LandmarkSearchService.bundledSource()
+        // Recording is owned by the app, not the map: when iOS relaunches the app in the
+        // background (significant-location change) it may not create a scene, so neither
+        // the map nor any view `.task` runs. Wire recording and re-arm tracking here.
+        ExplorationRecorder.connect(location: location, store: s, landmarks: landmarks,
+                                    geocoder: geocoder, landmarkSource: landmarkSource)
+        location.restartIfAuthorized()
         _locationService = State(initialValue: location)
         _store         = State(initialValue: s)
         _gridSettings  = State(initialValue: g)
+        _geocoder      = State(initialValue: geocoder)
         _landmarkStore = State(initialValue: landmarks)
-        _searchService = State(initialValue: LandmarkSearchService.makeBundled())
+        _searchService = State(initialValue: LandmarkSearchService(source: landmarkSource))
     }
 
     var body: some Scene {
@@ -42,16 +42,11 @@ struct FogOfWalkApp: App {
                 .environment(landmarkStore)
                 .environment(searchService)
                 .task {
-                    // Start location tracking as early as possible so background
-                    // relaunches (e.g. via significant-location-change) begin tracking
-                    // before the map view ever appears.
+                    // Requests permission if needed. Already-authorized tracking was
+                    // re-armed in `init`, which also runs for scene-less background launches.
                     locationService.requestPermissionAndStart()
                     locationService.recordStudyTrackingState()
 
-                    // Wire new-cell callback so locality is geocoded as cells are discovered.
-                    store.onNewCell = { [geocoder] cell in
-                        geocoder.enqueue(cell)
-                    }
                     // Backfill any existing cells that don't have a locality yet.
                     geocoder.geocodeUntaggedCells(context: store.viewContext)
 

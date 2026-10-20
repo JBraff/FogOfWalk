@@ -158,6 +158,45 @@ final class LocationServiceTests: XCTestCase {
         await fulfillment(of: [expectation], timeout: 2)
     }
 
+    // MARK: permissionPrompt
+
+    /// Regression: denied permission had no UI at all — the fog silently never lifted.
+    /// The prompt must be correct from init, before any delegate callback arrives.
+    func testPermissionPromptReflectsAuthorizationAtInit() async {
+        await MainActor.run {
+            let cases: [(CLAuthorizationStatus, LocationService.PermissionPrompt?)] = [
+                (.denied, .denied),
+                (.restricted, .denied),
+                (.authorizedWhenInUse, .upgradeToAlways),
+                (.authorizedAlways, nil),
+                (.notDetermined, nil),
+            ]
+            for (status, expected) in cases {
+                let mock = MockLocationManager()
+                mock.authorizationStatus = status
+                let service = LocationService(manager: mock, isStudyApp: false)
+                XCTAssertEqual(service.permissionPrompt, expected, "status \(status.rawValue)")
+            }
+        }
+    }
+
+    func testPermissionPromptClearsWhenAlwaysIsGranted() async {
+        var service: LocationService?
+        let mock = MockLocationManager()
+        await MainActor.run {
+            mock.authorizationStatus = .denied
+            service = LocationService(manager: mock, isStudyApp: false)
+            XCTAssertEqual(service?.permissionPrompt, .denied)
+            mock.authorizationStatus = .authorizedAlways
+            service?.locationManagerDidChangeAuthorization(CLLocationManager())
+        }
+        try? await Task.sleep(for: .milliseconds(100))
+        await MainActor.run {
+            XCTAssertNil(service?.permissionPrompt)
+            service = nil
+        }
+    }
+
     // MARK: requestPermissionAndStart — .denied / .restricted
 
     func testPermissionDeniedSetsIsPermissionDenied() async {
