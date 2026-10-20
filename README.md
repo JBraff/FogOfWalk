@@ -13,13 +13,16 @@ For architecture, proposals, and preserved implementation history, see the
 
 ## Requirements
 
-- Xcode 15+
-- iOS 17+ (required for `@Observable`)
+- Xcode 26.2 or later (last verified with Xcode 27); the project uses Swift 6.2-era build settings
+  such as default `MainActor` isolation
+- An iPhone running iOS 18.6 or later (the app's deployment target)
 - An Apple Developer account (free tier works for personal device installation)
 
 ## Getting started
 
-See [SETUP.md](SETUP.md) for step-by-step instructions to create the Xcode project and wire everything together.
+The Xcode project is checked in; cloning and building is enough. See [SETUP.md](SETUP.md) for how
+the project is wired, building the separate Study app, and regenerating the landmark database.
+Contributors and coding agents should start with [AGENTS.md](AGENTS.md).
 
 **Quick build (after setup):**
 

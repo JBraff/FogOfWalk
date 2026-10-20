@@ -23,10 +23,9 @@ enum GridMath {
     /// Widest map span (in degrees) for which landmarks are ingested and pins drawn.
     ///
     /// Above this the map is an orientation view, not a detail view: walking zoom under
-    /// `userTrackingMode = .follow` is ~0.005–0.01°, and the fog itself already vanishes
-    /// above ~0.045° via the 10,000-cell cap in `cellBounds(in:)`. 1.0° still ingests a
-    /// whole metro area, while stopping one pinch-out to world zoom from dumping the
-    /// entire bundled database into Core Data.
+    /// `userTrackingMode = .follow` is ~0.005–0.01°. 1.0° still ingests a whole metro area,
+    /// while stopping one pinch-out to world zoom from dumping the entire bundled database
+    /// into Core Data.
     ///
     /// `BundledLandmarkSource`'s `LIMIT` depends on this value — see the comment there.
     static let maxIngestSpanDegrees: Double = 1.0
@@ -113,7 +112,8 @@ enum GridMath {
     }
 
     /// Grid-coordinate bounding box for a map region. Returns nil when the region
-    /// would produce more than 10,000 cells (fog stays fully opaque at those scales).
+    /// would produce more than 10,000 cells. Fog rendering does not use this cap —
+    /// `FogOverlayRenderer` draws visited cells at every zoom — and only tests call it.
     static func cellBounds(
         in region: MKCoordinateRegion
     ) -> (minX: Int32, maxX: Int32, minY: Int32, maxY: Int32)? {

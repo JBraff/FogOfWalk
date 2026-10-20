@@ -186,8 +186,8 @@ final class LandmarkOverlayView: UIView {
 
     // MARK: - Helpers
 
-    /// Direct coordinate→point conversion. Used only for hit-testing and tap
-    /// handling (per-event, not per-frame), so N calls here is acceptable.
+    /// Direct coordinate→point conversion, called once per pin by `draw`, `hitTest`
+    /// and tap handling. `LandmarkStore.maxRenderedPins` bounds that per-frame cost.
     private func screenPoint(for coordinate: CLLocationCoordinate2D) -> CGPoint? {
         if let converter = coordinateToPoint {
             return converter(coordinate)
