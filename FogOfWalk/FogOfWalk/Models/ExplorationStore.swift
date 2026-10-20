@@ -103,25 +103,32 @@ final class ExplorationStore {
     /// may recovery back up and replace the store. Anything else might be transient and
     /// must leave the store untouched.
     static func isUnreadableStoreError(_ error: Error) -> Bool {
+        let current = error as NSError
+        // Migration/store errors can wrap I/O, permission, or disk-full failures. Classify
+        // the cause before the wrapper, and preserve ambiguous or mixed failures.
+        var causes = current.userInfo[NSDetailedErrorsKey] as? [NSError] ?? []
+        if let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError {
+            causes.append(underlying)
+        }
+        if !causes.isEmpty {
+            return causes.allSatisfy { isUnreadableStoreError($0) }
+        }
         let cocoaCodes: Set<Int> = [
             NSFileReadCorruptFileError,
             NSPersistentStoreIncompatibleSchemaError,
             NSPersistentStoreIncompatibleVersionHashError,
-            NSMigrationError,
             NSMigrationMissingSourceModelError,
             NSMigrationMissingMappingModelError,
             NSInferredMappingModelError,
         ]
         let sqliteCorrupt = 11, sqliteNotADatabase = 26
-        var next: NSError? = error as NSError
-        while let current = next {
-            if current.domain == NSCocoaErrorDomain, cocoaCodes.contains(current.code) { return true }
-            let sqliteCode = current.domain == NSSQLiteErrorDomain
-                ? current.code : (current.userInfo[NSSQLiteErrorDomain] as? Int)
-            if sqliteCode == sqliteCorrupt || sqliteCode == sqliteNotADatabase { return true }
-            next = current.userInfo[NSUnderlyingErrorKey] as? NSError
+        let sqliteCode = current.domain == NSSQLiteErrorDomain
+            ? current.code : (current.userInfo[NSSQLiteErrorDomain] as? Int)
+        if let sqliteCode {
+            return sqliteCode == sqliteCorrupt || sqliteCode == sqliteNotADatabase
         }
-        return false
+        // NSMigrationError alone is generic, so it cannot authorize a reset.
+        return current.domain == NSCocoaErrorDomain && cocoaCodes.contains(current.code)
     }
 
     /// Suffixes of the SQLite store file and its sidecars. The WAL may hold the only copy

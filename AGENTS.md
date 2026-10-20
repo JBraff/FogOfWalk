@@ -333,6 +333,8 @@ in commit 938ef32, so ignore older docs that describe it.
   `-wal`/`-shm` sidecars to `<name>.corrupt-<timestamp>` (never overwriting an older copy),
   destroys the store, retries, and sets `recoveryNotice`. Any other load error (I/O,
   permissions, file protection, disk full) may be transient: the store is left untouched.
+  Generic migration errors alone never authorize a reset; underlying and detailed causes
+  are classified first, and unknown or mixed failures preserve storage.
   That case, a failed backup and a failed reset all leave `loadError` set, which disables
   writes; recovery never falls back to deleting originals, and `ContentView` shows a storage
   error instead of claiming history was reset. The copies are recoverable only by hand. A model

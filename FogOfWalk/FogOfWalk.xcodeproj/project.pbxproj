@@ -410,8 +410,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = CVNUA54TN4;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = NO;
 				FOG_APP_DISPLAY_NAME = "Fog-Of-Walk";
+				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FogOfWalk/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -446,8 +446,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = CVNUA54TN4;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = NO;
 				FOG_APP_DISPLAY_NAME = "Fog-Of-Walk";
+				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FogOfWalk/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

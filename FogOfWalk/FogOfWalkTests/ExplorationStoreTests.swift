@@ -154,6 +154,54 @@ final class ExplorationStoreTests: XCTestCase {
         }
     }
 
+    /// Generic migration failures do not establish corruption. Their underlying cause must
+    /// permit reset, including when Core Data wraps it in another store or migration error.
+    func testMigrationErrorsRequireDefinitiveUnreadableCause() async {
+        await MainActor.run {
+            func migration(_ underlying: NSError) -> NSError {
+                NSError(domain: NSCocoaErrorDomain, code: NSMigrationError,
+                        userInfo: [NSUnderlyingErrorKey: underlying])
+            }
+            let preserved = [
+                NSError(domain: NSSQLiteErrorDomain, code: 10), // SQLITE_IOERR
+                NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError),
+                NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError),
+                NSError(domain: "UnknownStorageError", code: 1),
+            ]
+            for cause in preserved {
+                XCTAssertFalse(ExplorationStore.isUnreadableStoreError(migration(cause)))
+                XCTAssertFalse(ExplorationStore.isUnreadableStoreError(migration(migration(cause))))
+                let incompatible = NSError(domain: NSCocoaErrorDomain,
+                                           code: NSPersistentStoreIncompatibleVersionHashError,
+                                           userInfo: [NSUnderlyingErrorKey: cause])
+                XCTAssertFalse(ExplorationStore.isUnreadableStoreError(incompatible),
+                               "A wrapper must not override an environmental or unknown cause")
+            }
+            XCTAssertFalse(ExplorationStore.isUnreadableStoreError(
+                NSError(domain: NSCocoaErrorDomain, code: NSMigrationError)))
+            for cause in [NSError(domain: NSSQLiteErrorDomain, code: 11),
+                          NSError(domain: NSSQLiteErrorDomain, code: 26),
+                          NSError(domain: NSCocoaErrorDomain, code: NSMigrationMissingMappingModelError)] {
+                XCTAssertTrue(ExplorationStore.isUnreadableStoreError(migration(migration(cause))))
+            }
+            let corrupt = NSError(domain: NSSQLiteErrorDomain, code: 11)
+            let mixed = NSError(domain: NSCocoaErrorDomain, code: NSMigrationError,
+                                userInfo: [NSDetailedErrorsKey: [corrupt, preserved[0]]])
+            XCTAssertFalse(ExplorationStore.isUnreadableStoreError(mixed))
+            let both = NSError(domain: NSCocoaErrorDomain, code: NSMigrationError,
+                               userInfo: [NSUnderlyingErrorKey: corrupt,
+                                          NSDetailedErrorsKey: [preserved[0]]])
+            XCTAssertFalse(ExplorationStore.isUnreadableStoreError(both))
+            let sqliteIO = NSError(domain: NSCocoaErrorDomain,
+                                   code: NSPersistentStoreIncompatibleVersionHashError,
+                                   userInfo: [NSSQLiteErrorDomain: 10])
+            XCTAssertFalse(ExplorationStore.isUnreadableStoreError(sqliteIO))
+            let unreadable = NSError(domain: NSCocoaErrorDomain, code: NSMigrationError,
+                                     userInfo: [NSDetailedErrorsKey: [corrupt]])
+            XCTAssertTrue(ExplorationStore.isUnreadableStoreError(unreadable))
+        }
+    }
+
     /// A healthy store that cannot be opened right now must be left exactly as it was.
     func testUnopenableHealthyStoreIsLeftUntouchedAndDisablesWrites() async throws {
         let dir = try makeTempDirectory()

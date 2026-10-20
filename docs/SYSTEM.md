@@ -98,8 +98,9 @@ trial and evidence limits.
 - Core Data model changes must be lightweight-migratable. An unreadable store
   (corrupt, or a model change migration can't open) is copied aside (including its WAL
   and SHM) before being recreated empty, and the user is told. Other load errors may be
-  transient, so that store is left untouched. That case and any backup or reset failure
-  disable writes for that launch; originals are never deleted as a fallback. The UI
+  transient, so that store is left untouched. Generic migration errors require a definitive
+  unreadable cause; unknown or mixed causes preserve storage. That case and any backup or
+  reset failure disable writes for that launch; originals are never deleted as a fallback. The UI
   reports unavailable storage.
 - XCTest is the test framework. Tests for main-actor observable stores use the
   repository's established async pattern to avoid an iOS simulator deallocation
