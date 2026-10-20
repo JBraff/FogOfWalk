@@ -71,6 +71,25 @@ final class LandmarkStoreTests: XCTestCase {
 
     // MARK: - addLandmarks
 
+    func testAddLandmarksRetriesIdentifiersAfterSaveFailure() async throws {
+        try await MainActor.run {
+            let container = makeInMemoryContainer()
+            let store = LandmarkStore(container: container)
+            let existing = makeWikidataLandmark(id: "Q10", name: "Existing")
+            let retry = makeWikidataLandmark(id: "Q20", name: "Retry")
+            seed(store, [existing])
+            let persistentStore = try XCTUnwrap(container.persistentStoreCoordinator.persistentStores.first)
+            persistentStore.isReadOnly = true
+            seed(store, [retry])
+            XCTAssertEqual(store.allLandmarks.map(\.identifier), ["Q10"])
+
+            persistentStore.isReadOnly = false
+            seed(store, [existing, retry, retry])
+            XCTAssertEqual(Set(store.allLandmarks.map(\.identifier)), ["Q10", "Q20"])
+            XCTAssertEqual(try container.viewContext.count(for: Landmark.fetchRequest()), 2)
+        }
+    }
+
     func testAddLandmarksDeduplicatesByIdentifier() async {
         await MainActor.run {
             let store = makeStore()

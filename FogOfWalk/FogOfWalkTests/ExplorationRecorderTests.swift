@@ -125,6 +125,40 @@ final class ExplorationRecorderTests: XCTestCase {
         }
     }
 
+    /// A failed ingest must leave both bucket and identifier caches retryable.
+    func testFailedLandmarkIngestRetriesWithoutRestarting() async throws {
+        try await MainActor.run {
+            let container = makeInMemoryContainer()
+            let landmarks = LandmarkStore(container: container)
+            let cell = CellID(x: 16, y: 16)
+            let near = GridMath.center(for: cell)
+            let source = FakeLandmarkSource(items: [
+                WikidataLandmark(id: "Q1", name: "Retry Museum", description: nil,
+                                 lat: near.latitude, lon: near.longitude,
+                                 category: "museum", imageURL: nil)
+            ])
+            let persistentStore = try XCTUnwrap(container.persistentStoreCoordinator.persistentStores.first)
+            persistentStore.isReadOnly = true
+            XCTAssertTrue(landmarks.ingestLandmarks(near: cell, from: source,
+                                                   visitedCells: [cell]).isEmpty)
+            XCTAssertTrue(landmarks.allLandmarks.isEmpty)
+
+            persistentStore.isReadOnly = false
+            // The next cell walked in the same bucket must retry and discover the landmark.
+            let nextCell = CellID(x: 17, y: 16)
+            let discovered = landmarks.ingestLandmarks(near: nextCell, from: source,
+                                                       visitedCells: [cell, nextCell])
+            XCTAssertEqual(source.queries.count, 2)
+            XCTAssertEqual(discovered.map(\.identifier), ["Q1"])
+            XCTAssertEqual(landmarks.totalDiscovered, 1)
+            let request = Landmark.fetchRequest()
+            XCTAssertEqual(try container.viewContext.count(for: request), 1)
+
+            _ = landmarks.ingestLandmarks(near: cell, from: source, visitedCells: [cell])
+            XCTAssertEqual(source.queries.count, 2, "Successful ingest must still be cached")
+        }
+    }
+
     func testRevisitingACellDoesNotQueryLandmarks() async {
         await MainActor.run {
             let container = makeInMemoryContainer()

@@ -140,6 +140,17 @@ final class LandmarkStore {
     /// Returns the landmarks discovered by the post-insert sweep.
     @discardableResult
     func addLandmarks(_ items: [WikidataLandmark], visitedCells: Set<CellID>) -> [Landmark] {
+        do {
+            return try persistLandmarks(items, visitedCells: visitedCells)
+        } catch {
+            print("LandmarkStore: save failed: \(error)")
+            return []
+        }
+    }
+
+    /// Throws only when insertion fails, so walk-time ingest can leave its buckets retryable.
+    private func persistLandmarks(_ items: [WikidataLandmark],
+                                  visitedCells: Set<CellID>) throws -> [Landmark] {
         let ctx = container.viewContext
         var addedIdentifiers: Set<String> = []
         for item in items {
@@ -167,9 +178,10 @@ final class LandmarkStore {
             try ctx.save()
             loadFromStore()
         } catch {
-            print("LandmarkStore: save failed: \(error)")
             ctx.rollback()
-            return []
+            // Discard identifiers added before the failed save, preserving persisted rows.
+            loadFromStore()
+            throw error
         }
 
         // Sweep only the rows just inserted, not every undiscovered landmark. Only new rows can
@@ -186,7 +198,7 @@ final class LandmarkStore {
     /// Map panning is otherwise the only ingest path, so without this a walk through an area
     /// never shown on the map (phone in a pocket, Study recording with no map) discovers
     /// nothing until the area is viewed, and then records the viewing time as the discovery.
-    /// Each bucket is queried at most once per launch.
+    /// Successful bucket ingests are cached per launch; failed inserts remain retryable.
     @discardableResult
     func ingestLandmarks(near cell: CellID,
                          from source: any LandmarkDataProviding,
@@ -211,8 +223,14 @@ final class LandmarkStore {
             span: MKCoordinateSpan(latitudeDelta: maxLat - minLat,
                                    longitudeDelta: maxLon - minLon))
         let items = source.landmarks(in: region)
-        ingestedBuckets.formUnion(keys)
-        return addLandmarks(items, visitedCells: visitedCells)
+        do {
+            let discovered = try persistLandmarks(items, visitedCells: visitedCells)
+            ingestedBuckets.formUnion(keys)
+            return discovered
+        } catch {
+            print("LandmarkStore: walk-time ingest failed: \(error)")
+            return []
+        }
     }
 
     /// Merge-imports discovered-landmark state from a backup. For each record whose

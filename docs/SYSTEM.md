@@ -39,7 +39,8 @@ which draws the overlay on MapKit's background rendering threads.
   counts. It owns Core Data access for the visited-cell history.
 - `LandmarkStore` owns landmark rows copied from the bundled Wikidata database
   and their discovery state. Rows are copied when the map shows a region and
-  around each newly walked cell.
+  around each newly walked cell. Successful walk-time ingests are cached per launch;
+  failed inserts reset the identifier cache and leave their areas retryable.
 - `LocalityGeocoder` annotates visited cells with locality, state, and country
   for the statistics sheet.
 - `GridSettings` owns persisted presentation settings.

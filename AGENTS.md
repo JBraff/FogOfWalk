@@ -256,9 +256,9 @@ the static, tested `Coordinator.gestureTransform`) and `regionDidChangeAnimated`
 
 - Data: `landmarks.sqlite` (14,943 Wikidata items in 10 categories). Rows are copied into Core
   Data when the map shows a region, and by `LandmarkStore.ingestLandmarks(near:from:visitedCells:)`
-  around each newly walked cell. The walk-time path queries each 32×32-cell bucket at most once
-  per launch, covering `maxDiscoveryRadius`, so landmarks are discovered during the walk even
-  with no map on screen.
+  around each newly walked cell. The walk-time path caches each successfully ingested
+  32×32-cell bucket per launch and retries failed inserts on later new cells, covering
+  `maxDiscoveryRadius`, so landmarks are discovered during the walk even with no map on screen.
 - Discovery hot path: `checkDiscovery(newCell:)` looks up undiscovered landmarks in 32×32-cell
   buckets (`LandmarkStore.bucket(for:)`, `>> 5`) within `maxDiscoveryRadius`, then does an
   equirectangular distance check. Its cost must not grow with the visited set. Tests assert this
