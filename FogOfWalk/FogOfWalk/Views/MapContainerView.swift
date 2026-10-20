@@ -188,10 +188,9 @@ struct MapContainerView: UIViewRepresentable {
                 return
             }
 
-            // Above the ingest span the map is an orientation view — the fog has already
-            // vanished at this scale, so pins carry no useful detail either. Clear rather
-            // than early-return so stale pins from the previous region stop drawing;
-            // `regionDidChangeAnimated` repopulates on the way back in.
+            // Above the ingest span the map is an orientation view, where pins carry no
+            // useful detail. Clear rather than early-return so stale pins from the previous
+            // region stop drawing; `regionDidChangeAnimated` repopulates on the way back in.
             let widestSpan = max(region.span.latitudeDelta, region.span.longitudeDelta)
             guard widestSpan <= GridMath.maxIngestSpanDegrees else {
                 landmarkOverlayView?.update(pins: [])

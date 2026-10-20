@@ -7,6 +7,10 @@ blockers, and next actions; it does not replace these product documents.
 
 ## Start here
 
+- [`AGENTS.md`](../AGENTS.md) at the repository root is the working guide for
+  contributors and coding agents: layout, data flow, gotchas, test conventions,
+  and build commands. [`SETUP.md`](../SETUP.md) covers project wiring, the Study
+  app build, and regenerating the landmark database.
 - [System architecture](SYSTEM.md) describes the enduring application structure,
   data ownership, and operational constraints.
 - [Automatic stationary pause and walking resume](proposals/2026-10-15-automatic-stationary-pause-and-resume.md)
@@ -31,7 +35,7 @@ blockers, and next actions; it does not replace these product documents.
   implementation planning artifacts without presenting them as current work.
 - `decisions/` will contain accepted, durable architectural decisions when a
   decision needs its own rationale and alternatives.
-- `evidence/` will contain material implementation or physical-device evidence
+- `evidence/` contains material implementation or physical-device evidence
   when it supports a product decision, verification claim, or release outcome.
 
 Historical location-energy study records include the

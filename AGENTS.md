@@ -1,6 +1,6 @@
 # Fog of Walk — Agent Guide
 
-iOS app that overlays a "fog of war" on Apple Maps and lifts it as the user physically walks through the world. Written in Swift. App target deploys to iOS 18.6; test targets to 26.2.
+iOS app that overlays a "fog of war" on Apple Maps and lifts it as the user physically walks through the world. Swift (Swift 5 language mode), SwiftUI + MapKit/UIKit, Core Data, XCTest. App target deploys to iOS 18.6; test targets to 26.2. Last verified with Xcode 27.
 
 ## Workspace navigation and active work
 
@@ -28,131 +28,251 @@ authorized product work.
 
 ---
 
+## Orientation
+
+- **What matters most:** a real location sample becomes a 50 m grid cell, the cell is
+  persisted, and the fog over it clears. Everything else (landmarks, stats, backup) hangs
+  off that path. The path is described under **Data flow**.
+- **One target, two apps.** The normal app and an isolated **Study** app (used for
+  location-battery feasibility experiments) are built from the same target and differ only by
+  bundle ID. Read **Two app identities** before touching `LocationService`, `FogOfWalkApp`,
+  `MapContainerView`, or `SettingsView`.
+- **Location/battery work:** after this file, read `docs/SYSTEM.md`, then the current proposal
+  and prototype record linked from `docs/README.md`. Older proposals and evidence there are
+  historical. Their next-step instructions don't apply.
+- **Definition of done:** build and full XCTest suite pass (see **Build & test**). If the
+  simulator is unavailable, say so. A compile-only build is not a test pass.
+
+---
+
 ## Project layout
 
 ```
 FogOfWalk/
-  FogOfWalk.xcodeproj              # No shared scheme — see Build & run below
+  FogOfWalk.xcodeproj                # Synchronized folders; no shared scheme (see Build & test)
   FogOfWalk/
-    FogOfWalkApp.swift              # @main — creates the six environment objects
-    ContentView.swift                # Root view: MapContainerView + StatsView + sheets
-    Info.plist                       # Location permission strings, UIBackgroundModes: [location], single-scene
-    landmarks.sqlite                 # Bundled landmark DB — see SETUP.md for how it's wired
-    FogOfWalk.xcdatamodeld/          # Core Data model — three versions (v1, v2, v3) inside one .xcdatamodeld;
-                                      # .xccurrentversion selects "FogOfWalk 3.xcdatamodel"
+    FogOfWalkApp.swift               # @main: creates the six environment objects; wires Study recording
+    ContentView.swift                # Root: MapContainerView + StatsView HUD + sheets; day-rollover listeners
+    Info.plist                       # Location + motion purpose strings, UIBackgroundModes [location],
+                                     # single scene, CFBundleDisplayName = $(FOG_APP_DISPLAY_NAME)
+    landmarks.sqlite                 # Bundled Wikidata landmark DB (~4 MB, R-tree indexed)
+    FogOfWalk.xcdatamodeld/          # Three model versions; .xccurrentversion = "FogOfWalk 3.xcdatamodel"
+                                     # (v2 added Landmark + fetch index; v3 added VisitedCell.state/country)
     Models/
-      GridCell.swift                 # CellID, kCellSizeMeters (50m), GridMath namespace
-      GridSettings.swift             # @MainActor @Observable — highlightToday, showLandmarks
-      ExplorationStore.swift         # @MainActor @Observable — Core Data + in-memory cache
-      VisitedCell+CoreData.swift     # NSManagedObject subclass (cellX, cellY, cellSizeMeters, firstVisited, locality, state, country)
-      LandmarkStore.swift            # @MainActor @Observable — discovery state, Wikidata migration
-      BackupService.swift            # Versioned JSON export/import + merge-import into both stores
-      CellSnapshot.swift             # Immutable, thread-safe snapshot of visited/recent cells for the renderer
-      LocalityGeocoder.swift         # Reverse-geocodes cells in the background, bucketed queue
-      DiscoveryStatsModel.swift      # Streaks, locality breakdowns, estimated distance
+      GridCell.swift                 # kCellSizeMeters (50 m), CellID, GridMath
+      ExplorationStore.swift         # Visited cells: Core Data + in-memory caches, today/total counts
+      VisitedCell+CoreData.swift     # cellX/Y, cellSizeMeters, firstVisited, locality, state, country
+      LandmarkStore.swift            # Landmark rows, bucketed discovery, one-time Wikidata-ID migration
+      Landmark+CoreData.swift        # identifier (Wikidata QID), name, category, lat/lon, radius, dates
+      WikidataLandmark.swift         # Value type read from landmarks.sqlite
+      CellSnapshot.swift             # Immutable row-bucketed cell sets, read by the renderer off-main
+      GridSettings.swift             # highlightToday, showLandmarks (UserDefaults-backed)
+      LocalityGeocoder.swift         # Reverse-geocodes cells → locality/state/country (CLGeocoder)
+      DiscoveryStatsModel.swift      # Stats sheet model: counts, streaks, locality/state/country lists
+      USState.swift                  # 50-state normalization for the States list
+      BackupService.swift            # Versioned JSON export/import with merge semantics
     Services/
-      LocationService.swift          # @MainActor @Observable wrapping CLLocationManager
-      BundledLandmarkSource.swift    # Reads landmarks.sqlite via an R-tree spatial query
-      LandmarkSearchService.swift    # @MainActor — debounced region search, feeds LandmarkStore
+      LocationService.swift          # CLLocationManager wrapper: legacy tracking + Study source switching
+      ExplorationRecorder.swift      # Shared location → cell → discovery path for both app identities
+      StationaryLocationSource.swift # Study-only CLLocationUpdate.liveUpdates source; StudyLocationSource enum
+      LocationStudyDiagnostics.swift # Study-only opt-in JSONL capture; shadow sample validator
+      StudyMotionReference.swift     # Study-only post-run Core Motion/pedometer history query
+      BundledLandmarkSource.swift    # SQLite R-tree query over landmarks.sqlite
+      LandmarkSearchService.swift    # Rate-limited landmark ingest as the map region changes
     Views/
-      MapContainerView.swift         # UIViewRepresentable: MKMapView + FogOverlay (MKOverlay) + LandmarkOverlayView sibling
-      FogOverlay.swift                # FogOverlay (MKOverlay), FogRenderer (pure struct), FogOverlayRenderer (MKOverlayRenderer)
-      LandmarkOverlayView.swift       # UIView sibling: discovered-landmark icons + undiscovered "?" hints
-      LandmarkDetailView.swift        # Sheet shown when a discovered pin is tapped
-      StatsView.swift                 # HUD: today count, discovered-landmark count, paused indicator, stats button
-      SettingsView.swift              # Sheet: export/import backup (BackupService)
-      DiscoveryStatsView.swift        # Sheet: streaks, locality breakdowns, "N% of city explored"
-      AlwaysLocationBanner.swift      # Prompts upgrading When-In-Use → Always
-  FogOfWalkTests/                     # 13 files: FogOfWalkTests.swift, ExplorationStoreTests.swift,
-                                       # FogOverlayRendererTests.swift, CellSnapshotTests.swift,
-                                       # GestureTransformTests.swift, LocationServiceTests.swift,
-                                       # LocalityGeocoderTests.swift, DiscoveryStatsModelTests.swift,
-                                       # LandmarkStoreTests.swift, LandmarkSearchServiceTests.swift,
-                                       # LandmarkOverlayViewTests.swift, BundledLandmarkSourceTests.swift,
-                                       # BackupServiceTests.swift
-  FogOfWalkUITests/
-    FogOfWalkUITests.swift            # UI automation tests
-    FogOfWalkUITestsLaunchTests.swift # Launch screenshot tests
+      MapContainerView.swift         # UIViewRepresentable: MKMapView + FogOverlay + LandmarkOverlayView; Coordinator
+      FogOverlay.swift               # FogOverlay (MKOverlay), FogRenderer (pure CG), FogOverlayRenderer
+      LandmarkOverlayView.swift      # UIView sibling: discovered pins + "?" hints, tap hit-testing
+      LandmarkDetailView.swift       # Sheet for a tapped discovered pin
+      StatsView.swift                # Bottom HUD: "N new today" (toggles highlight), landmark count, Paused, buttons
+      DiscoveryStatsView.swift       # Stats sheet (Swift Charts)
+      SettingsView.swift             # Backup export/import; Study-only "Location Study" section
+      AlwaysLocationBanner.swift     # Prompt to upgrade While Using → Always
+  FogOfWalkTests/                    # XCTest unit tests: roughly one <Type>Tests.swift per production type, plus
+                                     # FogOfWalkTests.swift (GridMath) and StudyTrackingControlTests.swift (Study OFF)
+  FogOfWalkUITests/                  # Template only: FogOfWalkUITests has no test methods; the launch test
+                                     # just attaches a screenshot
+docs/                                # Durable product docs; start at docs/README.md
 scripts/
-  fetch_landmarks.py                  # Queries Wikidata SPARQL for landmark candidates
-  make_landmarks_db.py                # Builds landmarks.sqlite (table + R-tree index) from the JSON output
-  landmarks_10.json, landmarks_preview.json  # Checked-in inputs to make_landmarks_db.py
-SETUP.md                              # How the checked-in project is wired, build/run, regenerating landmarks.sqlite
+  fetch_landmarks.py                 # Wikidata SPARQL → JSON
+  make_landmarks_db.py               # JSON → SQLite table + R-tree index
+  landmarks_10.json, landmarks_preview.json   # Checked-in inputs
+  landmarks.sqlite                   # Byte-identical copy of the shipped DB
+SETUP.md                             # Project wiring, Study build, regenerating landmarks.sqlite
 ```
-
-There is no `FogView.swift` — it was removed; see below. `SettingsView.swift` exists again as of the backup export/import feature (below), reintroducing a settings screen after its earlier removal.
 
 ---
 
 ## Architecture
 
-### Data flow
-```
-CLLocationManager → LocationService.onLocationUpdate closure
-  → Coordinator.handle(location:)
-    → store.refreshForDayChangeIfNeeded()             [resets "today" state at midnight]
-    → ExplorationStore.addCell(_:)                     [Core Data + in-memory Set]
-      → Coordinator.invalidateFogTiles()               [pushes a fresh CellSnapshot to the renderer]
-    → LandmarkStore.checkDiscovery(newCell:)            [O(1)-ish: only landmarks near this one cell]
+### Two app identities
+
+The same `FogOfWalk` target builds both apps. Behavior switches at **runtime** on bundle ID
+(`Bundle.main.bundleIdentifier == LocationStudyDiagnostics.studyBundleID`). There is no
+compile-time flag, so Study code is compiled into the normal binary too.
+
+| | Normal Fog | Study app |
+|---|---|---|
+| Bundle ID | `com.jeremybraff.fogofwalk` (checked-in) | `com.jeremybraff.fogofwalk.study` (build override) |
+| Display / product name | `Fog-Of-Walk` / `Fog-Of-Walk` | `Fog Walk Study` / `Fog-Walk-Study` |
+| Tracking source | Legacy `CLLocationManager` only | Persisted choice: Legacy, or `liveUpdates` ("Automatic pause/resume") |
+| Who records cells | Map `Coordinator` (closure set in `updateUIView`) | `ExplorationRecorder` closure set in `FogOfWalkApp.init`, before any view exists |
+| Extra UI | none | Settings → Location Study: source picker, tracking-OFF control, diagnostic capture/export, motion query |
+
+Rules:
+- Normal Fog keeps legacy tracking whatever is persisted. `LocationService` ignores the
+  `locationStudy.*` defaults unless `isStudyApp`. Gate every Study behavior on `isStudyApp`
+  and test both identities (inject `isStudyApp:` in tests).
+- Diagnostics observe; they never filter exploration. `StudySampleValidator` decisions are
+  shadow-only. The live source has its own freshness filter (below).
+- Diagnostic logs and motion files hold precise locations. They stay in the Study app's
+  container (excluded from backup, 7-day retention, 16 MiB cap). Never commit them or raw traces.
+- Lifecycle and next actions for this work live in the workspace initiative
+  `fog-adaptive-location-tracking`. Physical installs and phone trials are owner-coordinated;
+  follow `docs/evidence/automatic-pause-resume-prototype.md`, and never uninstall the Study app
+  (that deletes its data).
+
+Study builds use command-line build-setting overrides (normal builds also override
+`CURRENT_PROJECT_VERSION`; the checked-in value is `1`):
+
+```text
+PRODUCT_BUNDLE_IDENTIFIER=com.jeremybraff.fogofwalk.study
+FOG_APP_DISPLAY_NAME="Fog Walk Study"
+PRODUCT_NAME=Fog-Walk-Study
+CURRENT_PROJECT_VERSION=<next Study build number>
 ```
 
-`FogOverlayRenderer.draw(_:zoomScale:in:)` runs on MapKit's own background tile-rendering
-threads, reading the `CellSnapshot` under an `NSLock`. Fog tracks pan/zoom natively as an
-`MKOverlay` — there is no manual `CATransform3D` for it. `LandmarkOverlayView` is a plain
-`UIView` sibling that *does* need a manual `CATransform3D` during gestures (applied in
-`mapViewDidChangeVisibleRegion(_:)`), because it isn't an `MKOverlay`.
+### Data flow
+
+```
+CLLocationManager (legacy)                       CLLocationUpdate.liveUpdates(.fitness) (Study only)
+  delegate: nonisolated → Task @MainActor,          LiveStationaryLocationSource → receiveLiveEvent
+  epoch-checked, forwards locations.last            (valid, ≤15 s old, after session start, in order)
+                 └───────────────► LocationService.onLocationUpdate ◄──────────────┘
+                                          │
+          normal: Coordinator.handle(location:)          Study: closure from FogOfWalkApp.init
+                                          ▼
+                           ExplorationRecorder.record(_:)
+                             store.configure()                       (no-op after first call)
+                             store.refreshForDayChangeIfNeeded()     (resets "today" at midnight)
+                             store.addCell(GridMath.cellID(for:))    (Core Data save + caches; onNewCell → geocoder)
+                             landmarks.checkDiscovery(newCell:)      (only when the cell is new)
+                             diagnostics.recordDownstream(...)       (no-op unless a Study capture runs)
+                                          ▼  returns true on new cell or day rollover
+                           Coordinator.invalidateFogTiles() → fresh CellSnapshot → renderer.setNeedsDisplay()
+```
+
+Other flows:
+- **Launch** (`FogOfWalkApp` `.task`): `requestPermissionAndStart()`, wire `store.onNewCell` →
+  `LocalityGeocoder.enqueue`, backfill untagged cells, then `landmarkStore.sweepAllUndiscovered`
+  (self-heals discoveries lost to a rolled-back save).
+- **Foreground** (`scenePhase == .active`): `restartIfAuthorized()` and a day-rollover check.
+  `ContentView` also listens for `.NSCalendarDayChanged` and `significantTimeChangeNotification`.
+- **Landmark ingest:** `mapView(_:regionDidChangeAnimated:)` → `LandmarkSearchService.searchIfNeeded`
+  (span ≤ 1.0°, 30 s / 500 m rate limit) → `BundledLandmarkSource` R-tree query (LIMIT 500) →
+  `LandmarkStore.addLandmarks(_:visitedCells:)`, which immediately sweeps the new rows against
+  already-walked cells.
 
 ### Environment objects
-All six are injected at the `WindowGroup` level via `.environment(...)` and accessed with `@Environment(T.self)` (`FogOfWalkApp.swift`):
+
+Six `@MainActor @Observable` objects are created in `FogOfWalkApp.init`, injected at the
+`WindowGroup` with `.environment(...)`, and read with `@Environment(T.self)`:
 
 | Type | Role |
 |------|------|
-| `ExplorationStore` | Source of truth for visited cells and today/total counts; wraps Core Data |
-| `GridSettings` | `highlightToday: Bool` (today's-walk highlight) and `showLandmarks: Bool` (pin display toggle) |
-| `LocationService` | Location permission + streaming; exposes `onLocationUpdate` closure |
-| `LocalityGeocoder` | Reverse-geocodes newly walked cells in the background |
-| `LandmarkStore` | Discovery state for landmarks; owns the Wikidata migration |
-| `LandmarkSearchService` | Debounced region search against the bundled landmark DB |
+| `ExplorationStore` | Source of truth for visited cells, today/total counts, highlight cache; wraps Core Data |
+| `GridSettings` | `highlightToday` (gold tint on today's cells) and `showLandmarks` (pin display) |
+| `LocationService` | Permission, tracking, Study source/OFF control; exposes `onLocationUpdate` |
+| `LocalityGeocoder` | Background reverse-geocoding queue for new and untagged cells |
+| `LandmarkStore` | Landmark rows and discovery state; owns the Wikidata migration |
+| `LandmarkSearchService` | Rate-limited ingest from the bundled landmark DB |
 
-`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` on the app target means every type in it is
-implicitly `@MainActor` unless annotated otherwise — the explicit `@MainActor` on these six is
-belt-and-suspenders, not the only thing making them main-actor.
+`LocationStudyDiagnostics.shared` is a singleton, not an environment object.
+`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` on the app target makes every app type implicitly
+`@MainActor` unless marked otherwise. The explicit annotations on these six are redundant
+but harmless.
+
+### Location tracking
+
+Legacy policy (`LocationService.init`), used by normal Fog and by Study's Legacy arm:
+`kCLLocationAccuracyNearestTenMeters`, `distanceFilter = 15` m, `activityType = .fitness`,
+`pausesLocationUpdatesAutomatically = false`, background location indicator on. Auto-pause
+is off on purpose: with `.fitness`, iOS paused delivery while stationary and did not resume in
+the background until the app was reopened. With Always permission it runs standard updates
+plus significant-change monitoring as a relaunch safety net. While Using starts foreground-only
+updates and requests Always. Only the last sample of each delegate batch is forwarded, and
+paths between sparse samples are never inferred.
+
+Study `liveUpdates` source: `LiveStationaryLocationSource` keeps the async sequence open while
+the framework reports `stationary` (breaking the loop would disable automatic resume) and holds a
+`CLBackgroundActivitySession` plus `CLServiceSession(authorization: .always)`. Selecting it stops
+the legacy manager's location services and MapKit user location (no blue dot or follow).
+The manager remains the authorization delegate. `callbackEpoch` (an `OSAllocatedUnfairLock`)
+is bumped on every source/OFF switch so late callbacks from the previous arm are dropped.
+Preserve it when editing delegate code.
+
+The HUD's **Paused** label is effectively Study-only. Legacy never pauses. The label appears
+when Study consumers are stopped or the live source reports stationary.
 
 ### Coordinate system
-`GridMath` divides the globe into a uniform rectangular grid. `CellID(x: Int32, y: Int32)` is the grid address. Converting a `CLLocationCoordinate2D` to a `CellID` and back is pure arithmetic — no map SDK required. The grid is always aligned to `(0,0)` at (0°, 0°).
 
-Cell size is fixed at `kCellSizeMeters = 50.0` (defined in `GridCell.swift`). The `VisitedCell` Core Data entity retains the `cellSizeMeters` column for existing data; all new rows are written with 50.0.
+`GridMath` divides the globe into a uniform grid in **degrees**, aligned to `(0,0)` at
+(0°, 0°): step = `kCellSizeMeters / 111_111` degrees on both axes. `CellID(x: Int32, y: Int32)`
+is the address, and conversion is pure arithmetic. Cells are therefore narrower east-west at
+higher latitudes. `GridMath.cellBox(around:radiusMeters:)` compensates with `cos(latitude)` and
+must stay a strict superset of the radius disc (read its doc comment before editing).
+Cell size is fixed at 50 m. The `cellSizeMeters` column remains for old rows, and every fetch
+filters on `cellSizeMeters == kCellSizeMeters`.
 
 ### Fog rendering
-`FogOverlay` (`Views/FogOverlay.swift`) is an `MKOverlay`, not a `UIView`. `FogOverlayRenderer`
-(an `MKOverlayRenderer`) draws it on MapKit's background tile threads, guarded by an `NSLock`
-around its `CellSnapshot`. The pure geometry/gradient logic lives in the `FogRenderer` struct so
-it can be unit-tested without a live `MKOverlayRenderer`.
 
-Per visited cell, the renderer punches a clip-bounded radial gradient hole rather than filling
-the whole clip region and relying on `.drawsAfterEndLocation` — both gradients (`holeGradient`,
-`highlightGradient`) already terminate at alpha 0, so filling the full clip was always a
-no-op that cost a full-tile rasterization per cell. Sub-pixel cells are skipped via the
-`radius > 0.5` guard (`FogOverlay.swift:103`, `:126`) — note this guard is inert at every zoom
-level MapKit actually renders at, because renderer-space is zoom-invariant; treat it as
-harmless, not load-bearing.
+`FogOverlay` is a world-spanning `MKOverlay` added `.aboveLabels`. `FogOverlayRenderer.draw`
+runs on MapKit's background tile threads and reads its `CellSnapshot` under an `NSLock`. The
+pure drawing lives in the `FogRenderer` struct so it can be unit-tested without MapKit:
+1. Fill the tile with fog (`systemGray`, alpha 0.92).
+2. Punch a soft radial-gradient hole per visited cell using `.destinationOut`. The hole is
+   solid to 70% of its radius, then fades to clear, and is drawn without
+   `.drawsAfterEndLocation`, so its cost is bounded by the hole.
+3. Draw a gold tint over today's cells when `highlightToday` is on.
 
-`Coordinator.invalidateFogTiles()` replaces the old `FogView.update(cells:cellSize:)` call —
-it builds a fresh `CellSnapshot` and marks the renderer's tiles dirty.
-`mapViewDidChangeVisibleRegion(_:)` no longer touches fog at all; it only applies a
-`CATransform3D` to `LandmarkOverlayView` during gestures. Tests live in
-`FogOverlayRendererTests.swift`; there is no `FogViewTests.swift`.
+Hole radius is 0.9 × the projected cell size, floored at `kMinCellScreenPoints` (3 pt) ÷
+`zoomScale`, so **visited cells stay visible at every zoom level, including world zoom**. The
+renderer applies no cell-count cap. The `radius > 0.5` guards are inert because of that floor.
+
+`Coordinator.invalidateFogTiles()` is the only way to push new state to the renderer.
+`updateUIView` calls it when the cached cell count or `recentCellsGeneration` changes, and
+`ContentView` passes `highlightGeneration` so SwiftUI re-runs `updateUIView` on highlight
+rebuilds. Fog pans and zooms natively. `LandmarkOverlayView` is a plain `UIView` sibling, so
+`mapViewDidChangeVisibleRegion(_:)` applies a manual `CATransform3D` during gestures (math in
+the static, tested `Coordinator.gestureTransform`) and `regionDidChangeAnimated` resets it.
+
+### Landmarks
+
+- Data: `landmarks.sqlite` (14,943 Wikidata items in 10 categories). Rows are copied into Core Data only when
+  the map shows a region (see Landmark ingest). An area walked with the app in the background and
+  never viewed on the map has no landmark rows yet. Its landmarks are discovered when the area is
+  first viewed, and `firstDiscovered` records that later time.
+- Discovery hot path: `checkDiscovery(newCell:)` looks up undiscovered landmarks in 32×32-cell
+  buckets (`LandmarkStore.bucket(for:)`, `>> 5`) within `maxDiscoveryRadius`, then does an
+  equirectangular distance check. Its cost must not grow with the visited set. Tests assert this
+  through `lastDiscoveryProbeCount`.
+- Categories: a new category needs entries in `LandmarkStore.categoryRadius`,
+  `LandmarkOverlayView.categoryIcon`, and `LandmarkDetailView.categoryLabel`.
+- Coupled limits: `GridMath.maxIngestSpanDegrees` (1.0°) ↔ `BundledLandmarkSource` `LIMIT 500`
+  (re-measure density before raising the span). `LandmarkStore.maxRenderedPins` = 300.
+- `showLandmarks` is **off by default**. Discovery always runs, and only pin display is gated
+  (`Coordinator.refreshLandmarks`). Check the toggle before suspecting a discovery bug.
+- If `landmarks.sqlite` is missing or unreadable, `LandmarkSearchService.makeBundled()` silently
+  falls back to `EmptyLandmarkSource`.
 
 ### Backup export/import
 
-`BackupService` (`Models/BackupService.swift`) is a stateless `enum` — plain namespaced static
-functions, not a store. It encodes/decodes a versioned JSON `BackupPayload`
-(`visitedCells` + discovered `landmarks` only — undiscovered landmarks and all landmark
-metadata besides `identifier`/`firstDiscovered` are intentionally excluded, since metadata is
-re-derived from bundled reference data on the importing device) and orchestrates merging it
-into both stores. `BackupPayload.currentSchemaVersion` is `2`; the version gate accepts any
-`schemaVersion <= currentSchemaVersion` (older files decode forward-compatibly) and only
-rejects files from a future, unrecognized version. A sample `visitedCells` entry looks like:
+`BackupService` (`Models/BackupService.swift`) is a stateless `enum`. It encodes and decodes a
+versioned JSON `BackupPayload` holding `visitedCells` plus discovered `landmarks`
+(`identifier` + `firstDiscovered` only, since metadata is re-derived from the bundled DB on
+import). `BackupPayload.currentSchemaVersion` is `2`. Files with any `schemaVersion <= current`
+decode (new fields are optional and default to `nil`, as `state`/`country` did in v2). Only
+files from a newer version are rejected. A sample `visitedCells` entry:
 
 ```json
 {
@@ -166,103 +286,169 @@ rejects files from a future, unrecognized version. A sample `visitedCells` entry
 }
 ```
 
-`BackupVisitedCell.state`/`.country` (added alongside `locality` when the Discovery Stats sheet
-started breaking down visited cells by state/country) default to `nil`, so a schema-version-1
-backup file — missing those keys entirely — still decodes cleanly.
+Import merges and never overwrites. `ExplorationStore.addCells(_:)` inserts missing cells and
+keeps the earlier `firstVisited` date. `LandmarkStore.restoreDiscovered(_:)` marks known
+identifiers discovered, keeps the earlier date, and skips unknown identifiers. The two merges
+are not jointly atomic. `SettingsView` exports through `ShareLink` and imports through
+`.fileImporter`. Backup is manual only: there is no CloudKit or automatic sync.
 
-- `ExplorationStore.addCells(_:)` inserts cells absent locally and keeps the earlier
-  `firstVisited` date for cells that already exist.
-- `LandmarkStore.restoreDiscovered(_:)` marks known-by-`identifier` landmarks discovered and
-  keeps the earlier `firstDiscovered` date; unknown identifiers are skipped without error.
+### Discovery Stats
 
-`SettingsView` (`Views/SettingsView.swift`), reachable via a gear button in `StatsView`, drives
-export through `ShareLink` and import through `.fileImporter`. This is manual/on-demand only —
-there is no automatic or continuous sync (no CloudKit).
+`DiscoveryStatsModel.refresh(context:)` makes one pass over all 50 m `VisitedCell`s and
+produces:
+- **Today**: since local midnight (the property is named `last24HourCount`, but it is not a
+  rolling 24 hours).
+- A 7-day chart, current and longest streaks, and estimated distance (cell count × 50 m).
+- Locality lists per period.
+- All-time **States**, limited to the 50 US states and normalized through `USState`.
+- All-time **Countries**.
+
+Tapping a locality row navigates the map through `MapNavigationTarget`. There is **no
+"% of city explored" feature**: it was removed along with `ExplorationStore.totalCellCount`
+in commit 938ef32, so ignore older docs that describe it.
 
 ---
 
 ## Key constraints and gotchas
 
-- **Cell count cap:** `GridMath.cells(in:)` returns `[]` when a region would produce >10 000 cells. At world zoom the fog stays fully opaque — this is intentional and correct.
-- **`@MainActor` everywhere:** all six environment objects (see table above) are `@MainActor`. `CLLocationManagerDelegate` methods on `LocationService` are `nonisolated` and dispatch back via `Task { @MainActor in ... }`.
-- **Closure rewiring:** `locationService.onLocationUpdate` is reassigned in `updateUIView` (not just `makeUIView`) so it always captures the live coordinator after SwiftUI rebuilds.
-- **Core Data context:** Always use `container.viewContext` (main-queue context). `automaticallyMergesChangesFromParent = true` is set. `NSBatchDeleteRequest` results are merged back manually via `NSManagedObjectContext.mergeChanges(fromRemoteContextSave:into:)`.
-- **`@Observable` / iOS 17 APIs:** required — do not back-port to `ObservableObject`. This is about not regressing, not about the deployment floor (see the top of this file for the actual floor).
-- **No Swift Testing / #Preview:** confirmed zero hits repo-wide for `import Testing`, `@Test`, `#expect`. The test target uses XCTest only. There are no SwiftUI previews — test rendering in the simulator.
-- **No haptics.** Deliberate: tracking runs for hours in the background, so a buzz per newly
-  walked 50 m cell is noise rather than feedback. Don't reintroduce one.
-- **`showLandmarks` is off by default.** Landmark *discovery* (`LandmarkStore.checkDiscovery`) always runs regardless of this setting — only pin *display* in `LandmarkOverlayView` is gated on it (`Coordinator.refreshLandmarks`). Don't mistake missing pins for a discovery bug; check the toggle first.
-- **City % calculation:** `DiscoveryStatsModel` / `LocalityGeocoder` reverse-geocode cells to get a city name and `CLCircularRegion`. The percentage is relative to that circle, not actual administrative boundaries — it's an approximation.
-- **`cos(latitude)` correction:** `ExplorationStore.totalCellCount` divides the longitude span by `cos(lat)` to correct for meridian convergence. Without this, city % is wrong at non-equatorial latitudes.
-- **Build settings that affect concurrency:** `SWIFT_VERSION = 5.0` (Swift 5 language mode — cross-actor isolation violations are **warnings**, not errors), `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` on the app target only (this is why `BundledLandmarkSource` is implicitly `@MainActor` with no annotation), `SWIFT_APPROACHABLE_CONCURRENCY = YES` — which means a plain `nonisolated async func` called from a `@MainActor` context still runs **on the caller's actor**; reaching the global executor requires `@concurrent` or `Task.detached`.
-- **The product is renamed at the build-settings level.** `PRODUCT_NAME = "Fog-Of-Walk"` with `PRODUCT_MODULE_NAME` pinned to `FogOfWalk` and `TEST_HOST` repointed at `Fog-Of-Walk.app` — so the built app bundle is `Fog-Of-Walk.app` while `@testable import FogOfWalk` still resolves. If a rename or scheme edit ever breaks this pairing, the test target fails to launch with a message about scheme membership, not anything pointing at the actual cause — see the no-shared-scheme note under Build & run.
-- **No known way to delete location history in the running app.** `ExplorationStore.deleteAllCells`, `visitedCellCount`, `totalCellCount`, and `Coordinator.replaceFogOverlay` exist but have no production caller — this is a known gap, not a feature to build around. (The Settings screen added for backup export/import does *not* address this — it only exports/imports/merges, it never deletes.)
+- **`@MainActor` everywhere.** `CLLocationManagerDelegate` methods are `nonisolated` and hop
+  back with `Task { @MainActor in ... }`, re-checking the callback epoch.
+- **Callback wiring.** The normal app reassigns `locationService.onLocationUpdate` in every
+  `updateUIView` so it always captures the live coordinator. The Study app sets it once in
+  `FogOfWalkApp.init`, and `updateUIView` must not overwrite it (the `!isStudyApp` guard).
+- **Core Data context:** always `container.viewContext`, with
+  `automaticallyMergesChangesFromParent = true`. `NSBatchDeleteRequest` results are merged back
+  manually, and in-memory stores use a manual delete loop (batch delete raises `NSException`).
+- **Core Data load failure.** `ExplorationStore.init` copies the main `.sqlite` file to `.bak`,
+  deletes it, and retries. `loadError` is then set, but no UI reads it. A model change that is not
+  a lightweight (inferable) migration takes this path and the user silently starts empty.
+- **`@Observable` / iOS 17 APIs** are required. Don't back-port to `ObservableObject`.
+- **XCTest only; no SwiftUI previews.** There are no `import Testing`, `@Test`, `#expect`, or
+  `#Preview` uses. Test rendering in the simulator.
+- **No haptics.** This is deliberate: tracking runs for hours in the background, and a buzz per
+  50 m cell is noise. Don't reintroduce them.
+- **Concurrency settings:** `SWIFT_VERSION = 5.0` (isolation violations are warnings),
+  `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` (app target only), and
+  `SWIFT_APPROACHABLE_CONCURRENCY = YES`. Under approachable concurrency a plain
+  `nonisolated async func` called from the main actor still runs on the caller's actor;
+  reaching the global executor needs `@concurrent` or `Task.detached`. The fog render path
+  (`FogOverlayRenderer.draw` → `FogRenderer`/`CellSnapshot`/`CellID`/`GridMath`) runs off-main
+  even though those types are inferred `@MainActor`. That works only because Swift 5 mode
+  doesn't enforce isolation. Mark the path `nonisolated` before any Swift 6 migration.
+- **Known compiler warnings (don't add more):** the app target has three:
+  1. `CellID`'s main-actor `Hashable` conformance is used in `CellSnapshot.init`.
+  2. `LandmarkStore.maxRenderedPins` is used as a default argument.
+  3. `EmptyLandmarkSource()` is used as a default argument in `LandmarkSearchService.init`.
+
+  The test target has about 140 Swift 6-mode concurrency warnings (captured `var`s in
+  `MainActor.run` closures, isolated conformances). They are pre-existing.
+- **Product rename at the build-settings level.** `PRODUCT_NAME = "Fog-Of-Walk"`,
+  `PRODUCT_MODULE_NAME = FogOfWalk`, and `TEST_HOST` points at `Fog-Of-Walk.app`, so the bundle is
+  `Fog-Of-Walk.app` while `@testable import FogOfWalk` still resolves. If a rename breaks this
+  pairing, `xcodebuild test` fails with a scheme-membership message (see Build & test).
+- **Code with no production caller:** `GridMath.cells(in:)`/`cellBounds(in:)` (the 10,000-cell
+  cap, used only by tests), `ExplorationStore.deleteAllCells`/`visitedCellCount(in:)`, and
+  `Coordinator.replaceFogOverlay`. The running app cannot delete location history. That is a
+  known gap, and backup import only merges.
+- **Silent states:** `LocationService.isPermissionDenied` has no UI consumer, so a user who
+  denies location sees no prompt and the fog never lifts.
+- **Geocoding:** live geocoding needs `store.onNewCell`, which is wired in the launch `.task`.
+  The launch backfill groups untagged cells into 0.5° (~55 km) buckets and writes one
+  placemark's names into every nil field in the bucket. `CLGeocoder` and `MKPlacemark` are
+  deprecated as of iOS 26, which is not yet a warning at the 18.6 floor.
+- **Shared Info.plist:** both identities ship the same plist, including the Study-worded
+  `NSMotionUsageDescription`.
 
 ---
 
 ## Testing conventions
 
-- **XCTest only** — do not use Swift Testing (`#expect`, `@Test`, etc.).
-- **`@MainActor @Observable` store tests must be `async`**, wrapping every interaction in `await MainActor.run { }`. This works around an iOS 26 simulator crash (`swift_task_deinitOnExecutorImpl` / TaskLocal heap corruption) that occurs when such an object is deallocated outside a Swift `Task` context. See the header comments in `LandmarkStoreTests.swift` and `ExplorationStoreTests.swift` for the full explanation.
-- **Renderer tests are different:** `FogOverlayRendererTests.swift` marks the whole test class `@MainActor` and uses plain synchronous test methods — no `async`/`await MainActor.run`. Follow whichever pattern matches the class you're extending.
-- **`makeInMemoryContainer()` is copy-pasted**, not shared, across `ExplorationStoreTests.swift`, `LandmarkStoreTests.swift`, `DiscoveryStatsModelTests.swift`, and `LocalityGeocoderTests.swift`. Use the copy in the file you're editing; don't introduce a shared base class as a drive-by refactor.
-- **`LandmarkSearchServiceTests.swift` polls instead of using `XCTestExpectation`** — a small sleep-and-poll loop, since the service's debounce timing doesn't map cleanly onto expectations.
-- **`installCoordinateMock()`** (`LandmarkOverlayViewTests.swift`) injects a deterministic `coordinateToPoint` for **pin** tests — it has nothing to do with fog/renderer tests, which instead use `renderFog(...)` and `pixelColor(at:in:)` (`FogOverlayRendererTests.swift`).
-- **`NSBatchDeleteRequest` on in-memory stores:** raises `NSException` (not a Swift `Error`). Production code checks for `NSInMemoryStoreType` before choosing between batch and manual delete. Do not attempt batch delete in tests.
-
----
+- **XCTest only.**
+- **`@MainActor @Observable` store/service tests are `async`** and wrap every interaction in
+  `await MainActor.run { }`. This avoids an iOS 26+ simulator crash
+  (`swift_task_deinitOnExecutorImpl` / TaskLocal heap corruption) when such an object is
+  deallocated outside a Task. See the headers of `LandmarkStoreTests.swift` and
+  `ExplorationStoreTests.swift`.
+- **Renderer and pin-view tests are different:** `FogOverlayRendererTests` and
+  `LandmarkOverlayViewTests` mark the class `@MainActor` and use synchronous methods. Follow the
+  pattern of the file you're extending.
+- **`makeInMemoryContainer()` is copy-pasted, not shared.** Copies live in
+  `ExplorationStoreTests`, `LandmarkStoreTests`, `DiscoveryStatsModelTests`,
+  `LocalityGeocoderTests`, `BackupServiceTests`, and `StationaryLocationSourceTests`. Use the
+  file's own copy, and don't add a shared base class as a drive-by refactor.
+- **LocationService tests** inject `MockLocationManager` (`LocationServiceTests.swift`),
+  `isStudyApp:`, a fresh `UserDefaults(suiteName:)` (never `.standard` for `locationStudy.*`
+  keys), a fake `LocationDiagnosticRecording`, and `makeStationarySource:`. `LiveTestHarness` in
+  `StationaryLocationSourceTests.swift` is the template. Simulated events cannot prove physical
+  background wake-up.
+- **Async timing:** `LandmarkSearchServiceTests` uses a sleep-and-poll loop (the debounce doesn't
+  fit expectations well), while `LocalityGeocoderTests` uses `XCTestExpectation`.
+- **Rendering helpers:** `renderFog(...)` and `pixelColor(at:in:)` (`FogOverlayRendererTests`) for
+  fog, `installCoordinateMock()` (`LandmarkOverlayViewTests`) for pins.
+- **Hosted tests:** unit tests run inside `Fog-Of-Walk.app`, so `FogOfWalkApp.init` (real Core Data
+  store, real `CLLocationManager`) runs first. A few tests touch `UserDefaults.standard`: the
+  Wikidata migration flag and `showLandmarks`.
 
 ## Known platform quirks
 
-- **iOS 26 beta — `@Observable` dealloc crash:** `@MainActor @Observable` objects crash when deallocated in non-Task XCTest context. Workaround: make test methods `async` and wrap work in `await MainActor.run { }`.
-- **iOS 26 beta — `NSBatchDeleteRequest` on in-memory stores:** throws `NSException` instead of returning an error. Workaround: check the store type and fall back to manual `context.delete()` loop for in-memory stores.
+- **iOS 26+ simulator, `@Observable` dealloc crash:** see the async test pattern above.
+- **`NSBatchDeleteRequest` on in-memory stores** raises `NSException` instead of returning an
+  error. Production code checks `NSInMemoryStoreType` and falls back to `context.delete()`.
 
 ---
 
-## Build & run
+## Build & test
 
 ```bash
-# Build (replace simulator ID if needed)
-xcodebuild \
-  -project FogOfWalk/FogOfWalk.xcodeproj \
-  -scheme FogOfWalk \
-  -destination 'platform=iOS Simulator,id=F1E38D9B-23CC-41EB-A448-9CF91633190A' \
-  build
+# Build
+xcodebuild -project FogOfWalk/FogOfWalk.xcodeproj -scheme FogOfWalk \
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro' build
 
-# Run tests
-xcodebuild \
-  -project FogOfWalk/FogOfWalk.xcodeproj \
-  -scheme FogOfWalk \
-  -destination 'platform=iOS Simulator,id=F1E38D9B-23CC-41EB-A448-9CF91633190A' \
-  test
+# Full suite (unit + UI launch test)
+xcodebuild -project FogOfWalk/FogOfWalk.xcodeproj -scheme FogOfWalk \
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro' test
+
+# Unit tests only (faster)
+xcodebuild -project FogOfWalk/FogOfWalk.xcodeproj -scheme FogOfWalk \
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -only-testing:FogOfWalkTests test
 ```
 
-To find an available simulator if the ID above is stale:
-```bash
-xcrun simctl list devices available | grep iPhone
-```
+If that simulator doesn't exist, pick one from `xcrun simctl list devices available | grep iPhone`.
+The latest recorded full-suite result is in `docs/evidence/automatic-pause-resume-prototype.md`.
 
-**There is no shared scheme.** `FogOfWalk.xcodeproj/xcshareddata/` doesn't exist — only
-`xcuserdata/` — so `-scheme FogOfWalk` resolves via an autocreated user scheme, which would fail
-on CI or a fresh clone (there is no CI in this repo: no `.github/`, `fastlane/`, or `Makefile`).
-This is the exact mechanism that made the `Fog-Of-Walk` product rename (see above) a confusing
-one-time break: renaming the target dropped the test target from the autocreated scheme, and
-`xcodebuild test` failed with "FogOfWalkTests isn't a member of the specified test plan or
-scheme" — a message that points nowhere near the actual cause. If `xcodebuild test` ever fails
-that way again with no source changes, suspect the autocreated scheme, not the code.
-
-### Simulating movement
-In the running simulator: **Features → Location → City Bicycle Ride** (or Apple). Watch the fog lift in real time.
+- **"CoreSimulator is out of date" / "Unable to load simulator devices":** Xcode was updated and
+  its first-launch components aren't installed. Fixing this takes admin rights
+  (`sudo xcodebuild -runFirstLaunch`, or open Xcode once), so the owner has to do it. Report it.
+  Meanwhile you can compile-check with
+  `-destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build`, but that doesn't run
+  the tests.
+- **No shared scheme.** `FogOfWalk.xcodeproj/xcshareddata/` doesn't exist, so `-scheme FogOfWalk`
+  resolves through Xcode's autocreated user scheme. That fails on a fresh clone until Xcode
+  generates it, and there is no CI. If `xcodebuild test` fails with "FogOfWalkTests isn't a
+  member of the specified test plan or scheme" and no source changed, suspect the autocreated
+  scheme, not the code.
+- **Simulating movement:** in the running simulator, use **Features → Location → City Bicycle
+  Ride**.
 
 ---
 
 ## Adding features — checklist
 
-1. New persistent data? Add an entity to `FogOfWalk.xcdatamodeld` (as a new model version), create a `+CoreData.swift` subclass, update `ExplorationStore` and/or `LandmarkStore`.
-2. New setting? Add a property to `GridSettings` with a `UserDefaults` `didSet`, following the `highlightToday` / `showLandmarks` pattern.
-3. New view? Access environment objects with `@Environment(ExplorationStore.self)` etc. Keep views `@MainActor`-safe.
-4. New math on cells? Put it in `GridMath` (static functions, no stored state).
-5. **Every feature or bug fix must include tests.** Add or update unit tests for any new logic, model changes, or view behavior. If fixing a bug, add a regression test that would have caught it.
-6. New tests? Follow the async/`MainActor` pattern for anything touching a `@MainActor @Observable` store. Use the file's own `makeInMemoryContainer()`. For pin-rendering tests, use `installCoordinateMock()`; for fog-rendering tests, use `renderFog(...)` and `pixelColor(at:in:)`.
-7. Always run the full test suite (`xcodebuild ... test`), not just the new tests.
-8. After any change: build **and tests** must succeed before considering the task done.
+1. **New persistent data?** Add a new model version to `FogOfWalk.xcdatamodeld` that lightweight
+   migration can infer (see Core Data load failure), update the `+CoreData.swift` subclass and
+   store, and carry user data through `BackupPayload`: add optional fields and bump
+   `currentSchemaVersion`.
+2. **New setting?** Add a `GridSettings` property with a `UserDefaults` `didSet`, following
+   `highlightToday`/`showLandmarks`.
+3. **New view?** Read environment objects with `@Environment(ExplorationStore.self)` etc., and keep
+   views `@MainActor`-safe.
+4. **New cell math?** Put it in `GridMath` as static functions with no stored state.
+5. **Study-only behavior?** Gate it on `isStudyApp`, keep the normal default unchanged, test both
+   identities, and never let diagnostics filter exploration.
+6. **New landmark category?** Update the three category maps listed under Landmarks.
+7. **Every feature or bug fix needs tests.** Bug fixes need a regression test that would have
+   caught the bug. Follow the patterns above.
+8. **Run the full suite** (`xcodebuild ... test`), not just the new tests. Build and tests must
+   pass before the task is done.
+9. **Keep this guide current.** If you change behavior described here or in `docs/SYSTEM.md`,
+   update the docs in the same change.
