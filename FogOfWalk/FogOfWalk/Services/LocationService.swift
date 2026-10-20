@@ -286,14 +286,22 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    /// Re-arms tracking when the app returns to the foreground. This is a safety net for
-    /// cases where location updates silently stopped while backgrounded (e.g. a transient
-    /// `didFailWithError`) without an authorization change to trigger a restart. Does
-    /// nothing beyond re-asserting existing "Always" tracking — never requests permission.
-    func restartIfAuthorized() {
+    /// Why `restartIfAuthorized` ran, recorded so Study captures can tell a launch
+    /// (possibly a scene-less background relaunch) from a return to the foreground.
+    enum RearmReason: String {
+        case launch = "launch_rearm"
+        case foreground = "foreground_rearm"
+    }
+
+    /// Re-arms already-authorized tracking at launch and when the app returns to the
+    /// foreground. This is a safety net for cases where location updates silently stopped
+    /// while backgrounded (e.g. a transient `didFailWithError`) without an authorization
+    /// change to trigger a restart. Does nothing beyond re-asserting existing "Always"
+    /// tracking — never requests permission.
+    func restartIfAuthorized(reason: RearmReason = .foreground) {
         guard !isStudyTrackingDisabled else { return }
         guard manager.authorizationStatus == .authorizedAlways else { return }
-        diagnostics.recordLifecycle("foreground_rearm", detail: studyLocationSource.rawValue)
+        diagnostics.recordLifecycle(reason.rawValue, detail: studyLocationSource.rawValue)
         startTracking()
     }
 

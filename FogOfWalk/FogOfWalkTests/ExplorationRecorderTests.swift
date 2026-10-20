@@ -139,23 +139,50 @@ final class ExplorationRecorderTests: XCTestCase {
             ])
             let persistentStore = try XCTUnwrap(container.persistentStoreCoordinator.persistentStores.first)
             persistentStore.isReadOnly = true
-            XCTAssertTrue(landmarks.ingestLandmarks(near: cell, from: source,
-                                                   visitedCells: [cell]).isEmpty)
+            XCTAssertThrowsError(try landmarks.ingestLandmarks(near: cell, from: source,
+                                                              visitedCells: [cell]),
+                                 "A failed ingest must be distinguishable from an empty area")
             XCTAssertTrue(landmarks.allLandmarks.isEmpty)
 
             persistentStore.isReadOnly = false
             // The next cell walked in the same bucket must retry and discover the landmark.
             let nextCell = CellID(x: 17, y: 16)
-            let discovered = landmarks.ingestLandmarks(near: nextCell, from: source,
-                                                       visitedCells: [cell, nextCell])
+            let discovered = try landmarks.ingestLandmarks(near: nextCell, from: source,
+                                                           visitedCells: [cell, nextCell])
             XCTAssertEqual(source.queries.count, 2)
             XCTAssertEqual(discovered.map(\.identifier), ["Q1"])
             XCTAssertEqual(landmarks.totalDiscovered, 1)
             let request = Landmark.fetchRequest()
             XCTAssertEqual(try container.viewContext.count(for: request), 1)
 
-            _ = landmarks.ingestLandmarks(near: cell, from: source, visitedCells: [cell])
+            _ = try landmarks.ingestLandmarks(near: cell, from: source, visitedCells: [cell])
             XCTAssertEqual(source.queries.count, 2, "Successful ingest must still be cached")
+        }
+    }
+
+    /// Regression: a failed walk-time ingest logged discoveries=0 exactly like an empty area,
+    /// hiding the failure from Study captures.
+    func testFailedIngestIsRecordedInDiagnostics() async throws {
+        try await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            // A separate, read-only landmark store: the cell saves, the landmark insert fails.
+            let landmarkContainer = makeInMemoryContainer()
+            let landmarks = LandmarkStore(container: landmarkContainer)
+            let persistentStore = try XCTUnwrap(
+                landmarkContainer.persistentStoreCoordinator.persistentStores.first)
+            persistentStore.isReadOnly = true
+            let near = GridMath.center(for: CellID(x: 16, y: 16))
+            let source = FakeLandmarkSource(items: [
+                WikidataLandmark(id: "Q1", name: "Read-only Museum", description: nil,
+                                 lat: near.latitude, lon: near.longitude,
+                                 category: "museum", imageURL: nil)
+            ])
+            let diagnostics = RecordingDiagnostics()
+            let recorder = ExplorationRecorder(store: store, landmarks: landmarks,
+                                               landmarkSource: source, diagnostics: diagnostics)
+            XCTAssertTrue(recorder.record(location(x: 16, y: 16)))
+            XCTAssertEqual(store.visitedCellsCache, [CellID(x: 16, y: 16)])
+            XCTAssertEqual(diagnostics.lifecycle, ["landmark_ingest_failed"])
         }
     }
 
@@ -185,4 +212,11 @@ private final class FakeLandmarkSource: LandmarkDataProviding {
         queries.append(region)
         return items
     }
+}
+
+private final class RecordingDiagnostics: LocationDiagnosticRecording {
+    private(set) var lifecycle: [String] = []
+    func recordLifecycle(_ name: String, detail: String?) { lifecycle.append(name) }
+    func recordBatch(_ locations: [CLLocation], receivedAt: Date, sessionStartedAt: Date?) {}
+    func recordDownstream(cell: CellID, isNew: Bool, discoveries: Int, dayRollover: Bool) {}
 }

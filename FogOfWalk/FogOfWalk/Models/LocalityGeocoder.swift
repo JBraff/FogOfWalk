@@ -23,6 +23,8 @@ final class LocalityGeocoder {
         let coord: CLLocationCoordinate2D
         let objectIDs: [NSManagedObjectID]
         let context: NSManagedObjectContext
+        /// Launch backfill work, which yields to newly walked cells (see `enqueue`).
+        let isBackfill: Bool
     }
 
     private struct BucketKey: Hashable {
@@ -37,8 +39,9 @@ final class LocalityGeocoder {
     /// Guards against re-enqueuing untagged cells on every app foreground.
     private var hasBackfilled = false
 
-    /// Maximum number of pending clusters. New enqueues beyond this limit are dropped
-    /// to prevent the queue from growing unboundedly when many cells are untagged.
+    /// Maximum number of pending clusters, so the queue cannot grow unboundedly when many
+    /// cells are untagged. Backfill may fill it, but a newly walked cell then displaces the
+    /// newest backfill cluster; only a queue full of walked cells drops new ones.
     static let maxQueueSize = 200
 
     /// Backfill cluster size in degrees (~1.1 km of latitude). Every untagged cell in a cluster
@@ -61,13 +64,20 @@ final class LocalityGeocoder {
 
     // MARK: - Public API
 
-    /// Enqueue a single newly-discovered cell for geocoding.
+    /// Enqueue a single newly-discovered cell for geocoding. It is queued ahead of any
+    /// launch backfill, and when the queue is full it displaces the newest backfill cluster,
+    /// whose cells stay untagged and are retried on a later launch.
     func enqueue(_ cell: VisitedCell) {
         guard cell.locality == nil else { return }
         guard let ctx = cell.managedObjectContext else { return }
         let coord = GridMath.center(for: CellID(x: cell.cellX, y: cell.cellY))
-        guard queue.count < Self.maxQueueSize else { return }
-        queue.append(PendingCluster(coord: coord, objectIDs: [cell.objectID], context: ctx))
+        if queue.count >= Self.maxQueueSize {
+            guard let last = queue.lastIndex(where: { $0.isBackfill }) else { return }
+            queue.remove(at: last)
+        }
+        let index = queue.firstIndex(where: { $0.isBackfill }) ?? queue.endIndex
+        queue.insert(PendingCluster(coord: coord, objectIDs: [cell.objectID], context: ctx,
+                                    isBackfill: false), at: index)
         processNext()
     }
 
@@ -101,7 +111,8 @@ final class LocalityGeocoder {
             queue.append(PendingCluster(
                 coord: coord,
                 objectIDs: group.map { $0.objectID },
-                context: context
+                context: context,
+                isBackfill: true
             ))
         }
 

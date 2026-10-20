@@ -35,8 +35,17 @@ struct ExplorationRecorder {
         var discoveries = 0
         if isNew {
             if let landmarkSource {
-                discoveries += landmarks.ingestLandmarks(near: cell, from: landmarkSource,
-                                                         visitedCells: store.visitedCellsCache).count
+                do {
+                    discoveries += try landmarks.ingestLandmarks(
+                        near: cell, from: landmarkSource, visitedCells: store.visitedCellsCache).count
+                } catch {
+                    // The bucket stays retryable on the next new cell. Log it so a Study capture
+                    // can tell a failed ingest from an area with no landmarks.
+                    print("ExplorationRecorder: walk-time landmark ingest failed: \(error)")
+                    diagnostics.recordLifecycle("landmark_ingest_failed",
+                                                detail: (error as NSError).domain
+                                                    + " \((error as NSError).code)")
+                }
             }
             discoveries += landmarks.checkDiscovery(newCell: cell).count
         }

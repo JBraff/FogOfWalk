@@ -267,4 +267,33 @@ final class RefreshLandmarksZoomTests: XCTestCase {
             XCTAssertEqual(overlayView.pins.count, 0, "Disabling the toggle must clear pins")
         }
     }
+
+    /// Regression: every new 50 m cell re-runs `updateUIView`, which rebuilt every pin even
+    /// when no landmark had changed.
+    func testUnchangedLandmarkStateSkipsPinRebuild() async {
+        await MainActor.run {
+            let (coordinator, store) = makeCoordinator()
+            coordinator.gridSettings.showLandmarks = true
+            store.addLandmarks([WikidataLandmark(id: "Q1", name: "Museum", description: nil,
+                                                lat: 40.7128, lon: -74.0060,
+                                                category: "museum", imageURL: nil)],
+                               visitedCells: [])
+            let mapView = MKMapView()
+
+            XCTAssertTrue(coordinator.refreshLandmarksIfChanged(in: region(span: 0.01), mapView: mapView))
+            XCTAssertEqual(overlayView.pins.count, 1)
+            XCTAssertFalse(coordinator.refreshLandmarksIfChanged(in: region(span: 0.01), mapView: mapView),
+                           "Nothing changed, so pins must not be rebuilt")
+
+            // A discovery changes what pins show, so it must rebuild.
+            store.checkDiscovery(newCell: GridMath.cellID(
+                for: CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)))
+            XCTAssertTrue(coordinator.refreshLandmarksIfChanged(in: region(span: 0.01), mapView: mapView))
+            XCTAssertEqual(overlayView.pins.first?.isDiscovered, true)
+
+            coordinator.gridSettings.showLandmarks = false
+            XCTAssertTrue(coordinator.refreshLandmarksIfChanged(in: region(span: 0.01), mapView: mapView))
+            XCTAssertEqual(overlayView.pins.count, 0)
+        }
+    }
 }

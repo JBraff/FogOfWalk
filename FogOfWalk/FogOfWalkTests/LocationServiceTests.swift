@@ -298,6 +298,22 @@ final class LocationServiceTests: XCTestCase {
         }
     }
 
+    /// Regression: the launch re-arm (which also runs for scene-less background relaunches)
+    /// was logged as `foreground_rearm`, misleading Study lifecycle evidence.
+    func testRestartIfAuthorizedRecordsWhyItRan() async {
+        await MainActor.run {
+            let mock = MockLocationManager()
+            mock.authorizationStatus = .authorizedAlways
+            let diagnostics = RearmRecordingDiagnostics()
+            let service = LocationService(manager: mock, diagnostics: diagnostics, isStudyApp: true,
+                                          defaults: UserDefaults(suiteName: "fog-rearm-\(UUID().uuidString)")!)
+            service.restartIfAuthorized(reason: .launch)
+            service.restartIfAuthorized()
+            XCTAssertEqual(diagnostics.lifecycle.filter { ["launch_rearm", "foreground_rearm"].contains($0) },
+                           ["launch_rearm", "foreground_rearm"])
+        }
+    }
+
     func testRestartIfAuthorizedDoesNothingWhenNotAlwaysAuthorized() async {
         await MainActor.run {
             let mock = MockLocationManager()
@@ -345,4 +361,11 @@ final class LocationServiceTests: XCTestCase {
         }
         await fulfillment(of: [expectation], timeout: 2)
     }
+}
+
+private final class RearmRecordingDiagnostics: LocationDiagnosticRecording {
+    private(set) var lifecycle: [String] = []
+    func recordLifecycle(_ name: String, detail: String?) { lifecycle.append(name) }
+    func recordBatch(_ locations: [CLLocation], receivedAt: Date, sessionStartedAt: Date?) {}
+    func recordDownstream(cell: CellID, isNew: Bool, discoveries: Int, dayRollover: Bool) {}
 }

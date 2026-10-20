@@ -121,6 +121,94 @@ final class ExplorationStoreTests: XCTestCase {
         }
     }
 
+    /// Regression: recovery destroyed the store after any load error once the copies
+    /// succeeded, so a transient failure on a healthy file wiped the user's history.
+    func testOnlyUnreadableStoreErrorsPermitReset() async {
+        await MainActor.run {
+            func wrapped(_ underlying: NSError) -> NSError {
+                NSError(domain: NSCocoaErrorDomain, code: NSPersistentStoreOpenError,
+                        userInfo: [NSUnderlyingErrorKey: underlying])
+            }
+            let resettable: [NSError] = [
+                NSError(domain: NSCocoaErrorDomain, code: NSFileReadCorruptFileError),
+                NSError(domain: NSCocoaErrorDomain, code: NSPersistentStoreIncompatibleVersionHashError),
+                NSError(domain: NSCocoaErrorDomain, code: NSMigrationMissingSourceModelError),
+                NSError(domain: NSCocoaErrorDomain, code: NSFileReadUnknownError,
+                        userInfo: [NSSQLiteErrorDomain: 26]),
+                wrapped(NSError(domain: NSSQLiteErrorDomain, code: 11)),
+            ]
+            let transient: [NSError] = [
+                NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError),
+                NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError),
+                NSError(domain: NSCocoaErrorDomain, code: NSFileReadUnknownError,
+                        userInfo: [NSSQLiteErrorDomain: 14]), // SQLITE_CANTOPEN
+                wrapped(NSError(domain: NSSQLiteErrorDomain, code: 10)), // SQLITE_IOERR
+                NSError(domain: NSPOSIXErrorDomain, code: Int(EACCES)),
+            ]
+            for error in resettable {
+                XCTAssertTrue(ExplorationStore.isUnreadableStoreError(error), "\(error)")
+            }
+            for error in transient {
+                XCTAssertFalse(ExplorationStore.isUnreadableStoreError(error), "\(error)")
+            }
+        }
+    }
+
+    /// A healthy store that cannot be opened right now must be left exactly as it was.
+    func testUnopenableHealthyStoreIsLeftUntouchedAndDisablesWrites() async throws {
+        let dir = try makeTempDirectory()
+        let url = dir.appendingPathComponent("Fog.sqlite")
+        try await MainActor.run {
+            let store = ExplorationStore(storeURL: url)
+            store.configure()
+            XCTAssertTrue(store.addCell(CellID(x: 7, y: 7)))
+            for persistent in store.container.persistentStoreCoordinator.persistentStores {
+                try store.container.persistentStoreCoordinator.remove(persistent)
+            }
+        }
+        let before = try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()
+        let mainBytes = try Data(contentsOf: url)
+        // No read permission on the directory or files: an environmental failure, not corruption.
+        for name in before {
+            try FileManager.default.setAttributes([.posixPermissions: 0o000],
+                                                  ofItemAtPath: dir.appendingPathComponent(name).path)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: dir.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+            for name in before {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                                       ofItemAtPath: dir.appendingPathComponent(name).path)
+            }
+        }
+
+        await MainActor.run {
+            let store = ExplorationStore(storeURL: url) { _, _ in
+                XCTFail("A store that is not unreadable must not be copied or reset")
+            }
+            XCTAssertNotNil(store.loadError)
+            XCTAssertEqual(store.recoveryNotice?.storeIsUsable, false)
+            XCTAssertEqual(store.recoveryNotice?.backupURLs, [])
+            store.configure()
+            XCTAssertFalse(store.addCell(CellID(x: 1, y: 1)))
+        }
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+        for name in before {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                                  ofItemAtPath: dir.appendingPathComponent(name).path)
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted(), before)
+        XCTAssertEqual(try Data(contentsOf: url), mainBytes)
+        await MainActor.run {
+            let reopened = ExplorationStore(storeURL: url)
+            XCTAssertNil(reopened.loadError)
+            reopened.configure()
+            XCTAssertEqual(reopened.visitedCellsCache, [CellID(x: 7, y: 7)],
+                           "History must survive once the store can be opened again")
+        }
+    }
+
     func testStoreBackupNeverOverwritesAnEarlierBackup() async throws {
         let url = try makeTempDirectory().appendingPathComponent("Fog.sqlite")
         try Data("first".utf8).write(to: url)
