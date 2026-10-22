@@ -156,8 +156,7 @@ final class DiscoveryStatsModel {
             if let rawState = cell.state, let state = USState.canonicalFullName(for: rawState) {
                 allStateCells[state, default: []].append(cellID)
             }
-            if let country = cell.country?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !country.isEmpty, country.caseInsensitiveCompare("Unknown") != .orderedSame {
+            if let country = LocalityGeocoder.resolvedCountry(cell.country) {
                 allCountryCells[country, default: []].append(cellID)
             }
 

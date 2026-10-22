@@ -479,6 +479,45 @@ final class LocalityGeocoderTests: XCTestCase {
         }
     }
 
+    func testResolvedCountryRejectsBlankAndUnknownLabels() async {
+        await MainActor.run {
+            for raw in [nil, "", "  ", "\n", "Unknown", "unknown", " UNKNOWN "] as [String?] {
+                XCTAssertNil(LocalityGeocoder.resolvedCountry(raw), "\(String(describing: raw))")
+            }
+            XCTAssertEqual(LocalityGeocoder.resolvedCountry(" France "), "France")
+        }
+    }
+
+    func testBlankPlacemarkCountryIsNotStoredAndWhitespaceCountryIsRepaired() async {
+        // A whitespace-only country counts as unresolved: enqueue requests it, and a blank
+        // placemark country leaves it unchanged rather than overwriting it with another blank.
+        let blankCalled = XCTestExpectation(description: "blank placemark geocoded")
+        let blank = MockGeocoder(country: "  ", onCall: { blankCalled.fulfill() })
+        let context = await MainActor.run {
+            let container = makeInMemoryContainer()
+            let context = container.viewContext
+            let cell = insertCell(in: context, locality: "ExistingTown", country: " ")
+            LocalityGeocoder(geocoder: blank, requestDelay: .zero).enqueue(cell)
+            return context
+        }
+        await fulfillment(of: [blankCalled], timeout: 5)
+        try? await Task.sleep(for: .milliseconds(100))
+
+        let repairCalled = XCTestExpectation(description: "country repaired")
+        let repair = MockGeocoder(country: " Canada ", onCall: { repairCalled.fulfill() })
+        await MainActor.run {
+            let cell = try! context.fetch(VisitedCell.fetchRequest()).first!
+            XCTAssertEqual(cell.country, " ")
+            LocalityGeocoder(geocoder: repair, requestDelay: .zero).enqueue(cell)
+        }
+        await fulfillment(of: [repairCalled], timeout: 5)
+        try? await Task.sleep(for: .milliseconds(100))
+        await MainActor.run {
+            let cell = try! context.fetch(VisitedCell.fetchRequest()).first!
+            XCTAssertEqual(cell.country, "Canada")
+        }
+    }
+
     func testClusteringReducesGeocoderCalls() async {
         // Two adjacent cells share a backfill cluster and should produce one geocoder call.
         // At 50m cell size, cells (0,0) and (1,1) are ~0.00045° apart.
