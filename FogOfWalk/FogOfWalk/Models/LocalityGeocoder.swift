@@ -68,7 +68,7 @@ final class LocalityGeocoder {
     /// launch backfill, and when the queue is full it displaces the newest backfill cluster,
     /// whose cells stay untagged and are retried on a later launch.
     func enqueue(_ cell: VisitedCell) {
-        guard cell.locality == nil else { return }
+        guard cell.locality == nil || Self.needsCountry(cell.country) else { return }
         guard let ctx = cell.managedObjectContext else { return }
         let coord = GridMath.center(for: CellID(x: cell.cellX, y: cell.cellY))
         if queue.count >= Self.maxQueueSize {
@@ -88,7 +88,7 @@ final class LocalityGeocoder {
         hasBackfilled = true
         let request = VisitedCell.fetchRequest()
         request.predicate = NSPredicate(
-            format: "cellSizeMeters == %f AND (locality == nil OR state == nil OR country == nil)",
+            format: "cellSizeMeters == %f AND (locality == nil OR state == nil OR country == nil OR country ==[c] 'Unknown' OR country == '')",
             kCellSizeMeters
         )
         guard let cells = try? context.fetch(request), !cells.isEmpty else { return }
@@ -121,6 +121,11 @@ final class LocalityGeocoder {
 
     // MARK: - Private
 
+    private static func needsCountry(_ country: String?) -> Bool {
+        guard let country else { return true }
+        return country.isEmpty || country.caseInsensitiveCompare("Unknown") == .orderedSame
+    }
+
     private func processNext() {
         guard !isProcessing, !queue.isEmpty else { return }
         isProcessing = true
@@ -144,13 +149,17 @@ final class LocalityGeocoder {
             guard let p = placemarks.first else { return }
             let name    = p.locality ?? p.subAdministrativeArea ?? p.administrativeArea ?? "Unknown"
             let state   = p.administrativeArea ?? "Unknown"
-            let country = p.country ?? "Unknown"
+            let country = p.country?.trimmingCharacters(in: .whitespacesAndNewlines)
             let ctx = cluster.context
             for id in cluster.objectIDs {
                 guard let cell = try? ctx.existingObject(with: id) as? VisitedCell else { continue }
                 if cell.locality == nil { cell.locality = name }
                 if cell.state    == nil { cell.state    = state }
-                if cell.country  == nil { cell.country  = country }
+                // Missing countries must remain retryable, including the old Unknown sentinel.
+                // Never replace an existing known country with a clustered lookup.
+                if Self.needsCountry(cell.country), !Self.needsCountry(country) {
+                    cell.country = country
+                }
             }
             try? ctx.save()
         } catch {

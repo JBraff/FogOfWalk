@@ -308,7 +308,8 @@ produces:
 - A 7-day chart, current and longest streaks, and estimated distance (cell count × 50 m).
 - Locality lists per period.
 - All-time **States**, limited to the 50 US states and normalized through `USState`.
-- All-time **Countries**.
+- All-time **Countries**, excluding nil, blank, and "Unknown" labels. Unresolved cells still
+  contribute to exploration totals.
 
 Tapping a locality row navigates the map through `MapNavigationTarget`. There is **no
 "% of city explored" feature**: it was removed along with `ExplorationStore.totalCellCount`
@@ -375,7 +376,10 @@ in commit 938ef32, so ignore older docs that describe it.
   cluster (its cells stay untagged for a later launch).
 - **Geocoding:** the launch backfill groups untagged cells into
   `LocalityGeocoder.backfillClusterDegrees` (0.01°, ~1.1 km) clusters and writes one placemark's
-  names into every nil field in the cluster. Cells mislabelled by the old 0.5° clustering are not
+  names into every nil field in the cluster. Missing countries remain retryable on later
+  launches; legacy empty/"Unknown" countries are also retried and replaced only with a
+  known country. Known countries are preserved. Missing state/locality still use the
+  "Unknown" sentinel. Cells mislabelled by the old 0.5° clustering are not
   corrected. `CLGeocoder` and `MKPlacemark` are deprecated as of iOS 26, which is not yet a
   warning at the 18.6 floor.
 - **Shared Info.plist:** both identities ship the same plist, including the Study-worded

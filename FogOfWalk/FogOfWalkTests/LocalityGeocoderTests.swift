@@ -113,7 +113,7 @@ final class LocalityGeocoderTests: XCTestCase {
         await MainActor.run {
             let container = makeInMemoryContainer()
             let ctx       = container.viewContext
-            let cell      = insertCell(in: ctx, locality: "AlreadySet")
+            let cell      = insertCell(in: ctx, locality: "AlreadySet", country: "ExistingCountry")
             let geocoder  = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
             geocoder.enqueue(cell)
         }
@@ -387,10 +387,8 @@ final class LocalityGeocoderTests: XCTestCase {
         }
     }
 
-    func testBackfillFillsUnknownAndTerminatesRegeocodeLoop() async {
-        // Regression test: when the placemark lacks administrativeArea/country, the backfill
-        // must still write "Unknown" (not nil) so the predicate stops matching the cell —
-        // otherwise the cell would be re-geocoded forever on every launch.
+    func testMissingCountryRemainsRetryableOnNextLaunch() async {
+        // Missing administrative areas can be normal, but a missing country must be retryable.
         let expectation = XCTestExpectation(description: "geocoder called")
         let mock = MockGeocoder(locality: "SomeCity", onCall: { expectation.fulfill() }) // state/country default to nil
 
@@ -416,10 +414,10 @@ final class LocalityGeocoderTests: XCTestCase {
                 return
             }
             XCTAssertEqual(cell.state, "Unknown")
-            XCTAssertEqual(cell.country, "Unknown")
+            XCTAssertNil(cell.country)
         }
 
-        // A second, fresh backfill pass must find nothing left to geocode.
+        // A fresh launch retries the unresolved country.
         await MainActor.run {
             guard let ctx = context else { return }
             let geocoder2 = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
@@ -429,8 +427,55 @@ final class LocalityGeocoderTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(200))
 
         await MainActor.run {
-            XCTAssertEqual(mock.callCount, 1,
-                "Cell with 'Unknown' state/country must no longer match the backfill predicate")
+            XCTAssertEqual(mock.callCount, 2,
+                "An unresolved country must be retried on the next launch")
+        }
+    }
+
+    func testBackfillRepairsLegacyCountrySentinelsAndPreservesKnownLabels() async {
+        let called = XCTestExpectation(description: "repair cluster geocoded")
+        let mock = MockGeocoder(locality: "ReplacementTown", state: "ReplacementState",
+                                country: "Canada", onCall: { called.fulfill() })
+        let context = await MainActor.run {
+            let container = makeInMemoryContainer()
+            let context = container.viewContext
+            for (index, country) in ["Unknown", "unknown", "", "France"].enumerated() {
+                insertCell(in: context, x: Int32(index), locality: "OriginalTown",
+                           state: index == 3 ? nil : "OriginalState", country: country)
+            }
+            LocalityGeocoder(geocoder: mock, requestDelay: .zero)
+                .geocodeUntaggedCells(context: context)
+            return context
+        }
+        await fulfillment(of: [called], timeout: 5)
+        try? await Task.sleep(for: .milliseconds(100))
+        await MainActor.run {
+            let request = VisitedCell.fetchRequest()
+            request.sortDescriptors = [NSSortDescriptor(key: "cellX", ascending: true)]
+            let cells = try! context.fetch(request)
+            XCTAssertEqual(cells.map(\.country), ["Canada", "Canada", "Canada", "France"])
+            XCTAssertTrue(cells.allSatisfy { $0.locality == "OriginalTown" })
+            XCTAssertEqual(cells.first?.state, "OriginalState")
+            XCTAssertEqual(cells.count, 4)
+        }
+    }
+
+    func testEnqueueRepairsCountryEvenWhenLocalityIsKnown() async {
+        let called = XCTestExpectation(description: "country repair requested")
+        let mock = MockGeocoder(country: "Canada", onCall: { called.fulfill() })
+        let context = await MainActor.run {
+            let container = makeInMemoryContainer()
+            let context = container.viewContext
+            let cell = insertCell(in: context, locality: "ExistingTown", country: "Unknown")
+            LocalityGeocoder(geocoder: mock, requestDelay: .zero).enqueue(cell)
+            return context
+        }
+        await fulfillment(of: [called], timeout: 5)
+        try? await Task.sleep(for: .milliseconds(100))
+        await MainActor.run {
+            let cell = try! context.fetch(VisitedCell.fetchRequest()).first!
+            XCTAssertEqual(cell.country, "Canada")
+            XCTAssertEqual(cell.locality, "ExistingTown")
         }
     }
 
