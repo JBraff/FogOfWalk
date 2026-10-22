@@ -26,6 +26,13 @@ blockers, and next actions; it does not replace these product documents.
   [Adaptive Location Tracking plan](proposals/2026-09-04-adaptive-location-tracking.md)
   remains deprecated. Lifecycle and next actions live in the authorized
   `agent-workspace/work/initiatives/fog-adaptive-location-tracking.md` record.
+- [Navigation and Explore — simple plan](proposals/2026-10-22-navigation-explore-plan.md)
+  is the owner-directed plan for map orientation, a fog peek, nearby undiscovered
+  landmarks and an optional route preview. It deliberately leaves turn-by-turn
+  navigation to Apple Maps. It is separate from the location-tracking work above.
+  The [original product brief](proposals/2026-10-22-navigation-explore-original.md)
+  is preserved as supplied. Lifecycle lives in the workspace
+  `fog-walking-companion` initiative.
 
 ## Documentation areas
 
