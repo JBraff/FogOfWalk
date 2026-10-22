@@ -13,6 +13,13 @@ blockers, and next actions; it does not replace these product documents.
   app build, and regenerating the landmark database.
 - [System architecture](SYSTEM.md) describes the enduring application structure,
   data ownership, and operational constraints.
+- [Navigation and Explore Mode — revised proposal](proposals/2026-10-22-navigation-explore-revised.md)
+  evaluates orientation, route comparison, foreground guidance and exploration
+  suggestions against the existing code and platform limits. It includes proposed
+  delivery slices and questions for engineering review; it is not accepted
+  architecture or an authorized initiative. The
+  [original product brief](proposals/2026-10-22-navigation-explore-original.md)
+  is preserved as supplied for comparison.
 - [Automatic stationary pause and walking resume](proposals/2026-10-15-automatic-stationary-pause-and-resume.md)
   is the owner-directed feasibility plan: build the smallest Study-only prototype
   and answer whether stationary tracking can pause and walking resumes automatically
