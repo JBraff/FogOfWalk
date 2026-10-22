@@ -834,7 +834,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
         }
     }
 
-    func testNilCountryAppearsAsUnknown() async {
+    func testUnresolvedCountriesAreExcludedWithoutLosingExploration() async {
         await MainActor.run {
             let container = makeInMemoryContainer()
             let ctx       = container.viewContext
@@ -845,7 +845,16 @@ final class DiscoveryStatsModelTests: XCTestCase {
             let model = DiscoveryStatsModel()
             model.refresh(context: ctx)
 
-            XCTAssertEqual(model.countryStats.first?.name, "Unknown")
+            XCTAssertTrue(model.countryStats.isEmpty)
+            XCTAssertEqual(model.allTimeTotal, 1)
+
+            for (index, country) in ["Unknown", "unknown", "", "  ", " United States "].enumerated() {
+                insertCell(in: ctx, x: Int32(index + 1), y: 0, firstVisited: now, country: country)
+            }
+            model.refresh(context: ctx)
+            XCTAssertEqual(model.countryStats.map(\.name), ["United States"])
+            XCTAssertEqual(model.countryStats.first?.count, 1)
+            XCTAssertEqual(model.allTimeTotal, 6)
         }
     }
 

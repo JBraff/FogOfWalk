@@ -44,7 +44,10 @@ which draws the overlay on MapKit's background rendering threads.
   logged as `landmark_ingest_failed` in a Study capture.
 - `LocalityGeocoder` annotates visited cells with locality, state, and country
   for the statistics sheet. Newly walked cells are geocoded ahead of the launch
-  backfill of older untagged cells.
+  backfill of older untagged cells. Country statistics exclude unresolved labels without
+  removing visits from exploration totals. Missing countries (including legacy empty or
+  "Unknown" labels) are retried by the bounded backfill on later launches and replaced
+  only when a country is returned; existing known labels are preserved.
 - `GridSettings` owns persisted presentation settings.
 - `BackupService` performs manual, versioned export/import and merge of
   exploration and discovery state. It does not provide automatic sync.

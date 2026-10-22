@@ -105,7 +105,7 @@ final class DiscoveryStatsModel {
     /// normalized to full names (e.g. "CA" and "California" both bucket under "California"),
     /// and cells with nil/unrecognized/non-US state values are excluded entirely.
     var stateStats: [LocalityStats] = []
-    /// All-time only (no per-period breakdown). Cells with nil state/country appear as "Unknown".
+    /// All-time only. Unresolved country labels are excluded; their cells still count in totals.
     var countryStats: [LocalityStats] = []
 
     func locality(for period: LocalityPeriod) -> [LocalityStats] {
@@ -153,11 +153,12 @@ final class DiscoveryStatsModel {
             // All-time buckets
             allDayCounts[day, default: 0] += 1
             allLocalityCells[locality, default: []].append(cellID)
-            let country = cell.country ?? "Unknown"
             if let rawState = cell.state, let state = USState.canonicalFullName(for: rawState) {
                 allStateCells[state, default: []].append(cellID)
             }
-            allCountryCells[country, default: []].append(cellID)
+            if let country = LocalityGeocoder.resolvedCountry(cell.country) {
+                allCountryCells[country, default: []].append(cellID)
+            }
 
             // Last 24 hours
             if visited >= cutoff24h { last24Count += 1 }
