@@ -24,8 +24,8 @@ blockers, and next actions; it does not replace these product documents.
   retains the earlier measurement-first study. Its measurement prerequisites and
   repetition matrix are superseded for current work. The original
   [Adaptive Location Tracking plan](proposals/2026-09-04-adaptive-location-tracking.md)
-  remains deprecated. Lifecycle and next actions live in the authorized
-  `agent-workspace/work/initiatives/fog-adaptive-location-tracking.md` record.
+  remains deprecated. Lifecycle and next actions live in the workspace's Automatic
+  Stationary Pause and Walking Resume initiative.
 - [Navigation and Explore — simple plan](proposals/2026-10-22-navigation-explore-plan.md)
   is the owner-directed plan for map orientation, a fog peek, nearby undiscovered
   landmarks and an optional route preview. It deliberately leaves turn-by-turn

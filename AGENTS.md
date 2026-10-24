@@ -2,29 +2,36 @@
 
 iOS app that overlays a "fog of war" on Apple Maps and lifts it as the user physically walks through the world. Swift (Swift 5 language mode), SwiftUI + MapKit/UIKit, Core Data, XCTest. App target deploys to iOS 18.6; test targets to 26.2. Last verified with Xcode 27.
 
-## Workspace navigation and active work
+<!-- workspace-instructions:v2 -->
+## Workspace instructions
 
-<!-- workspace-instructions:v1 -->
+At task start, locate the `agent-workspace` checkout using `AGENT_WORKSPACE_PATH`
+(the checkout itself), then `WORKSPACE_ROOT/agent-workspace`, then the direct
+sibling of this product's main Git checkout. For a managed worktree, obtain the
+main checkout from `git worktree list --porcelain`; do not assume the worktree's
+sibling is the workspace. Do not scan parent directories. Verify the candidate:
 
-At task start, locate the independent `agent-workspace` checkout: use
-`AGENT_WORKSPACE_PATH` if set (the checkout itself), else
-`$WORKSPACE_ROOT/agent-workspace` if set, else the direct sibling of this
-product's **main Git checkout**. For a managed worktree, derive the main checkout
-from `git worktree list --porcelain` before using the sibling fallback. Do not
-scan parent trees. Verify the candidate with
-`python3 <workspace>/scripts/product-instructions.py resolve --project fog-of-walk --checkout <product-root>`;
-if it is missing or mismatched, stop and report that fact. Then read its
-`AGENTS.md` and `registry.yaml`, even for Fog-only work. Load only the
-relevant initiative, runbook, and Fog documentation. Durable product context
-starts at `docs/README.md` and `docs/SYSTEM.md`.
+```sh
+python3 <agent-workspace>/scripts/product-instructions.py resolve --project fog-of-walk --checkout <product-root>
+```
 
-Workspace rules govern shared delivery, initiative tracking, and verified
-completion; this guide governs Fog behavior. Keep current-work lifecycle,
-milestones, blockers, and next actions in the authorized workspace initiative.
-For authorized record updates, obtain workspace write access, then run
-`./scripts/render-portfolio.sh` and `./scripts/validate.sh` there. If access is
-unavailable, report the exact pending tracking update and continue independent
-authorized product work.
+If resolution fails, stop and report the missing or mismatched workspace. Read
+the verified workspace `AGENTS.md` before product work, then only the relevant
+initiative, runbook, and product documentation. Workspace rules own shared
+delivery and initiative tracking; this product's instructions own its behavior.
+
+Initiatives are GitHub issues in the workspace's Work Project. Read and update
+them with `python3 <agent-workspace>/scripts/work-tracker.py`, as the workspace's
+`knowledge/runbooks/work-tracking.md` describes; it needs authenticated GitHub
+access, not write access to the workspace checkout. If GitHub is unavailable,
+report the exact pending tracking update and continue independent authorized
+product work. Reading workspace rules does not grant write access to that
+checkout: request it when an authorized workspace edit needs it. Keep this
+repository's patch and commit separate from the workspace's.
+<!-- /workspace-instructions -->
+
+For Fog-only work, also read the workspace `registry.yaml`. Durable product
+context starts at `docs/README.md` and `docs/SYSTEM.md`.
 
 ---
 
