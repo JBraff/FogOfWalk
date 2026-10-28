@@ -4,78 +4,74 @@ import CoreData
 import CoreLocation
 @testable import FogOfWalk
 
-/// Tests for Coordinator.gestureTransform — the pure-math function that converts
-/// a (referenceRegion → currentRegion) delta into a CATransform3D for the overlay
-/// layers. No MKMapView is needed because the reference-center screen point is
-/// passed in directly.
+/// Tests for Coordinator.gestureTransform — the pure-math function that converts where the
+/// reference center and probe coordinates are on screen now into a CATransform3D for the pin
+/// overlay. No MKMapView is needed because those screen points are passed in directly.
 final class GestureTransformTests: XCTestCase {
 
-    let viewCenter = CGPoint(x: 200, y: 200)
-    let baseSpan   = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+    let viewCenter  = CGPoint(x: 200, y: 200)
+    let probeOffset = CGVector(dx: 100, dy: 0)
 
     // MARK: - Helpers
 
-    /// Applies t to a point, treating the CATransform3D as a 2-D affine.
-    func apply(_ t: CATransform3D, to point: CGPoint) -> CGPoint {
+    /// Applies t to a point relative to the layer's center (its anchor point), treating the
+    /// CATransform3D as a 2-D affine, and returns the screen point.
+    func apply(_ t: CATransform3D, toScreen point: CGPoint) -> CGPoint {
         // CATransform3D: m11,m12,m21,m22 are the 2-D linear part; m41,m42 are tx,ty.
-        let x = Double(point.x) * t.m11 + Double(point.y) * t.m21 + t.m41
-        let y = Double(point.x) * t.m12 + Double(point.y) * t.m22 + t.m42
-        return CGPoint(x: x, y: y)
+        let x = Double(point.x - viewCenter.x)
+        let y = Double(point.y - viewCenter.y)
+        return CGPoint(x: x * t.m11 + y * t.m21 + t.m41 + viewCenter.x,
+                       y: x * t.m12 + y * t.m22 + t.m42 + viewCenter.y)
     }
 
-    // MARK: - Pure pan (same span, shifted center)
+    /// The transform for a map whose reference center now appears at `center` and whose
+    /// probe point now appears at `probe`.
+    func transform(center: CGPoint, probe: CGPoint) -> CATransform3D {
+        MapContainerView.Coordinator.gestureTransform(
+            referenceCenterScreen: center,
+            referenceProbeScreen: probe,
+            viewCenter: viewCenter,
+            probeOffset: probeOffset
+        )
+    }
+
+    var referenceProbe: CGPoint {
+        CGPoint(x: viewCenter.x + probeOffset.dx, y: viewCenter.y + probeOffset.dy)
+    }
+
+    func assertPoint(_ actual: CGPoint, _ expected: CGPoint, _ message: String,
+                     file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(actual.x, expected.x, accuracy: 1e-6, message, file: file, line: line)
+        XCTAssertEqual(actual.y, expected.y, accuracy: 1e-6, message, file: file, line: line)
+    }
+
+    // MARK: - Pure pan (same scale, shifted center)
 
     func testPurePanProducesTranslationOnly() {
-        // Reference center was at viewCenter. Now the reference center appears 30 pts
-        // to the right and 20 pts down on screen (map panned left-up).
-        let refCenterNow = CGPoint(x: viewCenter.x + 30, y: viewCenter.y + 20)
+        // The reference center now appears 30 pts right and 20 pts down (map panned).
+        let t = transform(center: CGPoint(x: 230, y: 220), probe: CGPoint(x: 330, y: 220))
 
-        let t = MapContainerView.Coordinator.gestureTransform(
-            referenceCenterScreen: refCenterNow,
-            viewCenter: viewCenter,
-            referenceSpan: baseSpan,
-            currentSpan: baseSpan   // same span → scale = 1
-        )
-
-        // Scale should be 1×1.
-        XCTAssertEqual(t.m11, 1.0, accuracy: 1e-6, "No-zoom: x scale must be 1")
-        XCTAssertEqual(t.m22, 1.0, accuracy: 1e-6, "No-zoom: y scale must be 1")
-
-        // Translation should match the shift.
+        XCTAssertEqual(t.m11, 1.0, accuracy: 1e-6, "No zoom: x scale must be 1")
+        XCTAssertEqual(t.m22, 1.0, accuracy: 1e-6, "No zoom: y scale must be 1")
+        XCTAssertEqual(t.m12, 0.0, accuracy: 1e-6, "No rotation")
         XCTAssertEqual(t.m41, 30.0, accuracy: 1e-6, "tx should equal the x shift")
         XCTAssertEqual(t.m42, 20.0, accuracy: 1e-6, "ty should equal the y shift")
     }
 
     func testZeroPanProducesIdentity() {
-        // Reference center hasn't moved — should produce identity.
-        let t = MapContainerView.Coordinator.gestureTransform(
-            referenceCenterScreen: viewCenter,  // same as viewCenter
-            viewCenter: viewCenter,
-            referenceSpan: baseSpan,
-            currentSpan: baseSpan
-        )
+        let t = transform(center: viewCenter, probe: referenceProbe)
 
         XCTAssertEqual(t.m11, 1.0, accuracy: 1e-6)
         XCTAssertEqual(t.m22, 1.0, accuracy: 1e-6)
+        XCTAssertEqual(t.m12, 0.0, accuracy: 1e-6)
         XCTAssertEqual(t.m41, 0.0, accuracy: 1e-6)
         XCTAssertEqual(t.m42, 0.0, accuracy: 1e-6)
     }
 
-    // MARK: - Pure zoom (same center, different span)
+    // MARK: - Pure zoom (same center, probe moved along its axis)
 
     func testZoomInProducesScaleGreaterThanOne() {
-        // Zooming in halves the span → scale should be 2×.
-        let zoomedSpan = MKCoordinateSpan(
-            latitudeDelta:  baseSpan.latitudeDelta  / 2,
-            longitudeDelta: baseSpan.longitudeDelta / 2
-        )
-
-        let t = MapContainerView.Coordinator.gestureTransform(
-            referenceCenterScreen: viewCenter,  // no pan
-            viewCenter: viewCenter,
-            referenceSpan: baseSpan,
-            currentSpan: zoomedSpan
-        )
+        let t = transform(center: viewCenter, probe: CGPoint(x: 400, y: 200))
 
         XCTAssertEqual(t.m11, 2.0, accuracy: 1e-6, "Zoom-in 2×: x scale must be 2")
         XCTAssertEqual(t.m22, 2.0, accuracy: 1e-6, "Zoom-in 2×: y scale must be 2")
@@ -84,18 +80,7 @@ final class GestureTransformTests: XCTestCase {
     }
 
     func testZoomOutProducesScaleLessThanOne() {
-        // Zooming out doubles the span → scale should be 0.5×.
-        let zoomedSpan = MKCoordinateSpan(
-            latitudeDelta:  baseSpan.latitudeDelta  * 2,
-            longitudeDelta: baseSpan.longitudeDelta * 2
-        )
-
-        let t = MapContainerView.Coordinator.gestureTransform(
-            referenceCenterScreen: viewCenter,
-            viewCenter: viewCenter,
-            referenceSpan: baseSpan,
-            currentSpan: zoomedSpan
-        )
+        let t = transform(center: viewCenter, probe: CGPoint(x: 250, y: 200))
 
         XCTAssertEqual(t.m11, 0.5, accuracy: 1e-6, "Zoom-out 0.5×: x scale must be 0.5")
         XCTAssertEqual(t.m22, 0.5, accuracy: 1e-6, "Zoom-out 0.5×: y scale must be 0.5")
@@ -105,23 +90,52 @@ final class GestureTransformTests: XCTestCase {
 
     func testCombinedPanAndZoom() {
         // Pan by (50, -30) and zoom in 2×.
-        let refCenterNow = CGPoint(x: viewCenter.x + 50, y: viewCenter.y - 30)
-        let zoomedSpan = MKCoordinateSpan(
-            latitudeDelta:  baseSpan.latitudeDelta  / 2,
-            longitudeDelta: baseSpan.longitudeDelta / 2
-        )
-
-        let t = MapContainerView.Coordinator.gestureTransform(
-            referenceCenterScreen: refCenterNow,
-            viewCenter: viewCenter,
-            referenceSpan: baseSpan,
-            currentSpan: zoomedSpan
-        )
+        let t = transform(center: CGPoint(x: 250, y: 170), probe: CGPoint(x: 450, y: 170))
 
         XCTAssertEqual(t.m11, 2.0, accuracy: 1e-6, "Combined: x scale must be 2")
         XCTAssertEqual(t.m22, 2.0, accuracy: 1e-6, "Combined: y scale must be 2")
         XCTAssertEqual(t.m41, 50.0,  accuracy: 1e-6, "Combined: tx must be 50")
         XCTAssertEqual(t.m42, -30.0, accuracy: 1e-6, "Combined: ty must be -30")
+    }
+
+    // MARK: - Rotation
+
+    /// Regression: the transform handled only pan and zoom, so pins drifted off their
+    /// landmarks whenever the map rotated, including continuously in heading-up tracking.
+    func testRotationKeepsPinsOnTheirCoordinates() {
+        // The map turned 90° clockwise on screen about its center: the probe, which was to
+        // the right of center, is now below it.
+        let t = transform(center: viewCenter, probe: CGPoint(x: 200, y: 300))
+
+        assertPoint(apply(t, toScreen: viewCenter), viewCenter, "Center stays put")
+        assertPoint(apply(t, toScreen: referenceProbe), CGPoint(x: 200, y: 300),
+                    "A pin drawn at the probe follows it below the center")
+        // A pin drawn 50 pts above center ends up 50 pts right of center.
+        assertPoint(apply(t, toScreen: CGPoint(x: 200, y: 150)), CGPoint(x: 250, y: 200),
+                    "Every pin rotates with the map")
+    }
+
+    func testCounterClockwiseRotation() {
+        // 45° counter-clockwise on screen: the probe moves up and to the left of its old spot.
+        let d = 100 / sqrt(2.0)
+        let probe = CGPoint(x: viewCenter.x + d, y: viewCenter.y - d)
+        let t = transform(center: viewCenter, probe: probe)
+
+        assertPoint(apply(t, toScreen: referenceProbe), probe, "Probe follows the rotation")
+        XCTAssertEqual(t.m11, cos(-Double.pi / 4), accuracy: 1e-6)
+        XCTAssertEqual(t.m12, sin(-Double.pi / 4), accuracy: 1e-6)
+    }
+
+    func testRotationWithPanAndZoom() {
+        // Rotate 90° clockwise, zoom out to 0.5× and pan the center to (260, 180).
+        let center = CGPoint(x: 260, y: 180)
+        let t = transform(center: center, probe: CGPoint(x: 260, y: 230))
+
+        assertPoint(apply(t, toScreen: viewCenter), center, "Center follows the pan")
+        assertPoint(apply(t, toScreen: referenceProbe), CGPoint(x: 260, y: 230),
+                    "Probe follows the rotation and zoom")
+        assertPoint(apply(t, toScreen: CGPoint(x: 100, y: 200)), CGPoint(x: 260, y: 130),
+                    "A pin left of center ends up above it at half the distance")
     }
 }
 

@@ -30,13 +30,23 @@ struct MapContainerView: UIViewRepresentable {
         // Map fills the container.
         let mapView               = MKMapView(frame: container.bounds)
         mapView.delegate          = context.coordinator
-        Self.applyLocationDisplay(to: mapView, enabled: locationService.usesMapLocation)
-        locationService.installStudyMapControl { [weak mapView] enabled in
-            guard let mapView else { return }
-            Self.applyLocationDisplay(to: mapView, enabled: enabled)
-        }
+        mapView.showsCompass      = false   // Replaced by the compass button below the tracking button.
         mapView.autoresizingMask  = [.flexibleWidth, .flexibleHeight]
         container.addSubview(mapView)
+
+        // Native recenter/follow/heading-up control, top right like Apple Maps. The compass
+        // sits under it and appears only while the map is rotated.
+        let trackingButton = Self.makeTrackingButton(for: mapView)
+        let compassButton  = MKCompassButton(mapView: mapView)
+        compassButton.compassVisibility = .adaptive
+        compassButton.translatesAutoresizingMaskIntoConstraints = false
+
+        Self.applyLocationDisplay(to: mapView, trackingButton: trackingButton,
+                                  enabled: locationService.usesMapLocation)
+        locationService.installStudyMapControl { [weak mapView, weak trackingButton] enabled in
+            guard let mapView else { return }
+            Self.applyLocationDisplay(to: mapView, trackingButton: trackingButton, enabled: enabled)
+        }
 
         // Fog is rendered by MapKit as an MKOverlay — no UIView sibling needed.
         // MapKit handles all pan/zoom compositing natively.
@@ -53,10 +63,34 @@ struct MapContainerView: UIViewRepresentable {
         container.addSubview(landmarkView)
         context.coordinator.landmarkOverlayView = landmarkView
 
+        // Controls go above the pin overlay so its hit-testing never swallows their taps.
+        container.addSubview(trackingButton)
+        container.addSubview(compassButton)
+        let guide = container.safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            trackingButton.topAnchor.constraint(equalTo: guide.topAnchor, constant: 12),
+            trackingButton.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -12),
+            trackingButton.widthAnchor.constraint(equalToConstant: 44),
+            trackingButton.heightAnchor.constraint(equalToConstant: 44),
+            compassButton.topAnchor.constraint(equalTo: trackingButton.bottomAnchor, constant: 8),
+            compassButton.centerXAnchor.constraint(equalTo: trackingButton.centerXAnchor),
+        ])
+
         return container
     }
 
-    static func applyLocationDisplay(to mapView: MKMapView, enabled: Bool) {
+    static func makeTrackingButton(for mapView: MKMapView) -> MKUserTrackingButton {
+        let button = MKUserTrackingButton(mapView: mapView)
+        button.backgroundColor    = .systemBackground.withAlphaComponent(0.9)
+        button.layer.cornerRadius = 8
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }
+
+    /// Shows or hides the blue dot and its tracking button together. Study's automatic
+    /// pause/resume and tracking-OFF modes turn MapKit's user location off, so the button
+    /// would have nothing to follow.
+    static func applyLocationDisplay(to mapView: MKMapView, trackingButton: UIView?, enabled: Bool) {
         if enabled {
             let wasDisabled = !mapView.showsUserLocation
             mapView.showsUserLocation = true
@@ -65,6 +99,15 @@ struct MapContainerView: UIViewRepresentable {
             mapView.userTrackingMode = .none
             mapView.showsUserLocation = false
         }
+        trackingButton?.isHidden = !enabled
+    }
+
+    /// Moves the map to a stats-sheet target and leaves follow mode, so the map stays where
+    /// it was sent instead of snapping back to the user. Tapping the tracking button resumes.
+    static func navigate(_ mapView: MKMapView, to target: MapNavigationTarget) {
+        mapView.setUserTrackingMode(.none, animated: false)
+        mapView.setRegion(MKCoordinateRegion(center: target.center, span: target.span),
+                          animated: true)
     }
 
     func updateUIView(_ container: UIView, context: Context) {
@@ -86,10 +129,7 @@ struct MapContainerView: UIViewRepresentable {
 
         // Navigate to target if it's new
         if let target = navigateTo, target.id != coordinator.lastNavigationTargetID {
-            mapView.setRegion(
-                MKCoordinateRegion(center: target.center, span: target.span),
-                animated: true
-            )
+            Self.navigate(mapView, to: target)
             coordinator.lastNavigationTargetID = target.id
         }
 
@@ -122,9 +162,13 @@ struct MapContainerView: UIViewRepresentable {
         weak var fogRenderer:         FogOverlayRenderer?
         weak var landmarkOverlayView: LandmarkOverlayView?
 
-        /// The map region at the last full landmark render, used to compute
-        /// the gesture transform for LandmarkOverlayView during panning.
-        private var referenceRegion: MKCoordinateRegion?
+        /// Where the overlay's center and probe point were on the map at the last full
+        /// landmark render. Tracking both through a gesture gives its pan, zoom and rotation.
+        private var referenceCenter: CLLocationCoordinate2D?
+        private var referenceProbe:  CLLocationCoordinate2D?
+
+        /// Screen offset of the probe point from the overlay's center at the reference render.
+        static let probeOffset = CGVector(dx: 100, dy: 0)
 
         /// Tracks the cell count at the last fog snapshot push so `updateUIView`
         /// can detect when the cache was populated after the renderer was created.
@@ -233,25 +277,46 @@ struct MapContainerView: UIViewRepresentable {
 
         // MARK: - Gesture transform (LandmarkOverlayView only)
 
-        /// Computes a CATransform3D for the landmark overlay during pan/zoom gestures.
+        /// Computes a CATransform3D for the landmark overlay during pan, zoom and rotation.
         /// Fog tracking is handled natively by MapKit; only LandmarkOverlayView needs this.
+        ///
+        /// At the reference render the overlay's center coordinate was drawn at `viewCenter`
+        /// and the probe coordinate at `viewCenter + probeOffset`. `referenceCenterScreen` and
+        /// `referenceProbeScreen` are where those coordinates are on screen now. The transform
+        /// (about the layer's center, its anchor point) maps both old positions onto the new
+        /// ones: the vector between them gives the scale and rotation, the center's move gives
+        /// the translation. Span ratios can't be used, because a rotated map's region is the
+        /// bounding box of the rotated view.
         ///
         /// This is a static func so the math can be unit-tested without a live MKMapView.
         static func gestureTransform(
             referenceCenterScreen: CGPoint,
+            referenceProbeScreen: CGPoint,
             viewCenter: CGPoint,
-            referenceSpan: MKCoordinateSpan,
-            currentSpan: MKCoordinateSpan
+            probeOffset: CGVector
         ) -> CATransform3D {
-            let tx = referenceCenterScreen.x - viewCenter.x
-            let ty = referenceCenterScreen.y - viewCenter.y
-            let sx = CGFloat(referenceSpan.longitudeDelta / max(currentSpan.longitudeDelta, 1e-15))
-            let sy = CGFloat(referenceSpan.latitudeDelta  / max(currentSpan.latitudeDelta,  1e-15))
+            let referenceLength = hypot(probeOffset.dx, probeOffset.dy)
+            guard referenceLength > 0 else { return CATransform3DIdentity }
+            let dx = referenceProbeScreen.x - referenceCenterScreen.x
+            let dy = referenceProbeScreen.y - referenceCenterScreen.y
+            let scale = hypot(dx, dy) / referenceLength
+            let angle = atan2(dy, dx) - atan2(probeOffset.dy, probeOffset.dx)
 
             var t = CATransform3DIdentity
-            t = CATransform3DTranslate(t, tx, ty, 0)
-            t = CATransform3DScale(t, sx, sy, 1)
+            t = CATransform3DTranslate(t, referenceCenterScreen.x - viewCenter.x,
+                                          referenceCenterScreen.y - viewCenter.y, 0)
+            t = CATransform3DScale(t, scale, scale, 1)
+            t = CATransform3DRotate(t, angle, 0, 0, 1)
             return t
+        }
+
+        /// Records the coordinates under the overlay's center and probe point, the baseline
+        /// for the next gesture's transform.
+        private func setReference(mapView: MKMapView, overlay: UIView) {
+            let center = CGPoint(x: overlay.bounds.midX, y: overlay.bounds.midY)
+            let probe  = CGPoint(x: center.x + Self.probeOffset.dx, y: center.y + Self.probeOffset.dy)
+            referenceCenter = mapView.convert(center, toCoordinateFrom: overlay)
+            referenceProbe  = mapView.convert(probe,  toCoordinateFrom: overlay)
         }
 
         // MARK: - MKMapViewDelegate
@@ -280,33 +345,31 @@ struct MapContainerView: UIViewRepresentable {
             CATransaction.setDisableActions(true)
             landmarkOverlayView?.layer.transform = CATransform3DIdentity
             CATransaction.commit()
-            referenceRegion = region
+            if let landmarkOverlayView { setReference(mapView: mapView, overlay: landmarkOverlayView) }
 
             searchService.searchIfNeeded(region: region,
                                         landmarkStore: landmarkStore,
                                         visitedCells: store.visitedCellsCache)
         }
 
-        /// Fires continuously during pan/zoom. Applies a GPU-composited CATransform3D
-        /// to LandmarkOverlayView so pins track the map during gestures.
+        /// Fires continuously during pan, zoom and rotation, including heading-up tracking.
+        /// Applies a GPU-composited CATransform3D to LandmarkOverlayView so pins track the
+        /// map until `regionDidChangeAnimated` redraws them.
         /// The fog overlay tracks natively — no manual transform is needed for it.
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
-            guard let ref = referenceRegion,
-                  let landmarkOverlayView else {
+            guard let landmarkOverlayView else { return }
+            guard let referenceCenter, let referenceProbe else {
                 // No reference yet — establish one so the first gesture has a baseline.
-                referenceRegion = mapView.region
+                setReference(mapView: mapView, overlay: landmarkOverlayView)
                 return
             }
 
-            let refCenterNow = mapView.convert(ref.center, toPointTo: landmarkOverlayView)
-            let viewCenter   = CGPoint(x: landmarkOverlayView.bounds.midX,
-                                       y: landmarkOverlayView.bounds.midY)
-
             let t = Coordinator.gestureTransform(
-                referenceCenterScreen: refCenterNow,
-                viewCenter: viewCenter,
-                referenceSpan: ref.span,
-                currentSpan: mapView.region.span
+                referenceCenterScreen: mapView.convert(referenceCenter, toPointTo: landmarkOverlayView),
+                referenceProbeScreen:  mapView.convert(referenceProbe,  toPointTo: landmarkOverlayView),
+                viewCenter: CGPoint(x: landmarkOverlayView.bounds.midX,
+                                    y: landmarkOverlayView.bounds.midY),
+                probeOffset: Self.probeOffset
             )
 
             landmarkOverlayView.layer.transform = t

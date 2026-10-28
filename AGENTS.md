@@ -87,7 +87,8 @@ FogOfWalk/
       BundledLandmarkSource.swift    # SQLite R-tree query over landmarks.sqlite
       LandmarkSearchService.swift    # Rate-limited landmark ingest as the map region changes
     Views/
-      MapContainerView.swift         # UIViewRepresentable: MKMapView + FogOverlay + LandmarkOverlayView; Coordinator
+      MapContainerView.swift         # UIViewRepresentable: MKMapView + FogOverlay + LandmarkOverlayView +
+                                     # top-right tracking and compass buttons; Coordinator
       FogOverlay.swift               # FogOverlay (MKOverlay), FogRenderer (pure CG), FogOverlayRenderer
       LandmarkOverlayView.swift      # UIView sibling: discovered pins + "?" hints, tap hit-testing
       LandmarkDetailView.swift       # Sheet for a tapped discovered pin
