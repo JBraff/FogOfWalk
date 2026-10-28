@@ -310,13 +310,24 @@ struct MapContainerView: UIViewRepresentable {
             return t
         }
 
+        /// The overlay layer's anchor (its center) in the map view's coordinates. Every
+        /// gesture point is measured in the map view, never in the overlay: UIKit's
+        /// conversion into the overlay includes the transform already applied to it, so each
+        /// update would see only the change since the last one.
+        private static func overlayCenter(_ overlay: UIView, in mapView: MKMapView) -> CGPoint {
+            guard let superview = overlay.superview else {
+                return CGPoint(x: mapView.bounds.midX, y: mapView.bounds.midY)
+            }
+            return mapView.convert(overlay.center, from: superview)
+        }
+
         /// Records the coordinates under the overlay's center and probe point, the baseline
         /// for the next gesture's transform.
         private func setReference(mapView: MKMapView, overlay: UIView) {
-            let center = CGPoint(x: overlay.bounds.midX, y: overlay.bounds.midY)
+            let center = Self.overlayCenter(overlay, in: mapView)
             let probe  = CGPoint(x: center.x + Self.probeOffset.dx, y: center.y + Self.probeOffset.dy)
-            referenceCenter = mapView.convert(center, toCoordinateFrom: overlay)
-            referenceProbe  = mapView.convert(probe,  toCoordinateFrom: overlay)
+            referenceCenter = mapView.convert(center, toCoordinateFrom: mapView)
+            referenceProbe  = mapView.convert(probe,  toCoordinateFrom: mapView)
         }
 
         // MARK: - MKMapViewDelegate
@@ -365,10 +376,9 @@ struct MapContainerView: UIViewRepresentable {
             }
 
             let t = Coordinator.gestureTransform(
-                referenceCenterScreen: mapView.convert(referenceCenter, toPointTo: landmarkOverlayView),
-                referenceProbeScreen:  mapView.convert(referenceProbe,  toPointTo: landmarkOverlayView),
-                viewCenter: CGPoint(x: landmarkOverlayView.bounds.midX,
-                                    y: landmarkOverlayView.bounds.midY),
+                referenceCenterScreen: mapView.convert(referenceCenter, toPointTo: mapView),
+                referenceProbeScreen:  mapView.convert(referenceProbe,  toPointTo: mapView),
+                viewCenter: Self.overlayCenter(landmarkOverlayView, in: mapView),
                 probeOffset: Self.probeOffset
             )
 

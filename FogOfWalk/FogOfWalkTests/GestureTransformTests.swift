@@ -139,6 +139,80 @@ final class GestureTransformTests: XCTestCase {
     }
 }
 
+// MARK: - Successive rotation updates through a real MKMapView
+
+/// Drives `Coordinator.mapViewDidChangeVisibleRegion` with a real `MKMapView` and sibling
+/// `LandmarkOverlayView`, as `MapContainerView` lays them out. The pure-math tests above can't
+/// catch a reference point measured through the overlay's existing transform.
+///
+/// `async` + `await MainActor.run { }` because the coordinator holds `@MainActor @Observable`
+/// stores — see `RefreshLandmarksZoomTests`.
+final class GestureTransformMapTests: XCTestCase {
+
+    /// Regression: points were converted into the overlay, whose transform already held the
+    /// previous update's rotation, so a turn from 30° to 31° produced a 1° transform and pins
+    /// drifted during continuous rotation.
+    func testPinsStayOnTheirCoordinatesThroughSuccessiveRotations() async {
+        await MainActor.run {
+            let bounds    = CGRect(x: 0, y: 0, width: 400, height: 800)
+            let container = UIView(frame: bounds)
+            let mapView   = MKMapView(frame: bounds)
+            let overlay   = LandmarkOverlayView(frame: bounds)
+            container.addSubview(mapView)
+            container.addSubview(overlay)
+
+            let landmarkContainer = NSPersistentContainer(name: "FogOfWalk")
+            let desc = NSPersistentStoreDescription()
+            desc.type = NSInMemoryStoreType
+            landmarkContainer.persistentStoreDescriptions = [desc]
+            landmarkContainer.loadPersistentStores { _, _ in }
+            let coordinator = MapContainerView.Coordinator(
+                store: ExplorationStore(),
+                gridSettings: GridSettings(),
+                landmarkStore: LandmarkStore(container: landmarkContainer),
+                searchService: LandmarkSearchService()
+            )
+            coordinator.landmarkOverlayView = overlay
+
+            mapView.setRegion(MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060),
+                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)), animated: false)
+            // The first callback establishes the north-up reference render.
+            coordinator.mapViewDidChangeVisibleRegion(mapView)
+
+            // A pin drawn at this point of the untransformed overlay.
+            let drawnAt  = CGPoint(x: 300, y: 150)
+            let landmark = mapView.convert(drawnAt, toCoordinateFrom: mapView)
+
+            for heading in [30.0, 31.0, 31.0, 30.0, 45.0] {
+                let camera = mapView.camera.copy() as! MKMapCamera
+                camera.heading = heading
+                mapView.setCamera(camera, animated: false)
+                XCTAssertEqual(mapView.camera.heading, heading, accuracy: 0.5,
+                               "Precondition: the map took heading \(heading)°")
+
+                coordinator.mapViewDidChangeVisibleRegion(mapView)
+
+                let shown    = displayed(drawnAt, by: overlay)
+                let expected = mapView.convert(landmark, toPointTo: container)
+                XCTAssertEqual(shown.x, expected.x, accuracy: 1, "x at heading \(heading)°")
+                XCTAssertEqual(shown.y, expected.y, accuracy: 1, "y at heading \(heading)°")
+            }
+        }
+    }
+
+    /// Where a point drawn in the overlay appears in its superview, after the layer transform
+    /// (applied about the layer's center, its anchor point).
+    @MainActor
+    func displayed(_ point: CGPoint, by view: UIView) -> CGPoint {
+        let t = view.layer.transform
+        let x = Double(point.x - view.bounds.midX)
+        let y = Double(point.y - view.bounds.midY)
+        return CGPoint(x: x * t.m11 + y * t.m21 + t.m41 + view.center.x,
+                       y: x * t.m12 + y * t.m22 + t.m42 + view.center.y)
+    }
+}
+
 // MARK: - refreshLandmarks zoom gating
 
 /// `Coordinator.refreshLandmarks` decides whether landmark pins are drawn at all. The
