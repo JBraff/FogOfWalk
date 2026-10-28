@@ -143,15 +143,18 @@ final class StudyTrackingControlTests: XCTestCase {
                 isStudyApp: true, defaults: defaults
             )
             let map = ControlTestMapView()
-            MapContainerView.applyLocationDisplay(to: map, enabled: true)
+            let button = MapContainerView.makeTrackingButton(for: map)
+            MapContainerView.applyLocationDisplay(to: map, trackingButton: button, enabled: true)
             service.installStudyMapControl { enabled in
-                MapContainerView.applyLocationDisplay(to: map, enabled: enabled)
+                MapContainerView.applyLocationDisplay(to: map, trackingButton: button, enabled: enabled)
             }
             XCTAssertFalse(map.showsUserLocation)
             XCTAssertEqual(map.userTrackingMode, .none)
+            XCTAssertTrue(button.isHidden, "Tracking OFF leaves the button nothing to follow")
 
             XCTAssertTrue(service.setStudyTrackingDisabled(false))
             XCTAssertTrue(map.showsUserLocation)
+            XCTAssertFalse(button.isHidden)
             // MapKit can decline .follow when the simulator has no authorized fix.
             // Verify our request, while checking the real OFF flags below.
             XCTAssertEqual(map.lastRequestedTrackingMode, .follow)
@@ -159,6 +162,7 @@ final class StudyTrackingControlTests: XCTestCase {
             XCTAssertTrue(service.setStudyTrackingDisabled(true))
             XCTAssertFalse(map.showsUserLocation)
             XCTAssertEqual(map.userTrackingMode, .none)
+            XCTAssertTrue(button.isHidden)
         }
     }
 
