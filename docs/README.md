@@ -27,10 +27,10 @@ blockers, and next actions; it does not replace these product documents.
   remains deprecated. Lifecycle and next actions live in the workspace's Automatic
   Stationary Pause and Walking Resume initiative.
 - [Landmark map responsiveness: investigation and options](proposals/2026-10-28-landmark-map-responsiveness.md)
-  recommends one native MapKit annotation prototype, focused regression tests
-  and one phone check. Overlay repairs remain fallbacks. It is a proposal, not
-  an accepted rendering change.
-  The [simulator probe record](evidence/landmark-rendering-investigation.md)
+  describes the native MapKit annotation approach now implemented, with focused
+  regression tests and one owner Release phone comparison still required. See the
+  [implementation verification](evidence/native-landmark-annotations.md) for checks
+  and the remaining phone procedure. The [original simulator probe record](evidence/landmark-rendering-investigation.md)
   preserves reproducible touch-routing and redraw-order evidence.
 - [Navigation and Explore — simple plan](proposals/2026-10-22-navigation-explore-plan.md)
   is the owner-directed plan for map orientation, a fog peek, nearby undiscovered

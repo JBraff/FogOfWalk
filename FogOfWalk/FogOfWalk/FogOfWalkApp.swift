@@ -34,48 +34,60 @@ struct FogOfWalkApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environment(store)
-                .environment(gridSettings)
-                .environment(locationService)
-                .environment(geocoder)
-                .environment(landmarkStore)
-                .environment(searchService)
-                .task {
-                    // Requests permission if needed. Already-authorized tracking was
-                    // re-armed in `init`, which also runs for scene-less background launches.
-                    locationService.requestPermissionAndStart()
-                    locationService.recordStudyTrackingState()
-
-                    // Backfill any existing cells that don't have a locality yet.
-                    geocoder.geocodeUntaggedCells(context: store.viewContext)
-
-                    // Self-heal any discovery the per-cell path can't reach: a landmark whose
-                    // discovery save was rolled back, or one that a since-fixed bug filtered
-                    // out. Its cell will never be "new" again, so without this sweep the
-                    // discovery would be lost permanently. `store.configure()` ran in `init`,
-                    // so `visitedCellsCache` is populated.
-                    //
-                    // The result is deliberately discarded — no haptic. This can surface a
-                    // batch of retroactive discoveries on the first launch after a fix, and a
-                    // success buzz for landmarks the user visited weeks ago would be noise.
-                    landmarkStore.sweepAllUndiscovered(visitedCells: store.visitedCellsCache)
-                }
-                .onChange(of: scenePhase) { _, newPhase in
-                    LocationStudyDiagnostics.shared.recordLifecycle(
-                        "scene_phase", detail: "\(newPhase)"
-                    )
-                    // Safety net: re-arm tracking whenever the app returns to the
-                    // foreground, in case location updates silently stopped while
-                    // backgrounded. `.task` above only fires once per process launch,
-                    // so it won't catch this on a warm foreground.
-                    if newPhase == .active {
-                        locationService.restartIfAuthorized()
-                        // Catches a day rollover that happened while backgrounded, before
-                        // any location update arrives, so the HUD is correct on first frame.
-                        store.refreshForDayChangeIfNeeded()
-                    }
-                }
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-landmark-interaction-fixture") {
+                LandmarkInteractionFixture()
+            } else {
+                appContent
+            }
+            #else
+            appContent
+            #endif
         }
+    }
+
+    private var appContent: some View {
+        ContentView()
+            .environment(store)
+            .environment(gridSettings)
+            .environment(locationService)
+            .environment(geocoder)
+            .environment(landmarkStore)
+            .environment(searchService)
+            .task {
+                // Requests permission if needed. Already-authorized tracking was
+                // re-armed in `init`, which also runs for scene-less background launches.
+                locationService.requestPermissionAndStart()
+                locationService.recordStudyTrackingState()
+
+                // Backfill any existing cells that don't have a locality yet.
+                geocoder.geocodeUntaggedCells(context: store.viewContext)
+
+                // Self-heal any discovery the per-cell path can't reach: a landmark whose
+                // discovery save was rolled back, or one that a since-fixed bug filtered
+                // out. Its cell will never be "new" again, so without this sweep the
+                // discovery would be lost permanently. `store.configure()` ran in `init`,
+                // so `visitedCellsCache` is populated.
+                //
+                // The result is deliberately discarded — no haptic. This can surface a
+                // batch of retroactive discoveries on the first launch after a fix, and a
+                // success buzz for landmarks the user visited weeks ago would be noise.
+                landmarkStore.sweepAllUndiscovered(visitedCells: store.visitedCellsCache)
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                LocationStudyDiagnostics.shared.recordLifecycle(
+                    "scene_phase", detail: "\(newPhase)"
+                )
+                // Safety net: re-arm tracking whenever the app returns to the
+                // foreground, in case location updates silently stopped while
+                // backgrounded. `.task` above only fires once per process launch,
+                // so it won't catch this on a warm foreground.
+                if newPhase == .active {
+                    locationService.restartIfAuthorized()
+                    // Catches a day rollover that happened while backgrounded, before
+                    // any location update arrives, so the HUD is correct on first frame.
+                    store.refreshForDayChangeIfNeeded()
+                }
+            }
     }
 }

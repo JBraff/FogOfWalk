@@ -68,8 +68,19 @@ return to the main actor before mutating app state. A callback epoch discards
 late callbacks from a previous Study source or OFF state. MapKit renders fog
 tiles on background threads, so `FogOverlayRenderer` reads only the immutable
 `CellSnapshot` under its lock. Visited cells are drawn at every zoom level with
-a minimum on-screen radius of 3 points. Landmark pins are a sibling UIKit view
-and follow map gestures separately from the fog overlay.
+a minimum on-screen radius of 3 points. Landmarks are lightweight native MapKit
+annotations with reusable custom views above the fog. Their icons and labels keep a
+fixed screen size and orientation during map movement. Hints are disabled; discovered
+pins open details and deselect immediately to allow repeated taps.
+
+At settle, the coordinator preserves the existing visible-region selection, then fills
+spare capacity from already-ingested landmarks within twice the visible span. Visible
+pins take priority over buffer candidates; discoveries take priority over hints when a
+region's candidates exceed capacity. The full installed set stays within 300 annotations,
+with required display priority and no clustering. The >1-degree gate uses the visible
+region. Padding never expands ingest requests. Queries still scan the stored landmark
+array. Relevant ingest, discovery and toggle changes refresh annotations in place through
+explicit SwiftUI inputs; no manual bitmap transform or mid-gesture refill is used.
 
 ## Map orientation
 

@@ -24,7 +24,7 @@ struct LandmarkDetailView: View {
     }
 
     private var iconName: String {
-        LandmarkOverlayView.categoryIcon[landmark.category] ?? "mappin.circle.fill"
+        LandmarkAnnotationView.categoryIcon[landmark.category] ?? "mappin.circle.fill"
     }
 
     var body: some View {

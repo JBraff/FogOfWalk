@@ -56,7 +56,10 @@ struct ContentView: View {
                 },
                 navigateTo: mapTarget,
                 highlightGeneration: store.recentCellsGeneration,
-                visitedCellCount: store.visitedCellsCache.count
+                visitedCellCount: store.visitedCellsCache.count,
+                landmarkCount: landmarkStore.allLandmarks.count,
+                discoveredLandmarkCount: landmarkStore.totalDiscovered,
+                showsLandmarks: gridSettings.showLandmarks
             )
             .ignoresSafeArea()
 

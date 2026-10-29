@@ -11,7 +11,7 @@ struct WikidataLandmark: Equatable {
     let lon: Double
     /// Category string (e.g. "museum", "airport", "stadium").
     /// Matches the keys used in `LandmarkStore.categoryRadius` and
-    /// `LandmarkOverlayView.categoryIcon`.
+    /// `LandmarkAnnotationView.categoryIcon`.
     let category: String
     /// Wikimedia Commons image URL, if available.
     let imageURL: String?

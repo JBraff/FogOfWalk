@@ -87,11 +87,12 @@ FogOfWalk/
       BundledLandmarkSource.swift    # SQLite R-tree query over landmarks.sqlite
       LandmarkSearchService.swift    # Rate-limited landmark ingest as the map region changes
     Views/
-      MapContainerView.swift         # UIViewRepresentable: MKMapView + FogOverlay + LandmarkOverlayView +
+      MapContainerView.swift         # UIViewRepresentable: MKMapView + FogOverlay + native landmark annotations +
                                      # top-right recenter and compass buttons; Coordinator
       HeadingMapView.swift           # Foreground compass updates only the blue dot's direction pointer
       FogOverlay.swift               # FogOverlay (MKOverlay), FogRenderer (pure CG), FogOverlayRenderer
-      LandmarkOverlayView.swift      # UIView sibling: discovered pins + "?" hints, tap hit-testing
+      LandmarkAnnotationView.swift   # Lightweight annotations + reusable fixed-size discovered pins / inert "?" hints
+      LandmarkInteractionFixture.swift # Debug-only in-memory map for XCUITest gestures
       LandmarkDetailView.swift       # Sheet for a tapped discovered pin
       StatsView.swift                # Bottom HUD: "N new today" (toggles highlight), landmark count, Paused, buttons
       DiscoveryStatsView.swift       # Stats sheet (Swift Charts)
@@ -99,8 +100,7 @@ FogOfWalk/
       LocationPermissionBanner.swift # Banner for denied location or While Using → Always upgrade
   FogOfWalkTests/                    # XCTest unit tests: roughly one <Type>Tests.swift per production type, plus
                                      # FogOfWalkTests.swift (GridMath) and StudyTrackingControlTests.swift (Study OFF)
-  FogOfWalkUITests/                  # Template only: FogOfWalkUITests has no test methods; the launch test
-                                     # just attaches a screenshot
+  FogOfWalkUITests/                  # Native landmark gesture regression + UI launch screenshot
 docs/                                # Durable product docs; start at docs/README.md
 scripts/
   fetch_landmarks.py                 # Wikidata SPARQL → JSON
@@ -269,9 +269,12 @@ Scene geometry observation handles orientation changes even without a layout pas
 Heading callbacks carry a session ID across the actor hop: the first cached reading in
 a new session is accepted, and callbacks queued in a previous session are rejected.
 
-Fog pans and zooms natively. `LandmarkOverlayView` is a plain `UIView` sibling, so
-`mapViewDidChangeVisibleRegion(_:)` applies a manual `CATransform3D` during gestures (math in
-the static, tested `Coordinator.gestureTransform`) and `regionDidChangeAnimated` resets it.
+Fog and landmark annotations pan and zoom natively. `LandmarkAnnotationView` keeps each
+icon and label at a fixed screen size and orientation. There is no sibling pin surface or
+manual gesture transform. At settle, `Coordinator.refreshLandmarks` diffs lightweight
+annotations by Wikidata ID, reusing retained annotations and updating visible discovery
+styling in place. `ContentView` passes landmark/discovery counts and the display setting
+as explicit inputs so ingest, discovery and toggles refresh the map without requiring a new cell.
 
 ### Landmarks
 
@@ -285,7 +288,14 @@ the static, tested `Coordinator.gestureTransform`) and `regionDidChangeAnimated`
   equirectangular distance check. Its cost must not grow with the visited set. Tests assert this
   through `lastDiscoveryProbeCount`.
 - Categories: a new category needs entries in `LandmarkStore.categoryRadius`,
-  `LandmarkOverlayView.categoryIcon`, and `LandmarkDetailView.categoryLabel`.
+  `LandmarkAnnotationView.categoryIcon`, and `LandmarkDetailView.categoryLabel`.
+- Rendering selects the existing `landmarks(in:)` visible result first, then fills spare
+  capacity from a region with twice the visible span. Buffer-only discoveries precede
+  buffer-only hints when capacity is tight. The visible >1-degree gate still hides pins;
+  padding reads only already-ingested rows and never expands ingest. The installed set,
+  including padding, is capped at 300. Queries still scan all stored rows. Views use
+  required display priority without clustering. Hints are disabled; discovered selections
+  open details and immediately deselect so repeated taps work.
 - Coupled limits: `GridMath.maxIngestSpanDegrees` (1.0°) ↔ `BundledLandmarkSource` `LIMIT 500`
   (re-measure density before raising the span). `LandmarkStore.maxRenderedPins` = 300.
 - `showLandmarks` is **off by default**. Discovery always runs, and only pin display is gated
@@ -417,7 +427,7 @@ in commit 938ef32, so ignore older docs that describe it.
   deallocated outside a Task. See the headers of `LandmarkStoreTests.swift` and
   `ExplorationStoreTests.swift`.
 - **Renderer and pin-view tests are different:** `FogOverlayRendererTests` and
-  `LandmarkOverlayViewTests` mark the class `@MainActor` and use synchronous methods. Follow the
+  `LandmarkAnnotationViewTests` mark the class `@MainActor` and use synchronous methods. Follow the
   pattern of the file you're extending.
 - **`makeInMemoryContainer()` is copy-pasted, not shared.** Copies live in
   `ExplorationStoreTests`, `LandmarkStoreTests`, `DiscoveryStatsModelTests`,
@@ -431,7 +441,9 @@ in commit 938ef32, so ignore older docs that describe it.
 - **Async timing:** `LandmarkSearchServiceTests` uses a sleep-and-poll loop (the debounce doesn't
   fit expectations well), while `LocalityGeocoderTests` uses `XCTestExpectation`.
 - **Rendering helpers:** `renderFog(...)` and `pixelColor(at:in:)` (`FogOverlayRendererTests`) for
-  fog, `installCoordinateMock()` (`LandmarkOverlayViewTests`) for pins.
+  fog. `LandmarkMapGeometryTests` checks real MapKit pin placement; `LandmarkInteractionTests`
+  uses the Debug-only `-landmark-interaction-fixture` launch argument for real gestures on
+  an in-memory map. The fixture is excluded from Release builds.
 - **Hosted tests:** unit tests run inside `Fog-Of-Walk.app`, so `FogOfWalkApp.init` (real Core Data
   store, real `CLLocationManager`) runs first. A few tests touch `UserDefaults.standard`: the
   Wikidata migration flag and `showLandmarks`.
@@ -451,7 +463,7 @@ in commit 938ef32, so ignore older docs that describe it.
 xcodebuild -project FogOfWalk/FogOfWalk.xcodeproj -scheme FogOfWalk \
   -destination 'platform=iOS Simulator,name=iPhone 18 Pro' build
 
-# Full suite (unit + UI launch test)
+# Full suite (unit + landmark gestures + UI launch test)
 xcodebuild -project FogOfWalk/FogOfWalk.xcodeproj -scheme FogOfWalk \
   -destination 'platform=iOS Simulator,name=iPhone 18 Pro' test
 
@@ -461,7 +473,8 @@ xcodebuild -project FogOfWalk/FogOfWalk.xcodeproj -scheme FogOfWalk \
 ```
 
 If that simulator doesn't exist, pick one from `xcrun simctl list devices available | grep iPhone`.
-The latest recorded full-suite result is in `docs/evidence/automatic-pause-resume-prototype.md`.
+The latest landmark implementation full-suite result is in `docs/evidence/native-landmark-annotations.md`.
+Study-specific evidence remains in `docs/evidence/automatic-pause-resume-prototype.md`.
 
 - **"CoreSimulator is out of date" / "Unable to load simulator devices":** Xcode was updated and
   its first-launch components aren't installed. Fixing this takes admin rights

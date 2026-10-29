@@ -422,13 +422,8 @@ final class LandmarkStore {
 
     // MARK: - Query
 
-    /// Default cap on the number of pins handed to `LandmarkOverlayView`.
-    ///
-    /// `LandmarkOverlayView` linear-scans its pin array in `draw` (every frame), `hitTest`
-    /// (every touch) and `handleTap`, and the off-screen cull happens *after* the per-pin
-    /// coordinate conversion. Users who world-zoomed before `maxIngestSpanDegrees` existed
-    /// have up to ~15,000 rows in Core Data permanently, so the array must be bounded
-    /// regardless of how much is stored.
+    /// Cap on installed landmark annotations, including the offscreen buffer.
+    /// Candidate queries still scan all stored rows before applying this limit.
     static let maxRenderedPins = 300
 
     /// All landmarks visible within a coordinate region, for overlay rendering.
@@ -454,6 +449,20 @@ final class LandmarkStore {
         capped.append(contentsOf: visible.lazy.filter { !$0.isDiscovered }
                                              .prefix(limit - capped.count))
         return capped
+    }
+
+    /// Keep today's visible selection, then fill spare slots from a 2x-span buffer.
+    /// The buffer only reads already-ingested rows; it never expands an ingest request.
+    /// Both queries still scan all stored landmarks, and each result is capped at 300.
+    func landmarksForDisplay(in region: MKCoordinateRegion) -> [Landmark] {
+        let visible = landmarks(in: region)
+        guard visible.count < Self.maxRenderedPins else { return visible }
+        let visibleIDs = Set(visible.map { $0.identifier })
+        let padded = MKCoordinateRegion(center: region.center,
+            span: MKCoordinateSpan(latitudeDelta: region.span.latitudeDelta * 2,
+                                   longitudeDelta: region.span.longitudeDelta * 2))
+        let buffer = landmarks(in: padded).filter { !visibleIDs.contains($0.identifier) }
+        return visible + buffer.prefix(Self.maxRenderedPins - visible.count)
     }
 
     // MARK: - Migration

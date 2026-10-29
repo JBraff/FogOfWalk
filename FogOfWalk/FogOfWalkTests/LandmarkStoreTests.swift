@@ -758,6 +758,56 @@ final class LandmarkStoreTests: XCTestCase {
         }
     }
 
+    // MARK: - Buffered annotation selection
+
+    func testBufferedSelectionPreservesVisibleHintsAheadOfBufferDiscoveriesAt15000Rows() async throws {
+        try await MainActor.run {
+            let store = makeStore()
+            let region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 40, longitude: -74),
+                span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02))
+            let visible = (0..<50).map { makeWikidataLandmark(id: "Q\($0)", lat: 40, lon: -74) }
+            let buffer = (50..<500).map { makeWikidataLandmark(id: "Q\($0)", lat: 40, lon: -73.985) }
+            let distant = (500..<15000).map { makeWikidataLandmark(id: "Q\($0)", lat: 10, lon: 10) }
+            seed(store, visible + buffer + distant)
+            _ = try store.restoreDiscovered(buffer.map { ($0.id, Date()) })
+            let selected = store.landmarksForDisplay(in: region)
+            XCTAssertEqual(selected.count, 300)
+            XCTAssertEqual(selected.prefix(50).map { $0.identifier },
+                           store.landmarks(in: region).map { $0.identifier })
+            XCTAssertTrue(selected.suffix(250).allSatisfy { $0.isDiscovered })
+            XCTAssertEqual(Set(selected.map { $0.identifier }).count, 300)
+        }
+    }
+
+    func testBufferedSelectionMatchesExistingSelectionWhenVisibleRegionExceedsCap() async throws {
+        try await MainActor.run {
+            let store = makeStore()
+            let region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 40, longitude: -74),
+                span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02))
+            let buffer = (0..<400).map { makeWikidataLandmark(id: "Q\($0)", lat: 40, lon: -73.985) }
+            let visible = (400..<800).map { makeWikidataLandmark(id: "Q\($0)", lat: 40, lon: -74) }
+            seed(store, buffer + visible)
+            _ = try store.restoreDiscovered((buffer + visible.suffix(50)).map { ($0.id, Date()) })
+            XCTAssertEqual(store.landmarksForDisplay(in: region).map { $0.identifier },
+                           store.landmarks(in: region).map { $0.identifier })
+        }
+    }
+
+    func testBufferedSelectionIncludesOnlyTwoTimesSpanAndHandlesZeroAnd300Pins() async {
+        await MainActor.run {
+            let store = makeStore()
+            let region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 40, longitude: -74),
+                span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02))
+            XCTAssertTrue(store.landmarksForDisplay(in: region).isEmpty)
+            seed(store, [makeWikidataLandmark(id: "Q1", lat: 40, lon: -73.985),
+                         makeWikidataLandmark(id: "Q2", lat: 40, lon: -73.975)])
+            XCTAssertEqual(store.landmarksForDisplay(in: region).map { $0.identifier }, ["Q1"])
+            seed(store, (3..<303).map { makeWikidataLandmark(id: "Q\($0)", lat: 40, lon: -74) })
+            XCTAssertEqual(store.landmarksForDisplay(in: region).count, 300)
+            XCTAssertFalse(store.landmarksForDisplay(in: region).contains { $0.identifier == "Q1" })
+        }
+    }
+
     // MARK: - restoreDiscovered
 
     func testRestoreDiscoveredMarksKnownLandmarkDiscovered() async throws {
