@@ -50,16 +50,13 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            MapContainerView(
+            LandmarkMapView(
                 onLandmarkTapped: { id in
                     selectedLandmark = landmarkStore.allLandmarks.first(where: { $0.identifier == id })
                 },
                 navigateTo: mapTarget,
                 highlightGeneration: store.recentCellsGeneration,
-                visitedCellCount: store.visitedCellsCache.count,
-                landmarkCount: landmarkStore.allLandmarks.count,
-                discoveredLandmarkCount: landmarkStore.totalDiscovered,
-                showsLandmarks: gridSettings.showLandmarks
+                visitedCellCount: store.visitedCellsCache.count
             )
             .ignoresSafeArea()
 

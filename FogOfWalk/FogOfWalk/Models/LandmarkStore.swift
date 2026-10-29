@@ -13,6 +13,10 @@ final class LandmarkStore {
     private(set) var allLandmarks: [Landmark] = []
     /// Count of discovered landmarks for HUD display.
     private(set) var totalDiscovered: Int = 0
+    /// Includes count-neutral edits and reloads, not just insertions and discoveries.
+    private(set) var renderGeneration: UInt64 = 0
+    @ObservationIgnored private var contextChangeObserver: NSObjectProtocol?
+    @ObservationIgnored private(set) var lastDisplayProbeCount = 0
 
     private var knownIdentifiers: Set<String> = []
 
@@ -87,13 +91,32 @@ final class LandmarkStore {
     // MARK: - Dependencies
 
     private let container: NSPersistentContainer
+    private let defaults: UserDefaults?
 
     // MARK: - Init
 
-    init(container: NSPersistentContainer) {
+    init(container: NSPersistentContainer, defaults: UserDefaults? = .standard) {
         self.container = container
+        self.defaults = defaults
         purgeNonWikidataLandmarksIfNeeded()
         loadFromStore()
+        contextChangeObserver = NotificationCenter.default.addObserver(
+            forName: .NSManagedObjectContextObjectsDidChange, object: container.viewContext, queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                let keys = [NSInsertedObjectsKey, NSUpdatedObjectsKey, NSDeletedObjectsKey,
+                            NSRefreshedObjectsKey, NSInvalidatedObjectsKey]
+                let changed = notification.userInfo?[NSInvalidatedAllObjectsKey] != nil
+                    || keys.contains { key in
+                        (notification.userInfo?[key] as? Set<NSManagedObject>)?.contains { $0 is Landmark } == true
+                    }
+                if changed { self?.renderGeneration &+= 1 }
+            }
+        }
+    }
+
+    deinit {
+        if let contextChangeObserver { NotificationCenter.default.removeObserver(contextChangeObserver) }
     }
 
     /// Testability — inject a pre-configured container.
@@ -117,6 +140,7 @@ final class LandmarkStore {
     private func loadFromStore() {
         let request = Landmark.fetchRequest()
         guard let results = try? container.viewContext.fetch(request) else { return }
+        renderGeneration &+= 1
         allLandmarks = results
         knownIdentifiers = Set(results.map { $0.identifier })
         totalDiscovered = results.filter { $0.isDiscovered }.count
@@ -451,18 +475,39 @@ final class LandmarkStore {
         return capped
     }
 
-    /// Keep today's visible selection, then fill spare slots from a 2x-span buffer.
-    /// The buffer only reads already-ingested rows; it never expands an ingest request.
-    /// Both queries still scan all stored landmarks, and each result is capped at 300.
+    /// One pass keeps the existing visible selection and fills spare slots from a 2x
+    /// buffer. Candidate arrays are bounded; padding never expands ingest requests.
     func landmarksForDisplay(in region: MKCoordinateRegion) -> [Landmark] {
-        let visible = landmarks(in: region)
-        guard visible.count < Self.maxRenderedPins else { return visible }
-        let visibleIDs = Set(visible.map { $0.identifier })
-        let padded = MKCoordinateRegion(center: region.center,
-            span: MKCoordinateSpan(latitudeDelta: region.span.latitudeDelta * 2,
-                                   longitudeDelta: region.span.longitudeDelta * 2))
-        let buffer = landmarks(in: padded).filter { !visibleIDs.contains($0.identifier) }
-        return visible + buffer.prefix(Self.maxRenderedPins - visible.count)
+        let limit = Self.maxRenderedPins
+        var visible: [Landmark] = [], visibleDiscovered: [Landmark] = [], visibleHints: [Landmark] = []
+        var bufferDiscovered: [Landmark] = [], bufferHints: [Landmark] = []
+        var visibleCount = 0
+        lastDisplayProbeCount = 0
+        for landmark in allLandmarks {
+            #if DEBUG
+            lastDisplayProbeCount += 1
+            #endif
+            let latitudeDelta = abs(landmark.latitude - region.center.latitude)
+            let longitudeDelta = abs(landmark.longitude - region.center.longitude)
+            guard latitudeDelta <= region.span.latitudeDelta,
+                  longitudeDelta <= region.span.longitudeDelta else { continue }
+            if latitudeDelta <= region.span.latitudeDelta / 2
+                && longitudeDelta <= region.span.longitudeDelta / 2 {
+                visibleCount += 1
+                if visible.count < limit { visible.append(landmark) }
+                if landmark.isDiscovered {
+                    if visibleDiscovered.count < limit { visibleDiscovered.append(landmark) }
+                } else if visibleHints.count < limit { visibleHints.append(landmark) }
+            } else if landmark.isDiscovered {
+                if bufferDiscovered.count < limit { bufferDiscovered.append(landmark) }
+            } else if bufferHints.count < limit { bufferHints.append(landmark) }
+        }
+        // Below the cap preserve the legacy query's original order, including mixed hints.
+        var result = visibleCount <= limit ? visible
+            : visibleDiscovered + visibleHints.prefix(limit - visibleDiscovered.count)
+        result.append(contentsOf: bufferDiscovered.prefix(limit - result.count))
+        result.append(contentsOf: bufferHints.prefix(limit - result.count))
+        return result
     }
 
     // MARK: - Migration
@@ -472,7 +517,7 @@ final class LandmarkStore {
     /// launch whose store failed to open retries on the next launch. With no store loaded a
     /// fetch returns nothing rather than throwing, so that case is checked explicitly.
     private func purgeNonWikidataLandmarksIfNeeded() {
-        guard !UserDefaults.standard.bool(forKey: Self.wikidataMigrationKey) else { return }
+        guard !(defaults?.bool(forKey: Self.wikidataMigrationKey) ?? false) else { return }
         guard !container.persistentStoreCoordinator.persistentStores.isEmpty else { return }
 
         let ctx = container.viewContext
@@ -485,7 +530,7 @@ final class LandmarkStore {
                 old.forEach { ctx.delete($0) }
                 try ctx.save()
             }
-            UserDefaults.standard.set(true, forKey: Self.wikidataMigrationKey)
+            defaults?.set(true, forKey: Self.wikidataMigrationKey)
         } catch {
             ctx.rollback()
             print("LandmarkStore: Wikidata migration deferred: \(error)")

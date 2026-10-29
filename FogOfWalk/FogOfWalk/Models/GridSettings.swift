@@ -4,15 +4,17 @@ import Observation
 @MainActor
 @Observable
 final class GridSettings {
+    @ObservationIgnored private let defaults: UserDefaults?
+
     var highlightToday: Bool {
         didSet {
-            UserDefaults.standard.set(highlightToday, forKey: Keys.highlightToday)
+            defaults?.set(highlightToday, forKey: Keys.highlightToday)
         }
     }
 
     var showLandmarks: Bool {
         didSet {
-            UserDefaults.standard.set(showLandmarks, forKey: Keys.showLandmarks)
+            defaults?.set(showLandmarks, forKey: Keys.showLandmarks)
         }
     }
 
@@ -26,8 +28,10 @@ final class GridSettings {
         highlightToday ? Calendar.current.startOfDay(for: Date()) : nil
     }
 
-    init() {
-        highlightToday = UserDefaults.standard.bool(forKey: Keys.highlightToday)
-        showLandmarks  = UserDefaults.standard.bool(forKey: Keys.showLandmarks)
+    /// Passing nil keeps settings in memory, for isolated fixtures.
+    init(defaults: UserDefaults? = .standard) {
+        self.defaults = defaults
+        highlightToday = defaults?.bool(forKey: Keys.highlightToday) ?? false
+        showLandmarks  = defaults?.bool(forKey: Keys.showLandmarks) ?? false
     }
 }

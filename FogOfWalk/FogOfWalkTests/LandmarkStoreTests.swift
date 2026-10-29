@@ -772,6 +772,7 @@ final class LandmarkStoreTests: XCTestCase {
             _ = try store.restoreDiscovered(buffer.map { ($0.id, Date()) })
             let selected = store.landmarksForDisplay(in: region)
             XCTAssertEqual(selected.count, 300)
+            XCTAssertEqual(store.lastDisplayProbeCount, 15_000, "Each stored row must be examined once")
             XCTAssertEqual(selected.prefix(50).map { $0.identifier },
                            store.landmarks(in: region).map { $0.identifier })
             XCTAssertTrue(selected.suffix(250).allSatisfy { $0.isDiscovered })

@@ -20,8 +20,7 @@ struct MapContainerView: UIViewRepresentable {
     /// pushes a fresh fog snapshot when a cell is added.
     var visitedCellCount: Int = 0
     /// Explicit inputs ensure ingest and discovery refresh annotations even without a new cell.
-    var landmarkCount: Int = 0
-    var discoveredLandmarkCount: Int = 0
+    var landmarkGeneration: UInt64 = 0
     var showsLandmarks: Bool = false
 
     func makeCoordinator() -> Coordinator {
@@ -197,15 +196,13 @@ struct MapContainerView: UIViewRepresentable {
         /// region, so `updateUIView` can skip the rebuild when neither changed.
         struct LandmarkRenderState: Equatable {
             let showLandmarks: Bool
-            let landmarkCount: Int
-            let discoveredCount: Int
+            let generation: UInt64
         }
         private(set) var lastLandmarkRenderState: LandmarkRenderState?
 
         private var currentLandmarkRenderState: LandmarkRenderState {
             LandmarkRenderState(showLandmarks: gridSettings.showLandmarks,
-                                landmarkCount: landmarkStore.allLandmarks.count,
-                                discoveredCount: landmarkStore.totalDiscovered)
+                                generation: landmarkStore.renderGeneration)
         }
 
         init(store: ExplorationStore, gridSettings: GridSettings,
@@ -271,7 +268,7 @@ struct MapContainerView: UIViewRepresentable {
                     if annotation.update(pin: pin) {
                         // In-place discovery updates include visible views. Reused/offscreen
                         // views are configured from the latest annotation in viewFor.
-                        (mapView.view(for: annotation) as? LandmarkAnnotationView)?.configure()
+                        (mapView.view(for: annotation) as? LandmarkAnnotationView)?.configure(traits: mapView.traitCollection)
                     }
                 } else {
                     let annotation = LandmarkAnnotation(pin: pin)
@@ -305,7 +302,7 @@ struct MapContainerView: UIViewRepresentable {
                         as? LandmarkAnnotationView)
                 ?? LandmarkAnnotationView(annotation: annotation, reuseIdentifier: identifier)
             view.annotation = annotation
-            view.configure()
+            view.configure(traits: mapView.traitCollection)
             return view
         }
 
@@ -342,5 +339,22 @@ struct MapContainerView: UIViewRepresentable {
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
             (mapView as? HeadingMapView)?.updateHeadingMarker()
         }
+    }
+}
+
+/// Isolate landmark dependencies to the map while retaining explicit representable inputs
+/// on every supported iOS version. Count-neutral changes also invalidate this child.
+struct LandmarkMapView: View {
+    @Environment(LandmarkStore.self) private var landmarks
+    @Environment(GridSettings.self) private var settings
+    var onLandmarkTapped: ((String) -> Void)?
+    var navigateTo: MapNavigationTarget?
+    var highlightGeneration: UInt64
+    var visitedCellCount: Int
+
+    var body: some View {
+        MapContainerView(onLandmarkTapped: onLandmarkTapped, navigateTo: navigateTo,
+            highlightGeneration: highlightGeneration, visitedCellCount: visitedCellCount,
+            landmarkGeneration: landmarks.renderGeneration, showsLandmarks: settings.showLandmarks)
     }
 }

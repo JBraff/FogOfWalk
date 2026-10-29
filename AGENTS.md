@@ -189,7 +189,8 @@ Other flows:
 
 ### Environment objects
 
-Six `@MainActor @Observable` objects are created in `FogOfWalkApp.init`, injected at the
+Six `@MainActor @Observable` objects are created in `AppServices.init` during
+`FogOfWalkApp.init` (before any scene), injected at the
 `WindowGroup` with `.environment(...)`, and read with `@Environment(T.self)`:
 
 | Type | Role |
@@ -273,8 +274,10 @@ Fog and landmark annotations pan and zoom natively. `LandmarkAnnotationView` kee
 icon and label at a fixed screen size and orientation. There is no sibling pin surface or
 manual gesture transform. At settle, `Coordinator.refreshLandmarks` diffs lightweight
 annotations by Wikidata ID, reusing retained annotations and updating visible discovery
-styling in place. `ContentView` passes landmark/discovery counts and the display setting
-as explicit inputs so ingest, discovery and toggles refresh the map without requiring a new cell.
+styling in place. A `LandmarkMapView` child observes `LandmarkStore.renderGeneration` and
+the display setting and passes them as explicit representable inputs. This includes
+count-neutral Core Data edits without making the root screen observe every landmark change.
+Generation advances on landmark context changes and cache reloads.
 
 ### Landmarks
 
@@ -293,9 +296,12 @@ as explicit inputs so ingest, discovery and toggles refresh the map without requ
   capacity from a region with twice the visible span. Buffer-only discoveries precede
   buffer-only hints when capacity is tight. The visible >1-degree gate still hides pins;
   padding reads only already-ingested rows and never expands ingest. The installed set,
-  including padding, is capped at 300. Queries still scan all stored rows. Views use
-  required display priority without clustering. Hints are disabled; discovered selections
-  open details and immediately deselect so repeated taps work.
+  including padding, is capped at 300. One pass scans the stored rows into bounded
+  candidate arrays. Views use required display priority without clustering. Hints are
+  disabled, ignore touches and sit below discovered pins. Discovered pins preserve the
+  old 30-point icon hit radius; wide name labels pass touches outside that circle.
+  Selections open details and immediately deselect so repeated taps work. The delegate
+  supplies map traits before the first bitmap draw, avoiding a redundant pre-window draw.
 - Coupled limits: `GridMath.maxIngestSpanDegrees` (1.0°) ↔ `BundledLandmarkSource` `LIMIT 500`
   (re-measure density before raising the span). `LandmarkStore.maxRenderedPins` = 300.
 - `showLandmarks` is **off by default**. Discovery always runs, and only pin display is gated
@@ -443,7 +449,11 @@ in commit 938ef32, so ignore older docs that describe it.
 - **Rendering helpers:** `renderFog(...)` and `pixelColor(at:in:)` (`FogOverlayRendererTests`) for
   fog. `LandmarkMapGeometryTests` checks real MapKit pin placement; `LandmarkInteractionTests`
   uses the Debug-only `-landmark-interaction-fixture` launch argument for real gestures on
-  an in-memory map. The fixture is excluded from Release builds.
+  an in-memory map. The launch flag skips production service construction, so the fixture
+  never opens the normal store or starts tracking. Fixture settings and migration flags
+  are memory-only (`defaults: nil`). The fixture is excluded from Release builds.
+  `LandmarkMapObservationTests` hosts SwiftUI to verify scoped, count-neutral updates;
+  `LandmarkFixtureIsolationTests` covers the launch gate and unchanged standard defaults.
 - **Hosted tests:** unit tests run inside `Fog-Of-Walk.app`, so `FogOfWalkApp.init` (real Core Data
   store, real `CLLocationManager`) runs first. A few tests touch `UserDefaults.standard`: the
   Wikidata migration flag and `showLandmarks`.

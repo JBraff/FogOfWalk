@@ -9,27 +9,21 @@ struct LandmarkPin: Equatable {
     let coordinate: CLLocationCoordinate2D
     let isDiscovered: Bool
 
-    init(identifier: String, name: String, category: String,
-         coordinate: CLLocationCoordinate2D, isDiscovered: Bool) {
-        self.identifier = identifier
-        self.name = name
-        self.category = category
-        self.coordinate = coordinate
-        self.isDiscovered = isDiscovered
-    }
-
-    init(landmark: Landmark) {
-        self.init(identifier: landmark.identifier, name: landmark.name, category: landmark.category,
-                  coordinate: CLLocationCoordinate2D(latitude: landmark.latitude, longitude: landmark.longitude),
-                  isDiscovered: landmark.isDiscovered)
-    }
-
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.identifier == rhs.identifier && lhs.name == rhs.name && lhs.category == rhs.category
             && lhs.isDiscovered == rhs.isDiscovered
             && lhs.coordinate.latitude == rhs.coordinate.latitude
             && lhs.coordinate.longitude == rhs.coordinate.longitude
     }
+}
+
+extension LandmarkPin {
+    init(landmark: Landmark) {
+        self.init(identifier: landmark.identifier, name: landmark.name, category: landmark.category,
+                  coordinate: CLLocationCoordinate2D(latitude: landmark.latitude, longitude: landmark.longitude),
+                  isDiscovered: landmark.isDiscovered)
+    }
+
 }
 
 final class LandmarkAnnotation: NSObject, MKAnnotation {
@@ -78,7 +72,6 @@ final class LandmarkAnnotationView: MKAnnotationView {
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: LandmarkAnnotationView, _: UITraitCollection) in
             view.configure()
         }
-        configure()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -98,23 +91,38 @@ final class LandmarkAnnotationView: MKAnnotationView {
         accessibilityIdentifier = nil
     }
 
-    func configure() {
+    /// Preserve the old 30-point radius around the icon, including outside a short
+    /// image's bounds. Long name labels do not intercept neighbouring pins or the map.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard (annotation as? LandmarkAnnotation)?.pin.isDiscovered == true else { return false }
+        let iconCenter = CGPoint(x: bounds.midX, y: bounds.midY - centerOffset.y - 15)
+        return hypot(point.x - iconCenter.x, point.y - iconCenter.y) <= 30
+    }
+
+    /// The delegate supplies map traits before insertion, so the first bitmap already
+    /// matches its destination. prepareForDisplay reuses that style while unattached.
+    func configure(traits: UITraitCollection? = nil) {
         guard let pin = (annotation as? LandmarkAnnotation)?.pin else { return }
         displayPriority = .required
         clusteringIdentifier = nil
         canShowCallout = false
         isDraggable = false
         isEnabled = pin.isDiscovered
+        isUserInteractionEnabled = pin.isDiscovered
+        zPriority = pin.isDiscovered ? .max : .min
         isAccessibilityElement = pin.isDiscovered
         accessibilityTraits = pin.isDiscovered ? .button : []
         accessibilityLabel = pin.isDiscovered ? pin.name : nil
         accessibilityIdentifier = "landmark-\(pin.identifier)"
-        guard renderedPin != pin || renderedStyle != traitCollection.userInterfaceStyle else { return }
+        let inheritedStyle = traitCollection.userInterfaceStyle
+        let style = traits?.userInterfaceStyle ?? ((window == nil || inheritedStyle == .unspecified)
+            ? renderedStyle ?? .light : inheritedStyle)
+        guard renderedPin != pin || renderedStyle != style else { return }
         renderedPin = pin
-        renderedStyle = traitCollection.userInterfaceStyle
+        renderedStyle = style
         // Render each native annotation's fixed-size contents only on data, reuse or
         // appearance changes; MapKit handles its position and gesture interaction.
-        traitCollection.performAsCurrent {
+        (traits ?? traitCollection).modifyingTraits { $0.userInterfaceStyle = style }.performAsCurrent {
             let symbol = pin.isDiscovered ? Self.categoryIcon[pin.category] ?? "mappin.circle.fill"
                 : "questionmark.circle.fill"
             let config = UIImage.SymbolConfiguration(pointSize: pin.isDiscovered ? 18 : 16,

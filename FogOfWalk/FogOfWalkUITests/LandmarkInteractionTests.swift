@@ -16,6 +16,12 @@ final class LandmarkInteractionTests: XCTestCase {
         pin.tap()
         waitForTaps(2, status: status)
 
+        // This point is outside the short "Zoo" image and covered by an inert hint.
+        app.buttons["Overlap hint"].tap()
+        pin.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .withOffset(CGVector(dx: 20, dy: 0)).tap()
+        waitForTaps(3, status: status)
+
         app.buttons["Read map"].tap()
         let before = status.label
         // Starting directly on a discovered pin must pan, without opening details.
@@ -23,7 +29,7 @@ final class LandmarkInteractionTests: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 85, dy: 45)))
         app.buttons["Read map"].tap()
         XCTAssertNotEqual(status.label, before, "Dragging from a pin must move the camera")
-        XCTAssertTrue(status.label.hasSuffix("Taps: 2"), "A drag must not select the pin")
+        XCTAssertTrue(status.label.hasSuffix("Taps: 3"), "A drag must not select the pin")
         waitForGeometry(app)
         XCTAssertTrue(app.buttons["landmark-Q2"].isHittable, "Buffered pins must enter from the edge")
 
@@ -33,11 +39,14 @@ final class LandmarkInteractionTests: XCTestCase {
         app.buttons["Make hint"].tap()
         XCTAssertFalse(pin.exists, "A hint must not expose a discovered-pin button")
         map.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        XCTAssertTrue(status.label.hasSuffix("Taps: 2"))
+        let unexpectedTap = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "NOT (label ENDSWITH %@)", "Taps: 3"), object: status)
+        unexpectedTap.isInverted = true
+        XCTAssertEqual(XCTWaiter.wait(for: [unexpectedTap], timeout: 4), .completed)
         app.buttons["Discover hint"].tap()
         XCTAssertTrue(pin.waitForExistence(timeout: 5))
         pin.tap()
-        waitForTaps(3, status: status)
+        waitForTaps(4, status: status)
 
         map.pinch(withScale: 1.5, velocity: 1)
         app.buttons["Read map"].tap()

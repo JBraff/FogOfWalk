@@ -5,6 +5,9 @@ import CoreData
 
 /// Deterministic, in-memory map for XCUITest gestures. Never compiled into Release builds.
 struct LandmarkInteractionFixture: UIViewControllerRepresentable {
+    static func isRequested(arguments: [String]) -> Bool {
+        arguments.contains("-landmark-interaction-fixture")
+    }
     func makeUIViewController(context: Context) -> LandmarkFixtureController { LandmarkFixtureController() }
     func updateUIViewController(_ controller: LandmarkFixtureController, context: Context) {}
 }
@@ -25,10 +28,10 @@ final class LandmarkFixtureController: UIViewController {
         desc.type = NSInMemoryStoreType
         container.persistentStoreDescriptions = [desc]
         container.loadPersistentStores { _, error in precondition(error == nil) }
-        let settings = GridSettings()
+        let settings = GridSettings(defaults: nil)
         settings.showLandmarks = true
         coordinator = MapContainerView.Coordinator(store: ExplorationStore(container: container),
-            gridSettings: settings, landmarkStore: LandmarkStore(container: container),
+            gridSettings: settings, landmarkStore: LandmarkStore(container: container, defaults: nil),
             searchService: LandmarkSearchService(source: EmptyLandmarkSource()))
         super.init(nibName: nil, bundle: nil)
     }
@@ -49,7 +52,7 @@ final class LandmarkFixtureController: UIViewController {
             status.text = "Taps: \(tapCount)"
         }
         coordinator.landmarkStore.addLandmarks([
-            WikidataLandmark(id: "Q1", name: "Fixture Museum", description: nil, lat: 40, lon: -74,
+            WikidataLandmark(id: "Q1", name: "Zoo", description: nil, lat: 40, lon: -74,
                              category: "museum", imageURL: nil)
         ], visitedCells: [GridMath.cellID(for: center)])
         status.text = "Taps: 0"
@@ -59,6 +62,7 @@ final class LandmarkFixtureController: UIViewController {
         let controls = UIStackView(arrangedSubviews: [status, geometry,
             button("Reset map") { [weak self] in self?.reset() },
             button("Read map") { [weak self] in self?.inspect() },
+            button("Overlap hint") { [weak self] in self?.overlapHint() },
             button("Make hint") { [weak self] in self?.setDiscovery(false) },
             button("Discover hint") { [weak self] in self?.setDiscovery(true) }])
         controls.axis = .vertical
@@ -101,6 +105,18 @@ final class LandmarkFixtureController: UIViewController {
             ], visitedCells: [GridMath.cellID(for: edge)])
             edgeAdded = true
         }
+        coordinator.refreshLandmarks(in: map.region, mapView: map)
+    }
+
+    private func overlapHint() {
+        guard let pin = coordinator.landmarkAnnotations["Q1"], let marker = map.view(for: pin) else { return }
+        let point = marker.convert(CGPoint(x: marker.bounds.midX + 20,
+            y: marker.bounds.midY - marker.centerOffset.y - 15), to: map)
+        let coordinate = map.convert(point, toCoordinateFrom: map)
+        coordinator.landmarkStore.addLandmarks([
+            WikidataLandmark(id: "Q3", name: "Overlapping hint", description: nil,
+                lat: coordinate.latitude, lon: coordinate.longitude, category: "museum", imageURL: nil)
+        ], visitedCells: [])
         coordinator.refreshLandmarks(in: map.region, mapView: map)
     }
 

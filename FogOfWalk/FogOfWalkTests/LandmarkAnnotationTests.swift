@@ -117,6 +117,33 @@ final class LandmarkAnnotationTests: XCTestCase {
         }
     }
 
+    func testCountNeutralMetadataEditRefreshesRetainedAnnotation() async throws {
+        try await MainActor.run {
+            let coordinator = makeLandmarkCoordinator()
+            let oldSetting = coordinator.gridSettings.showLandmarks
+            defer { coordinator.gridSettings.showLandmarks = oldSetting }
+            coordinator.gridSettings.showLandmarks = true
+            coordinator.landmarkStore.addLandmarks([item()], visitedCells: [])
+            let map = MKMapView()
+            coordinator.refreshLandmarks(in: region(), mapView: map)
+            let annotation = try XCTUnwrap(coordinator.landmarkAnnotations["Q1"])
+            let generation = coordinator.landmarkStore.renderGeneration
+            let landmark = try XCTUnwrap(coordinator.landmarkStore.allLandmarks.first)
+            landmark.name = "Renamed without changing counts"
+            landmark.category = "zoo"
+            landmark.latitude += 0.001
+            try landmark.managedObjectContext!.save()
+            XCTAssertGreaterThan(coordinator.landmarkStore.renderGeneration, generation)
+            XCTAssertEqual(coordinator.landmarkStore.allLandmarks.count, 1)
+            XCTAssertEqual(coordinator.landmarkStore.totalDiscovered, 0)
+            XCTAssertTrue(coordinator.refreshLandmarksIfChanged(in: region(), mapView: map))
+            XCTAssertTrue(coordinator.landmarkAnnotations["Q1"] === annotation)
+            XCTAssertEqual(annotation.pin.name, landmark.name)
+            XCTAssertEqual(annotation.pin.category, "zoo")
+            XCTAssertEqual(annotation.coordinate.latitude, landmark.latitude)
+        }
+    }
+
     func testDisplayDefaultsOff() async {
         await MainActor.run {
             let key = "com.fogofwalk.showLandmarks"

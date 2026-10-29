@@ -1,6 +1,6 @@
 # Native landmark annotation verification
 
-**Date:** 2026-10-28. **Base:** `b517b06` (merged responsiveness proposal).
+**Date:** 2026-10-28; review fixes verified 2026-10-29. **Base:** `b517b06` (merged responsiveness proposal).
 **Environment:** Xcode 27.1, iPhone 18 Pro simulator, iOS 27.0.
 
 The [reviewed proposal](../proposals/2026-10-28-landmark-map-responsiveness.md)
@@ -22,11 +22,12 @@ At settle, the existing visible-region query wins before a 2x-span buffer fills
 remaining slots, with discovered buffer candidates preferred when capacity is
 limited. Both the returned set and installed annotations are capped at 300.
 Padding reads only stored rows and does not expand ingest. The >1-degree gate
-uses the visible region. Queries still scan the stored array. No mid-gesture
+uses the visible region. Selection scans the stored array once into bounded groups. No mid-gesture
 refill, new spatial index, background persistence or location-policy change was added.
 
-`ContentView` passes the landmark count, discovery count and display setting as
-explicit inputs so updates do not depend on a newly walked cell. Fog rendering,
+A `LandmarkMapView` child reads a render generation and the display setting and passes
+explicit inputs, so count-neutral edits refresh the map without invalidating the root
+screen or depending on a newly walked cell. Fog rendering,
 heading updates, recentering, location recording and Study gating retain their
 existing paths. `AGENTS.md` and `docs/SYSTEM.md` describe the new rendering path.
 
@@ -73,6 +74,41 @@ The old overlay/transform tests were replaced with regressions for the native
 path. The gesture tests wait for MapKit's deferred selection and deceleration;
 an initial XCUITest idle report can precede either. The fixture samples geometry
 until settle without changing the map or pin positions.
+
+## Review corrections (2026-10-29)
+
+All ten review comments were evaluated and addressed:
+
+- Discovered pins retain the original 30-point circular icon hit target, including
+  outside a short image's bounds. Hints ignore all touches and have lower z priority;
+  wide labels do not intercept neighbouring taps.
+- Fixture launch bypasses production service construction, store opening, recorder
+  wiring and location startup. Settings and landmark migration use memory-only defaults.
+  The launch-gate regression proves the production factory is not invoked; defaults
+  coverage proves all three standard preference keys remain untouched.
+- The UI regression now taps outside a short "Zoo" image while a hint overlaps that
+  target, verifies repeated selection and drags, and waits an inverted four-second
+  expectation to rule out a deferred callback from an inert hint.
+- Render generation observes landmark context changes and cache reloads. A count-neutral
+  name/category/coordinate edit refreshes an existing annotation. A hosted SwiftUI
+  regression proves the visible name changes without moving the region or rebuilding
+  the parent view.
+- A single bounded candidate scan preserves the legacy visible selection and buffer
+  priorities. The 15,000-row regression checks each stored row is examined once.
+- `LandmarkPin` uses the generated memberwise initializer. Initial bitmap drawing is
+  deferred from construction until delegate configuration with the map's traits;
+  pre-window preparation reuses that appearance. The Dark Mode regression checks image
+  identity across preparation and a genuine appearance change. Waiting for `window`
+  alone would risk returning an empty, zero-sized annotation to MapKit, so the delegate
+  supplies its destination traits before insertion instead.
+
+The initial implementation's 306-test result above is retained as history. The review-fix
+full serial suite passed **312 tests, 0 failures, 0 skipped** on 2026-10-29, including the
+new hosting, tap-target, appearance and isolation regressions. `xcresulttool` confirmed
+these totals and no runtime warnings. The same full-suite command shown above was used.
+An unsigned device Release build also passed, with only the three existing app Swift
+warnings; its binary excludes the fixture controller and launch flag. Device smoothness
+acceptance remains pending.
 
 ## Earlier heading/runtime failure
 
