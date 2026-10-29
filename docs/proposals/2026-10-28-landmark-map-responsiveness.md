@@ -1,6 +1,7 @@
 # Landmark map responsiveness: investigation and options
 
-**Status:** Native annotation approach implemented; owner Release phone comparison pending.
+**Status:** Native annotations merged in [PR #11](https://github.com/JBraff/FogOfWalk/pull/11).
+Normal-app Release build 18 is installed on the owner's phone; the owner comparison remains pending.
 See [implementation verification](../evidence/native-landmark-annotations.md).
 The investigation and design below preserve the rationale for this change.
 **Source:** Probes on `e64caa2`; landmark paths also checked on `9e468e7`.

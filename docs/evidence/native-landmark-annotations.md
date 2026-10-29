@@ -1,6 +1,6 @@
 # Native landmark annotation verification
 
-**Date:** 2026-10-28; review fixes verified 2026-10-29. **Base:** `b517b06` (merged responsiveness proposal).
+**Date:** 2026-10-28; review fixes and phone delivery verified 2026-10-29. **Base:** `b517b06` (merged responsiveness proposal).
 **Environment:** Xcode 27.1, iPhone 18 Pro simulator, iOS 27.0.
 
 The [reviewed proposal](../proposals/2026-10-28-landmark-map-responsiveness.md)
@@ -232,6 +232,27 @@ Automatic crash-diagnostic collection stalled early failed runs on this Xcode/ru
 the completed full run disabled that collection. Result bundles, synthetic
 screenshots and logs remain outside Git. No raw location traces were committed.
 
+## Merge and phone delivery (2026-10-29)
+
+[PR #11](https://github.com/JBraff/FogOfWalk/pull/11) merged as
+[`d6e41ec`](https://github.com/JBraff/FogOfWalk/commit/d6e41ec5d6f2bbfb8c22db4d83a7eabdb63e019e).
+Its tree matches independently reviewed `c10c1d1`, which passed the full serial
+**318-test** suite with no failures, skips or runtime warnings and an unsigned
+Release build. A deliberate temporary parent-observation mutation failed the
+redraw regression as expected; the isolated review snapshot was restored.
+
+A signed **Release 1.0 (18)** of the normal app (`com.jeremybraff.fogofwalk`) was
+built from the merge commit and installed over normal build 17 on the owner's
+iPhone 15 Pro Max. Code-signature verification, installation and foreground launch
+succeeded. Installed-app metadata confirms normal build 18 and the separate Study
+app still at build 5. Neither app was uninstalled. The Release binary excludes the
+Debug landmark fixture's launch flag. Build 18 was supplied through
+`CURRENT_PROJECT_VERSION`; the checked-in project build number remains unchanged.
+
+Installation and launch do not establish physical gesture smoothness. The owner
+comparison below is still required. Pins remain off by default; use the star/count
+button in the map HUD to show them for the check.
+
 ## Remaining physical comparison
 
 One owner-coordinated Release phone comparison is still required before claiming
@@ -240,7 +261,8 @@ compare the previous build with this implementation: pan and release (including
 drags starting on pins), pinch, rotate and follow. Check fixed glyph size, correct
 anchors, no settle pop, edge entry, pins above fog, repeated detail taps and usable
 recenter/compass controls. Preserve location recording throughout; do not uninstall
-the Study app. No phone install or trial was performed for this change.
+the Study app. Build 18 is installed and launched; the owner comparison has not yet
+been performed.
 
 Padding has finite coverage and spare capacity: a sufficiently long gesture or a
 visible set already filling the 300 cap can exhaust the buffer. If the phone check
