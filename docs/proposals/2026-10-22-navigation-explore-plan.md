@@ -1,6 +1,6 @@
 # Fog of Walk — Navigation and Explore: Simple Plan
 
-**Status:** Owner-directed plan, not yet implemented. Not accepted architecture.
+**Status:** Owner-directed plan. Step 1 is implemented; the owner revised its heading behavior on 2026-10-28. Later steps remain proposals.
 
 **Date:** 2026-10-22.
 
@@ -22,8 +22,9 @@ should be simple to use, mostly local, and cheap to maintain.
 
 - **Recording is untouched.** Nothing here adds visited cells or discovers
   landmarks. Only real location samples clear fog, through the existing
-  `ExplorationRecorder` path. Don't change the tracking policy, add a location or
-  heading stream, or do background work. If a feature needs the current location,
+  `ExplorationRecorder` path. Don't change the tracking policy, add a location stream or do
+  background work. The owner-approved step 1 revision permits a foreground-only
+  heading stream for the blue dot. If a feature needs the current location,
   read `LocationService.currentLocation`.
 - **Study.** New controls appear only when `LocationService.usesMapLocation` is
   true. In Study's automatic pause/resume or tracking-OFF modes, hide them.
@@ -36,21 +37,24 @@ should be simple to use, mostly local, and cheap to maintain.
 
 ## Step 1 — Recenter and heading
 
-Add MapKit's native user-tracking button (`MKUserTrackingButton`). It cycles
-through not following, following, and following with heading (heading-up, which
-shows MapKit's heading cone). That one standard control covers recentering,
-follow mode and heading, with no custom compass code or heading support in
-`LocationService`. Panning stops following. Tapping the button resumes it. A
-stats-region jump stays where it was sent.
+**Owner revision, 2026-10-28:** the map must stay oriented as the user left it
+when they turn; only the blue dot's direction pointer turns. This supersedes
+the original heading-up behavior and the restriction against a separate
+foreground heading stream for this step.
 
-The map already allows two-finger rotation, and heading-up rotates it all the
-time. The landmark pin overlay's gesture transform handles only pan and zoom, so
-pins can drift while the map rotates. Fix that transform to include rotation
-and add a test. Pins are off by default, but the fix belongs in this step.
+A recenter button always requests MapKit's `.follow` mode. Repeated taps never
+enter `.followWithHeading`. Panning stops following; tapping the button resumes
+it. A stats-region jump stays where it was sent. Manual two-finger rotation
+remains available, with an adaptive compass to reset north. The landmark overlay
+keeps its rotation-aware gesture transform.
 
-If a phone check shows the blue dot also gets a heading cone while following
-north-up, nothing more is needed. If it doesn't, heading-up is how heading is
-shown. Don't build a custom marker.
+Keep MapKit's native blue dot and add a small blue direction pointer driven by
+a heading-only Core Location manager while the map is visible and active. The
+pointer compensates for manual map rotation. Stop heading updates in the
+background, when the map is removed, and whenever Study disables MapKit location.
+No extra location requests, background heading work, recording or persisted
+settings are introduced. Hide the pointer when heading is unavailable or invalid.
+The owner checks physical heading and readability on a phone.
 
 ## Step 2 — Fog peek
 
@@ -99,7 +103,7 @@ result, since Apple often returns only one walking route.
 | Fastest / Balanced / Maximum Exploration with detour caps | Depends on alternatives Apple often doesn't return. Step 4 shows whatever comes back, with new-cell counts. |
 | Generated 15/30/60-minute walks | Needs custom routing the app doesn't have. The fog plus Peek already shows where to go. |
 | "Unexplored street" highlighting | The fog already is that highlight. Peek makes it readable. |
-| Custom heading marker, separate heading-up mode | The native tracking button covers both. |
+| Separate heading-up mode | Owner revision: only the blue dot's direction pointer turns; recenter stays in `.follow`. |
 | Saved places, Collections, custom start points | These don't exist in Fog and aren't needed. |
 | Faithful route hand-off to other map apps, voice, lock-screen prompts | Not possible faithfully, or out of scope. Destination-only hand-off is enough. |
 | Post-walk summary, landmark preferences, gamification | Need walk sessions and settings that don't exist. Revisit only if missed. |

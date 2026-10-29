@@ -71,6 +71,21 @@ tiles on background threads, so `FogOverlayRenderer` reads only the immutable
 a minimum on-screen radius of 3 points. Landmark pins are a sibling UIKit view
 and follow map gestures separately from the fog overlay.
 
+## Map orientation
+
+Turning the phone changes the direction pointer around MapKit's native blue dot,
+without rotating the map. The recenter button always requests location-follow mode;
+repeated taps cannot enter heading-follow mode. Manual rotation remains available,
+and the adaptive compass returns the map to north-up.
+
+`HeadingMapView` owns a heading-only Core Location manager, separate from exploration.
+It runs only while the map has a window, the scene is active, location permission
+and heading hardware are available, and `LocationService.usesMapLocation` is true.
+Backgrounding, removing the map or selecting Study OFF/automatic pause-resume stops
+heading updates and clears the pointer. Invalid readings hide the pointer; magnetic
+heading is used when true heading is unavailable. Readings from an earlier session
+are ignored. This manager never requests location samples or changes recording.
+
 ## Location and correctness constraints
 
 Exploration is based on actual location samples. The application never invents a

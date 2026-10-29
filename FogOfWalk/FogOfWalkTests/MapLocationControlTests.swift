@@ -8,11 +8,32 @@ import MapKit
 /// Tests are `async` + `await MainActor.run { }` like the other MapKit tests.
 final class MapLocationControlTests: XCTestCase {
 
-    func testTrackingButtonControlsTheMap() async {
+    func testRepeatedRecenterTapsOnlyRequestFollowWithoutChangingCameraHeading() async {
         await MainActor.run {
-            let mapView = MKMapView()
-            let button  = MapContainerView.makeTrackingButton(for: mapView)
-            XCTAssertTrue(button.mapView === mapView)
+            let mapView = TrackingModeRecordingMapView()
+            mapView.showsUserLocation = true
+            let button = MapContainerView.makeTrackingButton(for: mapView)
+            let originalHeading = mapView.camera.heading
+
+            for _ in 0..<3 {
+                button.sendActions(for: .touchUpInside)
+            }
+
+            XCTAssertEqual(mapView.requestedTrackingModes, [.follow, .follow, .follow])
+            XCTAssertEqual(mapView.camera.heading, originalHeading)
+            XCTAssertEqual(button.accessibilityLabel, "Recenter on my location")
+            mapView.setUserTrackingMode(.none, animated: false) // Panning leaves follow.
+            button.sendActions(for: .touchUpInside)
+            XCTAssertEqual(mapView.requestedTrackingModes.suffix(2), [.none, .follow])
+        }
+    }
+
+    func testRecenterDoesNothingWhenMapLocationIsDisabled() async {
+        await MainActor.run {
+            let mapView = TrackingModeRecordingMapView()
+            let button = MapContainerView.makeTrackingButton(for: mapView)
+            button.sendActions(for: .touchUpInside)
+            XCTAssertTrue(mapView.requestedTrackingModes.isEmpty)
         }
     }
 
