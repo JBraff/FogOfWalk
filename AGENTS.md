@@ -88,7 +88,8 @@ FogOfWalk/
       LandmarkSearchService.swift    # Rate-limited landmark ingest as the map region changes
     Views/
       MapContainerView.swift         # UIViewRepresentable: MKMapView + FogOverlay + LandmarkOverlayView +
-                                     # top-right tracking and compass buttons; Coordinator
+                                     # top-right recenter and compass buttons; Coordinator
+      HeadingMapView.swift           # Foreground compass updates only the blue dot's direction pointer
       FogOverlay.swift               # FogOverlay (MKOverlay), FogRenderer (pure CG), FogOverlayRenderer
       LandmarkOverlayView.swift      # UIView sibling: discovered pins + "?" hints, tap hit-testing
       LandmarkDetailView.swift       # Sheet for a tapped discovered pin
@@ -256,7 +257,19 @@ renderer applies no cell-count cap. The `radius > 0.5` guards are inert because 
 `updateUIView` calls it when the cached cell count or `recentCellsGeneration` changes.
 Recording happens outside the map, so `ContentView` passes `visitedCellCount` and
 `highlightGeneration` as inputs to guarantee SwiftUI re-runs `updateUIView`. Keep those
-inputs if you restructure the view. Fog pans and zooms natively. `LandmarkOverlayView` is a plain `UIView` sibling, so
+inputs if you restructure the view. The recenter button requests only `.follow`, including repeated taps, so turning the phone
+never rotates the map. `HeadingMapView` uses a separate heading-only `CLLocationManager`
+to rotate a pointer around MapKit's native blue dot. It starts only with location permission,
+heading hardware, a visible window, an active scene and `usesMapLocation` enabled; backgrounding,
+removing the map or Study OFF/live-source selection stops it and clears the pointer. It never
+requests locations or feeds recording. Manual map rotation is still supported; the pointer
+compensates for the camera heading and the adaptive compass resets north. The recenter
+button shows an outline arrow when not following and a filled arrow when following.
+Scene geometry observation handles orientation changes even without a layout pass.
+Heading callbacks carry a session ID across the actor hop: the first cached reading in
+a new session is accepted, and callbacks queued in a previous session are rejected.
+
+Fog pans and zooms natively. `LandmarkOverlayView` is a plain `UIView` sibling, so
 `mapViewDidChangeVisibleRegion(_:)` applies a manual `CATransform3D` during gestures (math in
 the static, tested `Coordinator.gestureTransform`) and `regionDidChangeAnimated` resets it.
 

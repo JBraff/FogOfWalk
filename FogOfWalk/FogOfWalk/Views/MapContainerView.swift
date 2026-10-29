@@ -2,6 +2,7 @@ import SwiftUI
 import MapKit
 
 struct MapContainerView: UIViewRepresentable {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(ExplorationStore.self)       private var store
     @Environment(GridSettings.self)           private var gridSettings
     @Environment(LocationService.self)        private var locationService
@@ -28,15 +29,17 @@ struct MapContainerView: UIViewRepresentable {
         let container = UIView()
 
         // Map fills the container.
-        let mapView               = MKMapView(frame: container.bounds)
+        let mapView               = HeadingMapView(frame: container.bounds)
+        mapView.sceneActive       = scenePhase == .active
         mapView.delegate          = context.coordinator
         mapView.showsCompass      = false   // Replaced by the compass button below the tracking button.
         mapView.autoresizingMask  = [.flexibleWidth, .flexibleHeight]
         container.addSubview(mapView)
 
-        // Native recenter/follow/heading-up control, top right like Apple Maps. The compass
-        // sits under it and appears only while the map is rotated.
+        // Recenter without entering heading-up tracking. The compass appears only
+        // after the user manually rotates the map.
         let trackingButton = Self.makeTrackingButton(for: mapView)
+        context.coordinator.trackingButton = trackingButton
         let compassButton  = MKCompassButton(mapView: mapView)
         compassButton.compassVisibility = .adaptive
         compassButton.translatesAutoresizingMaskIntoConstraints = false
@@ -79,12 +82,24 @@ struct MapContainerView: UIViewRepresentable {
         return container
     }
 
-    static func makeTrackingButton(for mapView: MKMapView) -> MKUserTrackingButton {
-        let button = MKUserTrackingButton(mapView: mapView)
+    static func makeTrackingButton(for mapView: MKMapView) -> UIButton {
+        let button = UIButton(type: .system)
+        updateTrackingButton(button, mode: mapView.userTrackingMode)
+        button.accessibilityLabel = "Recenter on my location"
+        button.addAction(UIAction { [weak mapView] _ in
+            guard let mapView, mapView.showsUserLocation else { return }
+            mapView.setUserTrackingMode(.follow, animated: true)
+        }, for: .touchUpInside)
         button.backgroundColor    = .systemBackground.withAlphaComponent(0.9)
         button.layer.cornerRadius = 8
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
+    }
+
+    static func updateTrackingButton(_ button: UIButton, mode: MKUserTrackingMode) {
+        let follows = mode != .none
+        button.setImage(UIImage(systemName: follows ? "location.fill" : "location"), for: .normal)
+        button.accessibilityValue = follows ? "Following location" : "Not following location"
     }
 
     /// Shows or hides the blue dot and its tracking button together. Study's automatic
@@ -99,7 +114,11 @@ struct MapContainerView: UIViewRepresentable {
             mapView.userTrackingMode = .none
             mapView.showsUserLocation = false
         }
+        (mapView as? HeadingMapView)?.locationDisplayEnabled = enabled
         trackingButton?.isHidden = !enabled
+        if let button = trackingButton as? UIButton {
+            updateTrackingButton(button, mode: mapView.userTrackingMode)
+        }
     }
 
     /// Moves the map to a stats-sheet target and leaves follow mode, so the map stays where
@@ -112,6 +131,7 @@ struct MapContainerView: UIViewRepresentable {
 
     func updateUIView(_ container: UIView, context: Context) {
         guard let mapView = container.subviews.first as? MKMapView else { return }
+        (mapView as? HeadingMapView)?.sceneActive = scenePhase == .active
         context.coordinator.store         = store
         context.coordinator.gridSettings  = gridSettings
         context.coordinator.landmarkStore = landmarkStore
@@ -149,6 +169,10 @@ struct MapContainerView: UIViewRepresentable {
         }
     }
 
+    static func dismantleUIView(_ container: UIView, coordinator: Coordinator) {
+        (container.subviews.first as? HeadingMapView)?.locationDisplayEnabled = false
+    }
+
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, MKMapViewDelegate {
@@ -156,6 +180,8 @@ struct MapContainerView: UIViewRepresentable {
         var gridSettings: GridSettings
         var landmarkStore: LandmarkStore
         var searchService: LandmarkSearchService
+
+        weak var trackingButton: UIButton?
 
         // Fog is now an MKOverlay; MapKit holds the strong references.
         weak var fogOverlay:          FogOverlay?
@@ -332,6 +358,22 @@ struct MapContainerView: UIViewRepresentable {
 
         // MARK: - MKMapViewDelegate
 
+        func mapView(_ mapView: MKMapView, didChange mode: MKUserTrackingMode, animated: Bool) {
+            if let trackingButton { MapContainerView.updateTrackingButton(trackingButton, mode: mode) }
+        }
+
+        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            guard annotation is MKUserLocation else { return nil }
+            let identifier = "heading-user-location"
+            let view = (mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+                        as? HeadingUserLocationView)
+                ?? HeadingUserLocationView(annotation: annotation, reuseIdentifier: identifier)
+            view.annotation = annotation
+            view.setHeading((mapView as? HeadingMapView)?.headingController.heading,
+                            mapHeading: mapView.camera.heading)
+            return view
+        }
+
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             guard let fogOverlay = overlay as? FogOverlay else {
                 return MKOverlayRenderer(overlay: overlay)
@@ -363,11 +405,12 @@ struct MapContainerView: UIViewRepresentable {
                                         visitedCells: store.visitedCellsCache)
         }
 
-        /// Fires continuously during pan, zoom and rotation, including heading-up tracking.
+        /// Fires continuously during pan, zoom and manual rotation.
         /// Applies a GPU-composited CATransform3D to LandmarkOverlayView so pins track the
         /// map until `regionDidChangeAnimated` redraws them.
         /// The fog overlay tracks natively — no manual transform is needed for it.
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
+            (mapView as? HeadingMapView)?.updateHeadingMarker()
             guard let landmarkOverlayView else { return }
             guard let referenceCenter, let referenceProbe else {
                 // No reference yet — establish one so the first gesture has a baseline.
