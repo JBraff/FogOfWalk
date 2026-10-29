@@ -29,9 +29,9 @@ blockers, and next actions; it does not replace these product documents.
 - [Landmark map responsiveness: investigation and options](proposals/2026-10-28-landmark-map-responsiveness.md)
   preserves the rationale for the native MapKit annotations merged in
   [PR #11](https://github.com/JBraff/FogOfWalk/pull/11). Normal-app Release build 18
-  is installed on the owner's phone; the owner gesture comparison remains pending.
-  See the [implementation and delivery verification](evidence/native-landmark-annotations.md)
-  for the 318-test result, installation record and phone procedure. The [original simulator probe record](evidence/landmark-rendering-investigation.md)
+  is installed on the owner's phone, and the owner confirmed the gesture checks passed.
+  See the [implementation, delivery and acceptance verification](evidence/native-landmark-annotations.md)
+  for the 318-test result, installation record and owner acceptance. The [original simulator probe record](evidence/landmark-rendering-investigation.md)
   preserves reproducible touch-routing and redraw-order evidence.
 - [Navigation and Explore — simple plan](proposals/2026-10-22-navigation-explore-plan.md)
   is the owner-directed plan for map orientation, a fog peek, nearby undiscovered

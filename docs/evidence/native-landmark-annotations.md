@@ -1,6 +1,6 @@
 # Native landmark annotation verification
 
-**Date:** 2026-10-28; review fixes and phone delivery verified 2026-10-29. **Base:** `b517b06` (merged responsiveness proposal).
+**Date:** 2026-10-28; review fixes, phone delivery and owner acceptance verified 2026-10-29. **Base:** `b517b06` (merged responsiveness proposal).
 **Environment:** Xcode 27.1, iPhone 18 Pro simulator, iOS 27.0.
 
 The [reviewed proposal](../proposals/2026-10-28-landmark-map-responsiveness.md)
@@ -249,22 +249,23 @@ app still at build 5. Neither app was uninstalled. The Release binary excludes t
 Debug landmark fixture's launch flag. Build 18 was supplied through
 `CURRENT_PROJECT_VERSION`; the checked-in project build number remains unchanged.
 
-Installation and launch do not establish physical gesture smoothness. The owner
-comparison below is still required. Pins remain off by default; use the star/count
-button in the map HUD to show them for the check.
+Installation and launch alone did not establish physical gesture smoothness. The
+owner subsequently supplied the acceptance result below. Pins remain off by default;
+the star/count button in the map HUD shows them.
 
-## Remaining physical comparison
+## Owner phone acceptance (2026-10-29)
 
-One owner-coordinated Release phone comparison is still required before claiming
-physical smoothness or completing acceptance. In the same dense area with pins on,
-compare the previous build with this implementation: pan and release (including
-drags starting on pins), pinch, rotate and follow. Check fixed glyph size, correct
-anchors, no settle pop, edge entry, pins above fog, repeated detail taps and usable
-recenter/compass controls. Preserve location recording throughout; do not uninstall
-the Study app. Build 18 is installed and launched; the owner comparison has not yet
-been performed.
+After installing normal-app Release build 18, the owner confirmed that all requested
+phone checks passed: pan, zoom, rotation, follow mode and landmark taps worked
+smoothly without jumps. This satisfies the remaining owner acceptance criterion.
+The earlier pending-comparison statements above preserve the software review history.
 
-Padding has finite coverage and spare capacity: a sufficiently long gesture or a
-visible set already filling the 300 cap can exhaust the buffer. If the phone check
-shows an edge-entry gap, add a narrowly justified refill. Profile only if a hitch
-remains. No measured device speedup or battery claim is made by these software tests.
+The retained comparison procedure is to pan and release (including drags starting
+on pins), pinch, rotate and follow, checking fixed glyph size, correct anchors, no
+settle pop, edge entry, pins above fog, repeated detail taps and usable recenter/compass
+controls. Recording stays enabled, and the Study app must not be uninstalled.
+
+Padding still has finite coverage and spare capacity: a sufficiently long gesture
+or a visible set already filling the 300 cap can exhaust the buffer. Any future
+reported hitch can justify a focused refill or profiling. Acceptance is based on the
+owner's phone experience, not an instrumented device speedup or battery measurement.
