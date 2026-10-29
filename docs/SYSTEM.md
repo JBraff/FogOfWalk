@@ -48,7 +48,8 @@ which draws the overlay on MapKit's background rendering threads.
   removing visits from exploration totals. Missing countries (including legacy empty or
   "Unknown" labels) are retried by the bounded backfill on later launches and replaced
   only when a country is returned; existing known labels are preserved.
-- `GridSettings` owns persisted presentation settings.
+- `GridSettings` owns persisted presentation settings. Its default storage is standard
+  UserDefaults; isolated fixtures can select memory-only settings.
 - `BackupService` performs manual, versioned export/import and merge of
   exploration and discovery state. It does not provide automatic sync.
 
@@ -68,8 +69,36 @@ return to the main actor before mutating app state. A callback epoch discards
 late callbacks from a previous Study source or OFF state. MapKit renders fog
 tiles on background threads, so `FogOverlayRenderer` reads only the immutable
 `CellSnapshot` under its lock. Visited cells are drawn at every zoom level with
-a minimum on-screen radius of 3 points. Landmark pins are a sibling UIKit view
-and follow map gestures separately from the fog overlay.
+a minimum on-screen radius of 3 points. Landmarks are lightweight native MapKit
+annotations with reusable custom views above the fog. Their icons and labels keep a
+fixed screen size and orientation during map movement. Hints are disabled and ignore
+all touches; discovered pins sit above them and retain a 30-point hit radius centred
+on the drawn icon. The user location dot and heading pointer sit above discovered pins,
+including during selection. Wide labels do not claim touches outside the icon circle.
+Discovered pins open details and deselect immediately to allow repeated taps. Initial
+rasterization uses resolved map traits; unresolved traits defer drawing until attachment.
+Pre-window preparation reuses a resolved bitmap until the view's actual appearance changes.
+An attached view with unresolved supplied traits uses its own appearance, and attachment
+redraws a pin whose data changed while detached. Deferred views stay disabled and outside
+accessibility until drawn; reuse clears their old geometry. Interaction state is reapplied
+even when the bitmap is unchanged. The user-location view owns its stacking priority, and
+the delegate reapplies it when dequeuing a view.
+
+At settle, the coordinator preserves the existing visible-region selection, then fills
+spare capacity from already-ingested landmarks within twice the visible span. Visible
+pins take priority over buffer candidates; discoveries take priority over hints when a
+region's candidates exceed capacity. The full installed set stays within 300 annotations,
+with required display priority and no clustering. The >1-degree gate uses the visible
+region. Padding never expands ingest requests. Selection scans the stored landmark array
+once into bounded candidate groups. A dedicated `LandmarkMapView` child observes a render
+generation, advanced for landmark context changes (including count-neutral edits) and cache
+reloads, plus the display toggle. It supplies explicit representable inputs so only the map
+needs a landmark refresh. No manual bitmap transform or mid-gesture refill is used.
+
+For Debug gesture tests, the fixture launch gate runs before production `AppServices`
+construction. The fixture opens only its own in-memory store, uses memory-only preferences
+and creates no production location services. Normal launch still constructs and connects
+recording synchronously before any scene, including a background relaunch.
 
 ## Map orientation
 

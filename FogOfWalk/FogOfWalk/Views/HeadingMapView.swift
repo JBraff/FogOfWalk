@@ -124,6 +124,7 @@ final class HeadingUserLocationView: MKUserLocationView {
 
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        applyStackingPriority()
         let pointer = UIImageView(image: UIImage(systemName: "triangle.fill"))
         pointer.tintColor = .systemBlue
         pointer.frame = CGRect(x: 24, y: 3, width: 16, height: 16)
@@ -134,6 +135,13 @@ final class HeadingUserLocationView: MKUserLocationView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// Keep the blue dot, heading pointer and its touch target above landmark pins.
+    /// The delegate reapplies this on every dequeue in case reuse lowered it.
+    func applyStackingPriority() {
+        zPriority = .max
+        selectedZPriority = .max
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()

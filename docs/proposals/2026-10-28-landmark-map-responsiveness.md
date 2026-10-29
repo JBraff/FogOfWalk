@@ -1,6 +1,8 @@
 # Landmark map responsiveness: investigation and options
 
-**Status:** Reviewed proposal; no implementation is included.
+**Status:** Native annotation approach implemented; owner Release phone comparison pending.
+See [implementation verification](../evidence/native-landmark-annotations.md).
+The investigation and design below preserve the rationale for this change.
 **Source:** Probes on `e64caa2`; landmark paths also checked on `9e468e7`.
 
 ## Recommendation

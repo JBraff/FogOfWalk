@@ -209,7 +209,7 @@ struct DiscoveryStatsView: View {
                                 dismiss()
                             } label: {
                                 HStack(spacing: 8) {
-                                    Image(systemName: LandmarkOverlayView.categoryIcon[landmark.category] ?? "mappin.fill")
+                                    Image(systemName: LandmarkAnnotationView.categoryIcon[landmark.category] ?? "mappin.fill")
                                         .foregroundStyle(.blue)
                                         .frame(width: 20)
                                     Text(landmark.name)

@@ -96,10 +96,16 @@ final class MapHeadingTests: XCTestCase {
         await cleanup()
     }
 
-    func testSceneGeometryNotificationUpdatesOrientationWithoutLayout() async {
+    func testSceneGeometryNotificationUpdatesOrientationWithoutLayout() async throws {
+        // Hosted tests can start before SwiftUI connects its first scene. Yield to app
+        // launch instead of force-unwrapping a scene that does not exist yet.
+        for _ in 0..<50 {
+            if await MainActor.run(body: { !UIApplication.shared.connectedScenes.isEmpty }) { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
         let updated = expectation(description: "Geometry observation updates compass orientation")
-        let cleanup: @MainActor () -> Void = await MainActor.run {
-            let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first!
+        let cleanup: @MainActor () -> Void = try await MainActor.run {
+            let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
             let manager = HeadingTestManager()
             let controller = MapHeadingController(manager: manager, headingAvailable: false)
             let map = HeadingMapView(frame: .zero, headingController: controller)
