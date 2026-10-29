@@ -66,6 +66,8 @@ final class LandmarkAnnotationView: MKAnnotationView {
 
     private var renderedPin: LandmarkPin?
     private var renderedStyle: UIUserInterfaceStyle?
+    /// Centre of the pill actually drawn into the annotation image, in view coordinates.
+    private(set) var iconCenter: CGPoint = .zero
 
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
@@ -81,10 +83,17 @@ final class LandmarkAnnotationView: MKAnnotationView {
         configure()
     }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { configure() }
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
         renderedPin = nil
+        renderedStyle = nil
         image = nil
+        iconCenter = .zero
         isEnabled = false
         isAccessibilityElement = false
         accessibilityLabel = nil
@@ -94,8 +103,7 @@ final class LandmarkAnnotationView: MKAnnotationView {
     /// Preserve the old 30-point radius around the icon, including outside a short
     /// image's bounds. Long name labels do not intercept neighbouring pins or the map.
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        guard (annotation as? LandmarkAnnotation)?.pin.isDiscovered == true else { return false }
-        let iconCenter = CGPoint(x: bounds.midX, y: bounds.midY - centerOffset.y - 15)
+        guard image != nil, (annotation as? LandmarkAnnotation)?.pin.isDiscovered == true else { return false }
         return hypot(point.x - iconCenter.x, point.y - iconCenter.y) <= 30
     }
 
@@ -109,14 +117,16 @@ final class LandmarkAnnotationView: MKAnnotationView {
         isDraggable = false
         isEnabled = pin.isDiscovered
         isUserInteractionEnabled = pin.isDiscovered
-        zPriority = pin.isDiscovered ? .max : .min
+        zPriority = pin.isDiscovered ? .defaultUnselected : .min
+        selectedZPriority = zPriority
         isAccessibilityElement = pin.isDiscovered
         accessibilityTraits = pin.isDiscovered ? .button : []
         accessibilityLabel = pin.isDiscovered ? pin.name : nil
         accessibilityIdentifier = "landmark-\(pin.identifier)"
-        let inheritedStyle = traitCollection.userInterfaceStyle
-        let style = traits?.userInterfaceStyle ?? ((window == nil || inheritedStyle == .unspecified)
-            ? renderedStyle ?? .light : inheritedStyle)
+        let destinationStyle = (traits ?? (window == nil ? nil : traitCollection))?.userInterfaceStyle
+        // Unattached maps can also supply unspecified traits. Wait for a resolved
+        // destination instead of drawing a Light Mode image that insertion must replace.
+        guard let style = destinationStyle.flatMap({ $0 == .unspecified ? nil : $0 }) ?? renderedStyle else { return }
         guard renderedPin != pin || renderedStyle != style else { return }
         renderedPin = pin
         renderedStyle = style
@@ -151,11 +161,13 @@ final class LandmarkAnnotationView: MKAnnotationView {
                 }
                 // Four points below the pill and four above the label.
                 centerOffset = CGPoint(x: 0, y: image!.size.height / 2 - pillSize.height - 4)
+                iconCenter = CGPoint(x: bounds.midX, y: bounds.minY + pillSize.height / 2)
             } else {
                 image = UIGraphicsImageRenderer(size: icon.size).image { _ in
                     icon.draw(at: .zero, blendMode: .normal, alpha: 0.5)
                 }
                 centerOffset = .zero
+                iconCenter = CGPoint(x: bounds.midX, y: bounds.midY)
             }
         }
     }

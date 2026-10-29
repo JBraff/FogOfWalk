@@ -15,31 +15,47 @@ final class LandmarkAnnotationViewTests: XCTestCase {
         return view
     }
 
-    func testShortNameKeepsSixtyPointIconHitAreaAndLongLabelPassesTouches() {
+    func testShortNameKeepsSixtyPointIconHitAreaAndLongLabelPassesTouches() throws {
         let short = makeView(annotation: annotation(discovered: true, category: "zoo", name: "Zoo"))
-        let center = CGPoint(x: short.bounds.midX, y: short.bounds.midY - short.centerOffset.y - 15)
+        let center = try drawnPillCenter(in: short)
+        XCTAssertEqual(short.iconCenter.x, center.x, accuracy: 0.5)
+        XCTAssertEqual(short.iconCenter.y, center.y, accuracy: 0.5)
         let oldTarget = CGPoint(x: center.x + 20, y: center.y)
         XCTAssertGreaterThan(oldTarget.x, short.bounds.maxX)
         XCTAssertTrue(short.hitTest(oldTarget, with: nil) === short)
         XCTAssertTrue(short.point(inside: CGPoint(x: center.x + 29, y: center.y), with: nil))
         XCTAssertFalse(short.point(inside: CGPoint(x: center.x + 31, y: center.y), with: nil))
+        for direction in [CGPoint(x: 0, y: -1), CGPoint(x: 0, y: 1), CGPoint(x: -1, y: 0)] {
+            XCTAssertTrue(short.point(inside: CGPoint(x: center.x + direction.x * 29,
+                y: center.y + direction.y * 29), with: nil))
+            XCTAssertFalse(short.point(inside: CGPoint(x: center.x + direction.x * 31,
+                y: center.y + direction.y * 31), with: nil))
+        }
         let long = makeView(annotation: annotation(discovered: true, name: String(repeating: "Wide label ", count: 8)))
         XCTAssertNil(long.hitTest(CGPoint(x: long.bounds.maxX - 2, y: long.bounds.maxY - 2), with: nil))
         let hint = makeView(annotation: annotation(discovered: false))
         XCTAssertFalse(hint.isUserInteractionEnabled)
         XCTAssertNil(hint.hitTest(CGPoint(x: hint.bounds.midX, y: hint.bounds.midY), with: nil))
-        XCTAssertEqual(short.zPriority, .max)
+        let user = HeadingUserLocationView(annotation: MKMapView().userLocation, reuseIdentifier: nil)
+        XCTAssertGreaterThan(user.zPriority.rawValue, short.zPriority.rawValue)
+        XCTAssertGreaterThan(user.selectedZPriority.rawValue, short.selectedZPriority.rawValue)
+        XCTAssertGreaterThan(short.zPriority.rawValue, hint.zPriority.rawValue)
         XCTAssertEqual(hint.zPriority, .min)
     }
 
     func testFirstDarkBitmapIsDeferredUntilMapTraitsAndReusedBeforeInsertion() {
         let view = LandmarkAnnotationView(annotation: annotation(discovered: true), reuseIdentifier: "test")
         XCTAssertNil(view.image, "Construction must not draw in an unspecified appearance")
+        view.configure(traits: MKMapView().traitCollection.modifyingTraits { $0.userInterfaceStyle = .unspecified })
+        view.prepareForDisplay()
+        XCTAssertNil(view.image, "An unattached map's unspecified traits must not trigger a placeholder draw")
         view.configure(traits: UITraitCollection(userInterfaceStyle: .dark))
         let first = view.image
         XCTAssertNotNil(first)
         view.prepareForDisplay()
         XCTAssertTrue(view.image === first, "Pre-window display must reuse the map's Dark Mode image")
+        view.configure(traits: UITraitCollection(userInterfaceStyle: .unspecified))
+        XCTAssertTrue(view.image === first, "Unresolved traits must preserve an already resolved image")
         view.configure(traits: UITraitCollection(userInterfaceStyle: .dark))
         XCTAssertTrue(view.image === first)
         view.configure(traits: UITraitCollection(userInterfaceStyle: .light))
@@ -91,7 +107,7 @@ final class LandmarkAnnotationViewTests: XCTestCase {
         XCTAssertFalse(model.update(pin: model.pin))
         view.prepareForReuse()
         view.annotation = annotation(discovered: false, name: "Hidden name")
-        view.prepareForDisplay()
+        view.configure(traits: UITraitCollection(userInterfaceStyle: .light))
         XCTAssertFalse(view.isEnabled)
         XCTAssertNil(view.accessibilityLabel)
         XCTAssertEqual(view.centerOffset, .zero)
@@ -101,6 +117,22 @@ final class LandmarkAnnotationViewTests: XCTestCase {
         XCTAssertTrue(view.isEnabled)
         XCTAssertEqual(view.accessibilityLabel, "Another place")
         XCTAssertNotNil(view.image)
+    }
+
+    /// Read the first opaque run through the rendered pill's centre column. This
+    /// measures the image, independently of the hit-test and anchor arithmetic.
+    private func drawnPillCenter(in view: LandmarkAnnotationView) throws -> CGPoint {
+        let image = try XCTUnwrap(view.image)
+        let cgImage = try XCTUnwrap(image.cgImage)
+        let width = cgImage.width, height = cgImage.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let context = try XCTUnwrap(CGContext(data: &pixels, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let opaqueRows = (0..<height).prefix { pixels[($0 * width + width / 2) * 4 + 3] > 0 }
+        XCTAssertFalse(opaqueRows.isEmpty)
+        return CGPoint(x: view.bounds.midX, y: CGFloat(opaqueRows.count) / image.scale / 2)
     }
 
     func testEveryCategoryHasAnIconIncludingUnavailableSymbolFallback() {

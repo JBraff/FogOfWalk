@@ -124,6 +124,9 @@ final class HeadingUserLocationView: MKUserLocationView {
 
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        // Keep the blue dot, heading pointer and its touch target above landmark pins.
+        zPriority = .max
+        selectedZPriority = .max
         let pointer = UIImageView(image: UIImage(systemName: "triangle.fill"))
         pointer.tintColor = .systemBlue
         pointer.frame = CGRect(x: 24, y: 3, width: 16, height: 16)

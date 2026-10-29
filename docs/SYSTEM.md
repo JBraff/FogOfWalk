@@ -72,10 +72,12 @@ tiles on background threads, so `FogOverlayRenderer` reads only the immutable
 a minimum on-screen radius of 3 points. Landmarks are lightweight native MapKit
 annotations with reusable custom views above the fog. Their icons and labels keep a
 fixed screen size and orientation during map movement. Hints are disabled and ignore
-all touches; discovered pins sit above them and retain the 30-point icon hit radius.
-Wide labels do not claim touches outside that circle. Discovered pins open details and
-deselect immediately to allow repeated taps. Initial rasterization uses the map's traits;
-pre-window preparation reuses that bitmap until the view's actual appearance changes.
+all touches; discovered pins sit above them and retain a 30-point hit radius centred
+on the drawn icon. The user location dot and heading pointer sit above discovered pins,
+including during selection. Wide labels do not claim touches outside the icon circle.
+Discovered pins open details and deselect immediately to allow repeated taps. Initial
+rasterization uses resolved map traits; unresolved traits defer drawing until attachment.
+Pre-window preparation reuses a resolved bitmap until the view's actual appearance changes.
 
 At settle, the coordinator preserves the existing visible-region selection, then fills
 spare capacity from already-ingested landmarks within twice the visible span. Visible

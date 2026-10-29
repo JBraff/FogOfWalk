@@ -109,9 +109,9 @@ final class LandmarkFixtureController: UIViewController {
     }
 
     private func overlapHint() {
-        guard let pin = coordinator.landmarkAnnotations["Q1"], let marker = map.view(for: pin) else { return }
-        let point = marker.convert(CGPoint(x: marker.bounds.midX + 20,
-            y: marker.bounds.midY - marker.centerOffset.y - 15), to: map)
+        guard let pin = coordinator.landmarkAnnotations["Q1"],
+              let marker = map.view(for: pin) as? LandmarkAnnotationView else { return }
+        let point = marker.convert(CGPoint(x: marker.iconCenter.x + 20, y: marker.iconCenter.y), to: map)
         let coordinate = map.convert(point, toCoordinateFrom: map)
         coordinator.landmarkStore.addLandmarks([
             WikidataLandmark(id: "Q3", name: "Overlapping hint", description: nil,

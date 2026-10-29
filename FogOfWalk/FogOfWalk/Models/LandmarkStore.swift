@@ -16,7 +16,6 @@ final class LandmarkStore {
     /// Includes count-neutral edits and reloads, not just insertions and discoveries.
     private(set) var renderGeneration: UInt64 = 0
     @ObservationIgnored private var contextChangeObserver: NSObjectProtocol?
-    @ObservationIgnored private(set) var lastDisplayProbeCount = 0
 
     private var knownIdentifiers: Set<String> = []
 
@@ -108,7 +107,9 @@ final class LandmarkStore {
                             NSRefreshedObjectsKey, NSInvalidatedObjectsKey]
                 let changed = notification.userInfo?[NSInvalidatedAllObjectsKey] != nil
                     || keys.contains { key in
-                        (notification.userInfo?[key] as? Set<NSManagedObject>)?.contains { $0 is Landmark } == true
+                        guard let objects = notification.userInfo?[key] as? NSSet else { return false }
+                        for object in objects where object is Landmark { return true }
+                        return false
                     }
                 if changed { self?.renderGeneration &+= 1 }
             }
@@ -482,11 +483,7 @@ final class LandmarkStore {
         var visible: [Landmark] = [], visibleDiscovered: [Landmark] = [], visibleHints: [Landmark] = []
         var bufferDiscovered: [Landmark] = [], bufferHints: [Landmark] = []
         var visibleCount = 0
-        lastDisplayProbeCount = 0
         for landmark in allLandmarks {
-            #if DEBUG
-            lastDisplayProbeCount += 1
-            #endif
             let latitudeDelta = abs(landmark.latitude - region.center.latitude)
             let longitudeDelta = abs(landmark.longitude - region.center.longitude)
             guard latitudeDelta <= region.span.latitudeDelta,

@@ -94,13 +94,13 @@ All ten review comments were evaluated and addressed:
   regression proves the visible name changes without moving the region or rebuilding
   the parent view.
 - A single bounded candidate scan preserves the legacy visible selection and buffer
-  priorities. The 15,000-row regression checks each stored row is examined once.
+  priorities. The 15,000-row regression checks the selected rows and cap. A probe-count
+  assertion was subsequently removed because it could not detect an additional helper scan.
 - `LandmarkPin` uses the generated memberwise initializer. Initial bitmap drawing is
   deferred from construction until delegate configuration with the map's traits;
   pre-window preparation reuses that appearance. The Dark Mode regression checks image
-  identity across preparation and a genuine appearance change. Waiting for `window`
-  alone would risk returning an empty, zero-sized annotation to MapKit, so the delegate
-  supplies its destination traits before insertion instead.
+  identity across preparation and a genuine appearance change. Resolved map traits
+  allow drawing before insertion; the remaining unresolved-trait case is covered below.
 
 The initial implementation's 306-test result above is retained as history. The review-fix
 full serial suite passed **312 tests, 0 failures, 0 skipped** on 2026-10-29, including the
@@ -109,6 +109,40 @@ these totals and no runtime warnings. The same full-suite command shown above wa
 An unsigned device Release build also passed, with only the three existing app Swift
 warnings; its binary excludes the fixture controller and launch flag. Device smoothness
 acceptance remains pending.
+
+## Further review corrections (2026-10-29)
+
+Seven additional comments were addressed:
+
+- Discovered and selected pins use a priority strictly below the user location view;
+  hints remain below discovered pins. The blue dot and heading pointer use `.max` for
+  normal and selected priority. The SDK defines `.defaultSelected` as equal to `.max`,
+  so pins use `.defaultUnselected` for both states instead. Regression assertions check
+  strict priority ordering, rather than relying on those names.
+- The circular hit target now uses a single `iconCenter` from the drawn pill geometry.
+  The overlap fixture uses that property. The regression independently measures the
+  pill's bitmap alpha and checks all four directions at 29 and 31 points, including
+  the previously missed area above the icon.
+- Explicit `.unspecified` traits no longer trigger a placeholder Light Mode draw.
+  A resolved bitmap is reused through pre-window preparation; an unresolved new view
+  draws on attachment. A real Dark Mode window regression verifies attachment produces
+  an image that subsequent preparation and configuration reuse.
+- Context change handling iterates each notification's `NSSet` directly, stopping at
+  the first landmark, without allocating and hashing Swift object sets. A regression
+  verifies cell recording and geocoder-style metadata writes leave the render generation
+  unchanged while a landmark insertion advances it.
+- The display probe counter and its assertion were removed. Selection/cap regressions
+  remain; the single stored-row traversal is a code-review finding, not a runtime
+  complexity claim proved by that counter.
+- Hosted SwiftUI tests register teardown immediately, restore the previous key window,
+  and wait on expectations for scene connection and displayed names. The fixed 400 ms
+  settle and short attempt-count timeout were removed.
+
+The updated full serial suite passed **314 tests, 0 failures, 0 skipped** on
+2026-10-29. `xcresulttool` confirmed the totals and no runtime warnings. The unsigned
+device Release build passed with only the same three app Swift warnings; the Debug
+fixture controller and launch flag remain absent from its binary. The owner phone
+comparison is still pending.
 
 ## Earlier heading/runtime failure
 

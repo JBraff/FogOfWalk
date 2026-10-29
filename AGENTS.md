@@ -299,9 +299,11 @@ Generation advances on landmark context changes and cache reloads.
   including padding, is capped at 300. One pass scans the stored rows into bounded
   candidate arrays. Views use required display priority without clustering. Hints are
   disabled, ignore touches and sit below discovered pins. Discovered pins preserve the
-  old 30-point icon hit radius; wide name labels pass touches outside that circle.
-  Selections open details and immediately deselect so repeated taps work. The delegate
-  supplies map traits before the first bitmap draw, avoiding a redundant pre-window draw.
+  old 30-point hit radius centred on the drawn icon; wide name labels pass touches
+  outside that circle. The user location view sits above discovered pins, including
+  during selection. Selections open details and immediately deselect so repeated taps
+  work. The delegate supplies resolved map traits before the first bitmap draw;
+  unresolved traits defer drawing until attachment supplies the appearance.
 - Coupled limits: `GridMath.maxIngestSpanDegrees` (1.0°) ↔ `BundledLandmarkSource` `LIMIT 500`
   (re-measure density before raising the span). `LandmarkStore.maxRenderedPins` = 300.
 - `showLandmarks` is **off by default**. Discovery always runs, and only pin display is gated
