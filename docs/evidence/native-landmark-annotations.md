@@ -179,6 +179,43 @@ only the three existing app Swift warnings and excludes the fixture controller a
 launch flag. These checks cover simulator MapKit behavior; the physical phone
 comparison remains pending.
 
+## Attachment, interaction and test-helper corrections (2026-10-29)
+
+A fourth review prompted these corrections:
+
+- Attachment now also redraws a drawn view whose pin changed while it was detached;
+  an unchanged view keeps its bitmap. An attached view whose supplied traits are
+  unresolved uses its own appearance instead of waiting for an attachment that has
+  already happened. Interaction and accessibility state is reapplied before the
+  unchanged-bitmap check, so a later configure can restore it.
+- New unit tests cover each change, plus behaviour that previously had no direct test:
+  a reused deferred view keeps zero bounds until attachment draws it, and reattaching
+  an unchanged view keeps its bitmap. The detach/reattach test holds the appearance
+  fixed so only the attachment hook can redraw.
+- The hosted observation test makes three separately displayed edits and fails if the
+  parent rebuilds as many times as there were edits. A parent observing landmarks
+  rebuilds at least once per edit; up to two unrelated SwiftUI passes are tolerated, so
+  the 250 ms readiness quiet window no longer decides the result.
+- `waitForLandmarkUI` is a single main-actor polling loop with no separate waiter, so
+  nothing can fulfill late, and a timeout fails at the deadline with its description.
+  The anchor calculation used by three placement checks is `anchorError(of:for:in:)`.
+- `makeLandmarkCoordinator()` now defaults to memory-only settings; only the
+  default-off test passes `defaults: .standard`. The redundant save/restore of the
+  standard preference and the geometry fixture's no-op reset were removed.
+- `HeadingUserLocationView.applyStackingPriority()` owns the user-location priority;
+  its initializer and the dequeue path both call it.
+
+Coverage limits stay as before. The real-MapKit deferred regression covers MapKit sizing
+and anchoring a view the production delegate configured, fresh or hand-recycled; it
+does not use MapKit's own reuse queue. Late-drawn anchoring has been observed only on
+the simulator; the phone comparison should confirm that pins entering view are not
+offset or briefly missing.
+
+The full serial suite passed: **318 tests, 0 failures, 0 skipped**, with no runtime
+warnings in `xcresulttool`. The unsigned device Release build passed with only the
+three existing app Swift warnings and its binary excludes the fixture launch flag.
+The physical phone comparison remains pending.
+
 ## Earlier heading/runtime failure
 
 Before editing landmark code, the focused heading baseline reproduced a Swift

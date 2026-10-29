@@ -303,9 +303,12 @@ Generation advances on landmark context changes and cache reloads.
   outside that circle. The user location view sits above discovered pins, including
   during selection. Selections open details and immediately deselect so repeated taps
   work. The delegate supplies resolved map traits before the first bitmap draw;
-  unresolved traits defer drawing until attachment supplies the appearance. Deferred
-  views stay disabled and outside accessibility until drawn; reuse clears old geometry.
-  Real MapKit regressions cover fresh/reused deferred views and their coordinate anchors.
+  unresolved traits defer drawing until attachment supplies the appearance; an attached
+  view falls back to its own appearance. Attachment also redraws a pin that changed while
+  detached. Deferred views stay disabled and outside accessibility until drawn; reuse
+  clears old geometry. Interaction state is reapplied even when the bitmap is unchanged.
+  A real-MapKit regression anchors a deferred view the production delegate configured,
+  fresh or hand-recycled; it does not exercise MapKit's own reuse queue.
 - Coupled limits: `GridMath.maxIngestSpanDegrees` (1.0°) ↔ `BundledLandmarkSource` `LIMIT 500`
   (re-measure density before raising the span). `LandmarkStore.maxRenderedPins` = 300.
 - `showLandmarks` is **off by default**. Discovery always runs, and only pin display is gated
@@ -459,6 +462,9 @@ in commit 938ef32, so ignore older docs that describe it.
   are memory-only (`defaults: nil`). The fixture is excluded from Release builds.
   `LandmarkMapObservationTests` hosts SwiftUI to verify scoped, count-neutral updates;
   `LandmarkFixtureIsolationTests` covers the launch gate and unchanged standard defaults.
+  `LandmarkTestSupport` holds the deadline-bounded `waitForLandmarkUI` poll and the shared
+  `anchorError(of:for:in:)` placement check. `makeLandmarkCoordinator()` is memory-only
+  unless a test passes `defaults: .standard`.
 - **Hosted tests:** unit tests run inside `Fog-Of-Walk.app`, so `FogOfWalkApp.init` (real Core Data
   store, real `CLLocationManager`) runs first. A few tests touch `UserDefaults.standard`: the
   Wikidata migration flag and `showLandmarks`.

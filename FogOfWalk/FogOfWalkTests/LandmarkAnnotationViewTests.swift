@@ -126,6 +126,85 @@ final class LandmarkAnnotationViewTests: XCTestCase {
         XCTAssertNotNil(view.image)
     }
 
+    /// A hidden window on the host scene; its Dark Mode override resolves attached views'
+    /// traits. It is never made key or visible.
+    private func darkWindow() async throws -> UIWindow {
+        try await waitForLandmarkUI("SwiftUI connects a scene") { !UIApplication.shared.connectedScenes.isEmpty }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+        window.overrideUserInterfaceStyle = .dark
+        return window
+    }
+
+    func testReusedViewStaysZeroSizeUntilAttachmentResolvesItsAppearance() async throws {
+        let view = makeView(annotation: annotation(discovered: true))
+        XCTAssertGreaterThan(view.bounds.width, 0)
+        view.prepareForReuse()
+        view.annotation = annotation(discovered: true, name: "Reused")
+        view.configure(traits: UITraitCollection(userInterfaceStyle: .unspecified))
+        XCTAssertNil(view.image)
+        XCTAssertEqual(view.bounds, .zero, "A deferred view must not keep its previous pin's size")
+        XCTAssertEqual(view.centerOffset, .zero)
+        XCTAssertFalse(view.isEnabled)
+        let window = try await darkWindow()
+        window.addSubview(view)
+        let image = try XCTUnwrap(view.image, "Attachment draws a deferred view")
+        XCTAssertEqual(view.bounds.size, image.size)
+        XCTAssertTrue(view.isEnabled)
+        XCTAssertEqual(view.accessibilityLabel, "Reused")
+    }
+
+    func testAttachmentRedrawsOnlyPinsThatChangedWhileDetached() async throws {
+        // The container fixes the appearance, so moving it in and out of the window
+        // fires no trait change and only the attachment hook can redraw.
+        let container = UIView()
+        container.overrideUserInterfaceStyle = .dark
+        let model = annotation(discovered: false)
+        let view = LandmarkAnnotationView(annotation: model, reuseIdentifier: "test")
+        container.addSubview(view)
+        view.configure(traits: UITraitCollection(userInterfaceStyle: .dark))
+        let window = try await darkWindow()
+        window.addSubview(container)
+        let drawn = try XCTUnwrap(view.image)
+        container.removeFromSuperview()
+        window.addSubview(container)
+        XCTAssertTrue(view.image === drawn, "Reattaching an unchanged view keeps its bitmap")
+        container.removeFromSuperview()
+        XCTAssertTrue(model.update(pin: annotation(discovered: true).pin))
+        window.addSubview(container)
+        XCTAssertFalse(view.image === drawn, "A pin changed while detached is redrawn on attachment")
+        XCTAssertTrue(view.isEnabled)
+        XCTAssertEqual(view.accessibilityLabel, "Test Museum")
+    }
+
+    func testAttachedViewFallsBackToItsOwnAppearanceWhenSuppliedTraitsAreUnresolved() async throws {
+        let view = makeView(annotation: annotation(discovered: true))
+        let window = try await darkWindow()
+        window.addSubview(view)
+        view.prepareForReuse()
+        view.annotation = annotation(discovered: true, name: "Still attached")
+        view.configure(traits: UITraitCollection(userInterfaceStyle: .unspecified))
+        XCTAssertNotNil(view.image, "An attached view must not wait for an attachment that already happened")
+        XCTAssertTrue(view.isEnabled)
+        XCTAssertEqual(view.accessibilityLabel, "Still attached")
+    }
+
+    func testUnchangedBitmapStillRestoresInteractionState() {
+        let view = makeView(annotation: annotation(discovered: true))
+        let drawn = view.image
+        view.isEnabled = false
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = false
+        view.accessibilityLabel = nil
+        view.configure()
+        XCTAssertTrue(view.image === drawn, "Restoring interaction must not rerasterize")
+        XCTAssertTrue(view.isEnabled)
+        XCTAssertTrue(view.isUserInteractionEnabled)
+        XCTAssertTrue(view.isAccessibilityElement)
+        XCTAssertEqual(view.accessibilityLabel, "Test Museum")
+    }
+
     /// Measure the rendered pill using the shared top-left pixel accessor.
     private func drawnPillCenter(in view: LandmarkAnnotationView) throws -> CGPoint {
         let image = try XCTUnwrap(view.image)

@@ -292,8 +292,7 @@ struct MapContainerView: UIViewRepresentable {
                             as? HeadingUserLocationView)
                     ?? HeadingUserLocationView(annotation: annotation, reuseIdentifier: identifier)
                 view.annotation = annotation
-                view.zPriority = .max
-                view.selectedZPriority = .max
+                view.applyStackingPriority()
                 view.setHeading((mapView as? HeadingMapView)?.headingController.heading,
                                 mapHeading: mapView.camera.heading)
                 return view

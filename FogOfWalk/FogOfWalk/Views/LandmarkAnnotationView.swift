@@ -83,9 +83,13 @@ final class LandmarkAnnotationView: MKAnnotationView {
         configure()
     }
 
+    /// Attachment draws deferred views and refreshes a bitmap whose pin changed while
+    /// detached. An unchanged drawn view is left alone.
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil && image == nil { configure() }
+        if window != nil && (image == nil || renderedPin != (annotation as? LandmarkAnnotation)?.pin) {
+            configure()
+        }
     }
 
     override func prepareForReuse() {
@@ -96,12 +100,7 @@ final class LandmarkAnnotationView: MKAnnotationView {
         bounds = .zero
         centerOffset = .zero
         iconCenter = .zero
-        isEnabled = false
-        isUserInteractionEnabled = false
-        isAccessibilityElement = false
-        accessibilityTraits = []
-        accessibilityLabel = nil
-        accessibilityIdentifier = nil
+        applyInteraction(discovered: false, pin: nil)
     }
 
     /// Preserve the old 30-point radius around the icon, including outside a short
@@ -121,18 +120,20 @@ final class LandmarkAnnotationView: MKAnnotationView {
         isDraggable = false
         zPriority = pin.isDiscovered ? .defaultUnselected : .min
         selectedZPriority = zPriority
-        let destinationStyle = (traits ?? (window == nil ? nil : traitCollection))?.userInterfaceStyle
-        // Unattached maps can also supply unspecified traits. Wait for a resolved
-        // destination instead of drawing a Light Mode image that insertion must replace.
-        guard let style = destinationStyle.flatMap({ $0 == .unspecified ? nil : $0 }) ?? renderedStyle else {
-            isEnabled = false
-            isUserInteractionEnabled = false
-            isAccessibilityElement = false
-            accessibilityTraits = []
-            accessibilityLabel = nil
-            accessibilityIdentifier = nil
+        // Unattached maps can also supply unspecified traits. Prefer resolved supplied
+        // traits, then the attached view's own appearance, then the last drawn style.
+        // With none, wait instead of drawing a Light Mode image that insertion must replace.
+        func resolved(_ style: UIUserInterfaceStyle?) -> UIUserInterfaceStyle? {
+            style == .unspecified ? nil : style
+        }
+        guard let style = resolved(traits?.userInterfaceStyle)
+                ?? resolved(window == nil ? nil : traitCollection.userInterfaceStyle)
+                ?? renderedStyle else {
+            applyInteraction(discovered: false, pin: nil)
             return
         }
+        // Interaction state is reapplied even when the bitmap is unchanged.
+        applyInteraction(discovered: pin.isDiscovered, pin: pin)
         guard renderedPin != pin || renderedStyle != style else { return }
         renderedPin = pin
         renderedStyle = style
@@ -176,11 +177,15 @@ final class LandmarkAnnotationView: MKAnnotationView {
                 iconCenter = CGPoint(x: bounds.midX, y: bounds.midY)
             }
         }
-        isEnabled = pin.isDiscovered
-        isUserInteractionEnabled = pin.isDiscovered
-        isAccessibilityElement = pin.isDiscovered
-        accessibilityTraits = pin.isDiscovered ? .button : []
-        accessibilityLabel = pin.isDiscovered ? pin.name : nil
-        accessibilityIdentifier = "landmark-\(pin.identifier)"
+    }
+
+    /// Discovered, drawable pins are tappable buttons; hints and deferred views are inert.
+    private func applyInteraction(discovered: Bool, pin: LandmarkPin?) {
+        isEnabled = discovered
+        isUserInteractionEnabled = discovered
+        isAccessibilityElement = discovered
+        accessibilityTraits = discovered ? .button : []
+        accessibilityLabel = discovered ? pin?.name : nil
+        accessibilityIdentifier = pin.map { "landmark-\($0.identifier)" }
     }
 }

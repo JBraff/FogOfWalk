@@ -12,15 +12,24 @@ final class LandmarkMapObservationTests: XCTestCase {
         let fixture = try await MainActor.run { try MapObservationFixture() }
         addTeardownBlock { await MainActor.run { fixture.close() } }
         try await waitForLandmarkUI("The hosted map displays its initial annotation") { fixture.readyForEdit }
-        let parentCount = try await MainActor.run { () -> Int in
-            let count = fixture.counter.bodies
-            fixture.landmarks.allLandmarks.first!.name = "After"
-            try fixture.landmarks.allLandmarks.first!.managedObjectContext!.save()
-            return count
+        let parentCount = await MainActor.run { fixture.counter.bodies }
+        // A parent that observed landmarks would rebuild at least once per separately
+        // displayed edit. Tolerating fewer rebuilds than edits keeps an unrelated late
+        // SwiftUI pass from failing the test, so the readiness quiet window only reduces noise.
+        let edits = 3
+        for edit in 1...edits {
+            let name = "After \(edit)"
+            try await MainActor.run {
+                fixture.landmarks.allLandmarks.first!.name = name
+                try fixture.landmarks.allLandmarks.first!.managedObjectContext!.save()
+            }
+            try await waitForLandmarkUI("A count-neutral edit refreshes without a region change") {
+                fixture.displayedName == name
+            }
         }
-        try await waitForLandmarkUI("A count-neutral edit refreshes without a region change") { fixture.displayedName == "After" }
         await MainActor.run {
-            XCTAssertEqual(fixture.counter.bodies, parentCount, "Landmark observation belongs to the map child")
+            XCTAssertLessThan(fixture.counter.bodies - parentCount, edits,
+                              "Landmark observation belongs to the map child")
         }
     }
 
@@ -119,11 +128,12 @@ private struct ParentProbe: View {
     }
 }
 
-/// The production delegate configures a fresh or recycled view while its map has
-/// unresolved traits. MapKit then requests that exact view during real placement.
+/// The production delegate configures a fresh or hand-recycled view while its map has
+/// unresolved traits. MapKit then requests that exact view during real placement. This
+/// covers MapKit sizing and anchoring a late-drawn view, not MapKit's own reuse queue.
 @MainActor
 private final class DeferredMapFixture: NSObject, MKMapViewDelegate {
-    let coordinator = makeLandmarkCoordinator(defaults: nil)
+    let coordinator = makeLandmarkCoordinator()
     let map = UnresolvedAppearanceMap(frame: CGRect(x: 0, y: 0, width: 400, height: 700))
     let annotation = LandmarkAnnotation(pin: LandmarkPin(identifier: "Q1", name: "Zoo", category: "zoo",
         coordinate: CLLocationCoordinate2D(latitude: 40, longitude: -74), isDiscovered: true))
@@ -173,10 +183,8 @@ private final class DeferredMapFixture: NSObject, MKMapViewDelegate {
         guard delegateRequests > 0, map.view(for: annotation) === marker,
               marker.image != nil, marker.window === window, marker.isAccessibilityElement,
               marker.traitCollection.userInterfaceStyle == .dark else { return false }
-        let anchor = marker.convert(CGPoint(x: marker.bounds.midX - marker.centerOffset.x,
-            y: marker.bounds.midY - marker.centerOffset.y), to: map)
-        let expected = map.convert(annotation.coordinate, toPointTo: map)
-        return hypot(anchor.x - expected.x, anchor.y - expected.y) <= 1
+        let error = anchorError(of: marker, for: annotation, in: map)
+        return hypot(error.dx, error.dy) <= 1
     }
 
     func checkAndClose() {

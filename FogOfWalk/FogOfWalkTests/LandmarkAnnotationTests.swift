@@ -3,8 +3,9 @@ import MapKit
 import CoreData
 @testable import FogOfWalk
 
+/// Settings and migration flags are memory-only unless a test passes real defaults.
 @MainActor
-func makeLandmarkCoordinator(defaults: UserDefaults? = .standard) -> MapContainerView.Coordinator {
+func makeLandmarkCoordinator(defaults: UserDefaults? = nil) -> MapContainerView.Coordinator {
     let container = NSPersistentContainer(name: "FogOfWalk")
     let desc = NSPersistentStoreDescription()
     desc.type = NSInMemoryStoreType
@@ -30,8 +31,6 @@ final class LandmarkAnnotationTests: XCTestCase {
     func testToggleAndWideZoomClearAndRestoreOnlyLandmarkAnnotations() async {
         await MainActor.run {
             let coordinator = makeLandmarkCoordinator()
-            let oldSetting = coordinator.gridSettings.showLandmarks
-            defer { coordinator.gridSettings.showLandmarks = oldSetting }
             let map = MKMapView()
             let other = MKPointAnnotation()
             map.addAnnotation(other)
@@ -56,8 +55,6 @@ final class LandmarkAnnotationTests: XCTestCase {
     func testUnchangedRefreshRetainsAnnotationIdentityAndDiscoveryUpdatesData() async throws {
         try await MainActor.run {
             let coordinator = makeLandmarkCoordinator()
-            let oldSetting = coordinator.gridSettings.showLandmarks
-            defer { coordinator.gridSettings.showLandmarks = oldSetting }
             coordinator.gridSettings.showLandmarks = true
             coordinator.landmarkStore.addLandmarks([item(), item("Q2", longitude: -73.985)], visitedCells: [])
             let map = MKMapView()
@@ -109,8 +106,6 @@ final class LandmarkAnnotationTests: XCTestCase {
     func testInstalledAnnotationCapAndGateUseVisibleSpanInsteadOfPaddedSpan() async {
         await MainActor.run {
             let coordinator = makeLandmarkCoordinator()
-            let oldSetting = coordinator.gridSettings.showLandmarks
-            defer { coordinator.gridSettings.showLandmarks = oldSetting }
             coordinator.gridSettings.showLandmarks = true
             let map = MKMapView()
             coordinator.landmarkStore.addLandmarks((1...350).map { item("Q\($0)") }, visitedCells: [])
@@ -127,8 +122,6 @@ final class LandmarkAnnotationTests: XCTestCase {
     func testCountNeutralMetadataEditRefreshesRetainedAnnotation() async throws {
         try await MainActor.run {
             let coordinator = makeLandmarkCoordinator()
-            let oldSetting = coordinator.gridSettings.showLandmarks
-            defer { coordinator.gridSettings.showLandmarks = oldSetting }
             coordinator.gridSettings.showLandmarks = true
             coordinator.landmarkStore.addLandmarks([item()], visitedCells: [])
             let map = MKMapView()
@@ -157,7 +150,7 @@ final class LandmarkAnnotationTests: XCTestCase {
             let old = UserDefaults.standard.object(forKey: key)
             defer { UserDefaults.standard.set(old, forKey: key) }
             UserDefaults.standard.removeObject(forKey: key)
-            let coordinator = makeLandmarkCoordinator()
+            let coordinator = makeLandmarkCoordinator(defaults: .standard)
             let map = MKMapView()
             coordinator.landmarkStore.addLandmarks([item()], visitedCells: [])
             coordinator.refreshLandmarks(in: region(), mapView: map)
@@ -208,7 +201,7 @@ final class LandmarkMapGeometryTests: XCTestCase {
 
 @MainActor
 private final class LandmarkGeometryFixture {
-    let coordinator = makeLandmarkCoordinator(defaults: nil)
+    let coordinator = makeLandmarkCoordinator()
     let map = MKMapView(frame: CGRect(x: 0, y: 0, width: 400, height: 700))
     let window: UIWindow
     var originalSizes: [String: CGSize] = [:]
@@ -247,10 +240,8 @@ private final class LandmarkGeometryFixture {
         let annotations = Array(coordinator.landmarkAnnotations.values)
         return annotations.count == 50 && annotations.allSatisfy { annotation in
             guard let view = map.view(for: annotation), view.image != nil else { return false }
-            let anchor = view.convert(CGPoint(x: view.bounds.midX - view.centerOffset.x,
-                y: view.bounds.midY - view.centerOffset.y), to: map)
-            let expected = map.convert(annotation.coordinate, toPointTo: map)
-            return hypot(anchor.x - expected.x, anchor.y - expected.y) <= 1 && view.transform == .identity
+            let error = anchorError(of: view, for: annotation, in: map)
+            return hypot(error.dx, error.dy) <= 1 && view.transform == .identity
         }
     }
 
@@ -259,11 +250,9 @@ private final class LandmarkGeometryFixture {
         for annotation in coordinator.landmarkAnnotations.values {
             guard let view = map.view(for: annotation) else { continue }
             checked += 1
-            let anchor = view.convert(CGPoint(x: view.bounds.midX - view.centerOffset.x,
-                                              y: view.bounds.midY - view.centerOffset.y), to: map)
-            let expected = map.convert(annotation.coordinate, toPointTo: map)
-            XCTAssertEqual(anchor.x, expected.x, accuracy: 1, file: file, line: line)
-            XCTAssertEqual(anchor.y, expected.y, accuracy: 1, file: file, line: line)
+            let error = anchorError(of: view, for: annotation, in: map)
+            XCTAssertEqual(error.dx, 0, accuracy: 1, file: file, line: line)
+            XCTAssertEqual(error.dy, 0, accuracy: 1, file: file, line: line)
             if let oldSize = originalSizes[annotation.identifier] {
                 XCTAssertEqual(view.bounds.size, oldSize, file: file, line: line)
             }
@@ -274,7 +263,6 @@ private final class LandmarkGeometryFixture {
     }
 
     func close() {
-        coordinator.gridSettings.showLandmarks = false
         map.delegate = nil
         map.removeFromSuperview()
         window.isHidden = true
