@@ -1,6 +1,6 @@
 # Landmark map responsiveness: investigation and options
 
-**Status:** Proposal for review; no implementation is included.
+**Status:** Reviewed proposal; no implementation is included.
 **Source:** Probes on `e64caa2`; landmark paths also checked on `9e468e7`.
 
 ## Recommendation
@@ -68,11 +68,16 @@ scaling/rotation for hints and need an explicit behavior tradeoff.
    custom `MKAnnotationView`s with the existing icon, pill, name and hint styling.
    Set hint views' `isEnabled = false`. Open details for discovered pins and
    deselect afterwards so repeated taps work. Set `displayPriority = .required`
-   explicitly to preserve visible pins; do not introduce clustering.
+   explicitly to preserve visible pins; do not introduce clustering. When a hint
+   becomes discovered, update its annotation data and existing view's styling
+   and `isEnabled` in place (or replace only that annotation); configure reused
+   views from the current data so offscreen discoveries update correctly too.
 2. At settle, select already-ingested landmarks in a padded region, initially
    **2x the visible span**, and diff by ID rather than removing/readding all pins.
-   Keep at most 300 landmark annotations and discovered-first selection, with
-   visible discovered pins ahead of buffer-only candidates. Refresh on relevant
+   Keep at most 300 landmark annotations, selected in this order: **visible
+   discovered pins, visible hints, buffer-only discovered pins, buffer-only hints**.
+   Buffer candidates only fill capacity left after visible candidates. Preserve
+   today's `landmarks(in:)` selection within the visible region. Refresh on relevant
    data changes and toggles too. Keep the >1-degree gate based on the visible
    region, and keep display off by default.
 3. Start without mid-gesture refill, a display link, a new spatial index or
@@ -94,8 +99,10 @@ That is the reason for choosing this prototype; no speedup has been measured.
 - **Keep automated correctness tests:** a drag starting on a pin pans the map;
   a discovered-pin tap opens details, including repeated taps, while a drag does
   not; hints are inert; anchors stay within 1 point across settle in controlled
-  flat-map cases; glyph dimensions stay constant through zoom; the 300 cap and
-  discovered-first priority hold; the heading user-location view, display toggle
+  flat-map cases; glyph dimensions stay constant through zoom; the 300 cap holds
+  and visible selection matches today's `landmarks(in:)` result even
+  with many buffer-only discoveries; an onscreen hint becomes tappable with
+  discovered styling when discovered; the heading user-location view, display toggle
   and Study isolation remain intact. Use interaction tests for actual gestures,
   not just direct calls to `hitTest`. Keep 0/50/300 visible pins and roughly
   15,000 stored rows as fixtures where relevant, not a profiling matrix.
