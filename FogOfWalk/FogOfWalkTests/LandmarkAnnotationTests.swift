@@ -4,14 +4,14 @@ import CoreData
 @testable import FogOfWalk
 
 @MainActor
-private func makeLandmarkCoordinator() -> MapContainerView.Coordinator {
+func makeLandmarkCoordinator(defaults: UserDefaults? = .standard) -> MapContainerView.Coordinator {
     let container = NSPersistentContainer(name: "FogOfWalk")
     let desc = NSPersistentStoreDescription()
     desc.type = NSInMemoryStoreType
     container.persistentStoreDescriptions = [desc]
     container.loadPersistentStores { _, error in XCTAssertNil(error) }
     return MapContainerView.Coordinator(store: ExplorationStore(container: container),
-        gridSettings: GridSettings(), landmarkStore: LandmarkStore(container: container),
+        gridSettings: GridSettings(defaults: defaults), landmarkStore: LandmarkStore(container: container, defaults: defaults),
         searchService: LandmarkSearchService(source: EmptyLandmarkSource()))
 }
 
@@ -94,7 +94,14 @@ final class LandmarkAnnotationTests: XCTestCase {
             for _ in 0..<2 { coordinator.mapView(map, didSelect: view) }
             XCTAssertEqual(taps, ["Q1", "Q1"])
             XCTAssertEqual(map.deselections, 3)
-            XCTAssertTrue(coordinator.mapView(map, viewFor: map.userLocation) is HeadingUserLocationView)
+            let userView = try XCTUnwrap(coordinator.mapView(map, viewFor: map.userLocation) as? HeadingUserLocationView)
+            userView.zPriority = .min
+            userView.selectedZPriority = .min
+            map.reusableUserView = userView
+            let dequeued = try XCTUnwrap(coordinator.mapView(map, viewFor: map.userLocation))
+            XCTAssertTrue(dequeued === userView)
+            XCTAssertEqual(dequeued.zPriority, .max)
+            XCTAssertEqual(dequeued.selectedZPriority, .max)
             XCTAssertNil(coordinator.mapView(map, viewFor: MKPointAnnotation()))
         }
     }
@@ -162,6 +169,14 @@ final class LandmarkAnnotationTests: XCTestCase {
 
 private final class SelectionRecordingMap: MKMapView {
     var deselections = 0
+    var reusableUserView: HeadingUserLocationView?
+    override func dequeueReusableAnnotationView(withIdentifier identifier: String) -> MKAnnotationView? {
+        if identifier == "heading-user-location", let view = reusableUserView {
+            reusableUserView = nil
+            return view
+        }
+        return super.dequeueReusableAnnotationView(withIdentifier: identifier)
+    }
     override func deselectAnnotation(_ annotation: MKAnnotation?, animated: Bool) {
         deselections += 1
         super.deselectAnnotation(annotation, animated: animated)
@@ -170,16 +185,13 @@ private final class SelectionRecordingMap: MKMapView {
 
 final class LandmarkMapGeometryTests: XCTestCase {
     func testFiftyPinsKeepAnchorsAndGlyphSizeAcrossPanZoomRotationAndDiscovery() async throws {
-        for _ in 0..<50 {
-            if await MainActor.run(body: { !UIApplication.shared.connectedScenes.isEmpty }) { break }
-            try await Task.sleep(for: .milliseconds(100))
-        }
+        try await waitForLandmarkUI("SwiftUI connects a scene") { !UIApplication.shared.connectedScenes.isEmpty }
         let fixture = try await MainActor.run { try LandmarkGeometryFixture() }
+        addTeardownBlock { await MainActor.run { fixture.close() } }
         for (span, heading, longitude) in [(0.02, 0.0, -74.0), (0.015, 30.0, -74.001),
                                             (0.01, 31.0, -74.0), (0.02, 90.0, -74.0)] {
             await MainActor.run { fixture.move(span: span, heading: heading, longitude: longitude) }
-            // Allow MapKit's native annotation placement to finish; no manual pin positioning.
-            try await Task.sleep(for: .milliseconds(400))
+            try await waitForLandmarkUI("All fifty native annotation anchors settle") { fixture.placementReady }
             await MainActor.run { fixture.checkGeometry() }
         }
         await MainActor.run {
@@ -190,20 +202,21 @@ final class LandmarkMapGeometryTests: XCTestCase {
             XCTAssertTrue(fixture.map.view(for: annotation) === before)
             XCTAssertTrue(before?.isEnabled == true, "A visible hint becomes tappable in its existing view")
             XCTAssertEqual(before?.accessibilityLabel, "Museum 1")
-            fixture.close()
         }
     }
 }
 
 @MainActor
 private final class LandmarkGeometryFixture {
-    let coordinator = makeLandmarkCoordinator()
+    let coordinator = makeLandmarkCoordinator(defaults: nil)
     let map = MKMapView(frame: CGRect(x: 0, y: 0, width: 400, height: 700))
     let window: UIWindow
     var originalSizes: [String: CGSize] = [:]
+    private let previousKeyWindow: UIWindow?
 
     init() throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        previousKeyWindow = scene.windows.first { $0.isKeyWindow }
         window = UIWindow(windowScene: scene)
         window.frame = map.frame
         let root = UIViewController()
@@ -228,6 +241,17 @@ private final class LandmarkGeometryFixture {
         camera.heading = heading
         map.setCamera(camera, animated: false)
         coordinator.mapView(map, regionDidChangeAnimated: false)
+    }
+
+    var placementReady: Bool {
+        let annotations = Array(coordinator.landmarkAnnotations.values)
+        return annotations.count == 50 && annotations.allSatisfy { annotation in
+            guard let view = map.view(for: annotation), view.image != nil else { return false }
+            let anchor = view.convert(CGPoint(x: view.bounds.midX - view.centerOffset.x,
+                y: view.bounds.midY - view.centerOffset.y), to: map)
+            let expected = map.convert(annotation.coordinate, toPointTo: map)
+            return hypot(anchor.x - expected.x, anchor.y - expected.y) <= 1 && view.transform == .identity
+        }
     }
 
     func checkGeometry(file: StaticString = #filePath, line: UInt = #line) {
@@ -255,5 +279,7 @@ private final class LandmarkGeometryFixture {
         map.removeFromSuperview()
         window.isHidden = true
         window.rootViewController = nil
+        previousKeyWindow?.makeKey()
+        if let previousKeyWindow { XCTAssertTrue(previousKeyWindow.isKeyWindow) }
     }
 }

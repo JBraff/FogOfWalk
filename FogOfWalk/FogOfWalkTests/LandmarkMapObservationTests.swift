@@ -6,66 +6,34 @@ import CoreData
 
 final class LandmarkMapObservationTests: XCTestCase {
     func testCountNeutralEditUpdatesHostedMapWithoutRebuildingParentOrMovingRegion() async throws {
-        await waitUntil("SwiftUI connects a scene") {
+        try await waitForLandmarkUI("SwiftUI connects a scene") {
             !UIApplication.shared.connectedScenes.isEmpty
         }
         let fixture = try await MainActor.run { try MapObservationFixture() }
         addTeardownBlock { await MainActor.run { fixture.close() } }
-        await waitUntil("The hosted map displays its initial annotation") { fixture.displayedName == "Before" }
+        try await waitForLandmarkUI("The hosted map displays its initial annotation") { fixture.readyForEdit }
         let parentCount = try await MainActor.run { () -> Int in
             let count = fixture.counter.bodies
             fixture.landmarks.allLandmarks.first!.name = "After"
             try fixture.landmarks.allLandmarks.first!.managedObjectContext!.save()
             return count
         }
-        await waitUntil("A count-neutral edit refreshes without a region change") { fixture.displayedName == "After" }
+        try await waitForLandmarkUI("A count-neutral edit refreshes without a region change") { fixture.displayedName == "After" }
         await MainActor.run {
             XCTAssertEqual(fixture.counter.bodies, parentCount, "Landmark observation belongs to the map child")
         }
     }
 
-    func testUnresolvedMapRendersWhenAttachedToDarkWindow() async throws {
-        await waitUntil("SwiftUI connects a scene") { !UIApplication.shared.connectedScenes.isEmpty }
-        try await MainActor.run {
-            let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-            let window = UIWindow(windowScene: scene)
-            window.overrideUserInterfaceStyle = .dark
-            let controller = UIViewController()
-            window.rootViewController = controller
-            let annotation = LandmarkAnnotation(pin: LandmarkPin(identifier: "Q1", name: "Zoo", category: "zoo",
-                coordinate: CLLocationCoordinate2D(latitude: 40, longitude: -74), isDiscovered: true))
-            let view = LandmarkAnnotationView(annotation: annotation, reuseIdentifier: "test")
-            view.configure(traits: UITraitCollection(userInterfaceStyle: .unspecified))
-            XCTAssertNil(view.image)
-            controller.view.addSubview(view)
-            window.isHidden = false
-            defer { window.isHidden = true; window.rootViewController = nil }
-            window.layoutIfNeeded()
-            let first = view.image
-            XCTAssertNotNil(first)
-            XCTAssertEqual(view.traitCollection.userInterfaceStyle, .dark)
-            view.prepareForDisplay()
-            view.configure(traits: UITraitCollection(userInterfaceStyle: .dark))
-            XCTAssertTrue(view.image === first)
+    func testUnresolvedDelegateViewsAnchorOnRealMapAfterDarkAttachmentAndReuse() async throws {
+        try await waitForLandmarkUI("SwiftUI connects a scene") { !UIApplication.shared.connectedScenes.isEmpty }
+        for reused in [false, true] {
+            let fixture = try await MainActor.run { try DeferredMapFixture(reused: reused) }
+            addTeardownBlock { await MainActor.run { fixture.close() } }
+            try await waitForLandmarkUI("MapKit displays and anchors the deferred annotation") { fixture.isReady }
+            await MainActor.run { fixture.checkAndClose() }
         }
     }
 
-    private func waitUntil(_ description: String, _ check: @escaping @MainActor () -> Bool) async {
-        let ready = expectation(description: description)
-        // Sample UIKit on its actor while yielding for scene and MapKit work. The
-        // expectation bounds the wait, with no fixed settle delay or attempt count.
-        let polling = Task { @MainActor in
-            while !Task.isCancelled {
-                if check() {
-                    ready.fulfill()
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-        }
-        await fulfillment(of: [ready], timeout: 15)
-        polling.cancel()
-    }
 }
 
 @MainActor
@@ -74,6 +42,8 @@ private final class MapObservationFixture {
     let window: UIWindow
     let counter = BodyCounter()
     private let previousKeyWindow: UIWindow?
+    private var lastBodyCount = 0
+    private var quietSince = ContinuousClock.now
     private let suite: UserDefaults
     private let suiteName = "LandmarkMapObservationTests-\(UUID().uuidString)"
 
@@ -109,7 +79,18 @@ private final class MapObservationFixture {
     var displayedName: String? {
         guard let map = findMap(in: window),
               let annotation = map.annotations.compactMap({ $0 as? LandmarkAnnotation }).first else { return nil }
-        return map.view(for: annotation)?.accessibilityLabel
+        guard let view = map.view(for: annotation), view.image != nil else { return nil }
+        return view.accessibilityLabel
+    }
+
+    var readyForEdit: Bool {
+        guard displayedName == "Before" else { return false }
+        if counter.bodies != lastBodyCount {
+            lastBodyCount = counter.bodies
+            quietSince = .now
+            return false
+        }
+        return quietSince.duration(to: .now) >= .milliseconds(250)
     }
 
     private func findMap(in view: UIView) -> MKMapView? {
@@ -135,5 +116,103 @@ private struct ParentProbe: View {
     var body: some View {
         let _ = counter.bodies += 1
         LandmarkMapView(navigateTo: target, highlightGeneration: 0, visitedCellCount: 0)
+    }
+}
+
+/// The production delegate configures a fresh or recycled view while its map has
+/// unresolved traits. MapKit then requests that exact view during real placement.
+@MainActor
+private final class DeferredMapFixture: NSObject, MKMapViewDelegate {
+    let coordinator = makeLandmarkCoordinator(defaults: nil)
+    let map = UnresolvedAppearanceMap(frame: CGRect(x: 0, y: 0, width: 400, height: 700))
+    let annotation = LandmarkAnnotation(pin: LandmarkPin(identifier: "Q1", name: "Zoo", category: "zoo",
+        coordinate: CLLocationCoordinate2D(latitude: 40, longitude: -74), isDiscovered: true))
+    let marker: LandmarkAnnotationView
+    let window: UIWindow
+    private var delegateRequests = 0
+    private var closed = false
+
+    init(reused: Bool) throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        window = UIWindow(windowScene: scene)
+        window.frame = map.frame
+        window.overrideUserInterfaceStyle = .dark
+        if reused {
+            let old = LandmarkAnnotation(pin: LandmarkPin(identifier: "Q2", name: "Old label", category: "museum",
+                coordinate: annotation.coordinate, isDiscovered: true))
+            let recycled = LandmarkAnnotationView(annotation: old, reuseIdentifier: LandmarkAnnotationView.reuseID)
+            recycled.configure(traits: UITraitCollection(userInterfaceStyle: .light))
+            XCTAssertNotEqual(recycled.centerOffset, .zero)
+            recycled.prepareForReuse()
+            XCTAssertEqual(recycled.centerOffset, .zero)
+            map.recycled = recycled
+        }
+        marker = try XCTUnwrap(coordinator.mapView(map, viewFor: annotation) as? LandmarkAnnotationView)
+        XCTAssertNil(marker.image)
+        XCTAssertFalse(marker.isAccessibilityElement)
+        XCTAssertFalse(marker.isEnabled)
+        super.init()
+        map.setRegion(MKCoordinateRegion(center: annotation.coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)), animated: false)
+        map.delegate = self
+        map.addAnnotation(annotation)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        controller.view.addSubview(map)
+        map.unresolved = false
+        window.isHidden = false
+    }
+
+    func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+        guard annotation === self.annotation else { return nil }
+        delegateRequests += 1
+        return marker
+    }
+
+    var isReady: Bool {
+        guard delegateRequests > 0, map.view(for: annotation) === marker,
+              marker.image != nil, marker.window === window, marker.isAccessibilityElement,
+              marker.traitCollection.userInterfaceStyle == .dark else { return false }
+        let anchor = marker.convert(CGPoint(x: marker.bounds.midX - marker.centerOffset.x,
+            y: marker.bounds.midY - marker.centerOffset.y), to: map)
+        let expected = map.convert(annotation.coordinate, toPointTo: map)
+        return hypot(anchor.x - expected.x, anchor.y - expected.y) <= 1
+    }
+
+    func checkAndClose() {
+        XCTAssertTrue(isReady)
+        XCTAssertGreaterThan(marker.bounds.width, 0)
+        XCTAssertEqual(marker.bounds.size, marker.image?.size)
+        let first = marker.image
+        marker.prepareForDisplay()
+        marker.configure(traits: map.traitCollection)
+        XCTAssertTrue(marker.image === first)
+        close()
+    }
+
+    func close() {
+        guard !closed else { return }
+        closed = true
+        map.delegate = nil
+        map.removeFromSuperview()
+        window.isHidden = true
+        window.rootViewController = nil
+    }
+}
+
+@MainActor
+private final class UnresolvedAppearanceMap: MKMapView {
+    var unresolved = true
+    var recycled: LandmarkAnnotationView?
+    override var traitCollection: UITraitCollection {
+        unresolved ? super.traitCollection.modifyingTraits { $0.userInterfaceStyle = .unspecified }
+            : super.traitCollection
+    }
+    override func dequeueReusableAnnotationView(withIdentifier identifier: String) -> MKAnnotationView? {
+        if let recycled {
+            self.recycled = nil
+            return recycled
+        }
+        return super.dequeueReusableAnnotationView(withIdentifier: identifier)
     }
 }

@@ -144,6 +144,41 @@ device Release build passed with only the same three app Swift warnings; the Deb
 fixture controller and launch flag remain absent from its binary. The owner phone
 comparison is still pending.
 
+## MapKit lifecycle and test coverage corrections (2026-10-29)
+
+Ten further comments prompted these corrections and stronger checks:
+
+- The unresolved-trait regression now calls the production `viewFor` delegate on an
+  unattached map, then lets a real `MKMapView` request and position that prepared view
+  when attached to a Dark Mode scene. It covers fresh and reused views, confirms a
+  real image/accessibility target appears, and checks the coordinate anchor within
+  one point. This replaces the earlier plain-controller attachment test; that test
+  did not establish MapKit sizing or anchoring behavior. The tested simulator correctly
+  reanchors after deferred drawing, so no provisional bitmap was introduced.
+- Reuse clears bounds, the centre offset and icon centre. A view awaiting its image
+  remains disabled and outside accessibility. Attachment configures only views with
+  no image; trait changes still refresh existing images through the registered handler.
+- The user-location delegate reapplies normal and selected `.max` priority on every
+  dequeue. A regression deliberately lowers both priorities on a recycled view and
+  confirms the production delegate restores them.
+- The fifty-pin geometry fixture saves/restores the previous key window and registers
+  teardown immediately. It waits for all fifty rendered anchors to settle instead of
+  sleeping 400 ms. Its settings and migration preferences are now memory-only.
+- Hosted SwiftUI readiness requires an image and a stable parent-body count before
+  the edit; the updated name also requires an image. The shared deadline-bounded wait
+  expires its poller before the waiter and cancels/joins it before reporting a failure,
+  preventing a late fulfillment from obscuring a timeout.
+- Both rendering test suites now share the existing pixel-buffer and top-left pixel
+  accessors in `RenderingTestHelpers.swift`. Pin tests measure the pill's opaque rows
+  and columns independently, including a wide label; the icon centre comes from the
+  same pill rectangle that is drawn.
+
+The full serial suite passed again: **314 tests, 0 failures, 0 skipped**, with no
+runtime warnings in `xcresulttool`. The unsigned device Release build passed with
+only the three existing app Swift warnings and excludes the fixture controller and
+launch flag. These checks cover simulator MapKit behavior; the physical phone
+comparison remains pending.
+
 ## Earlier heading/runtime failure
 
 Before editing landmark code, the focused heading baseline reproduced a Swift

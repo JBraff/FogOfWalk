@@ -85,7 +85,7 @@ final class LandmarkAnnotationView: MKAnnotationView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil { configure() }
+        if window != nil && image == nil { configure() }
     }
 
     override func prepareForReuse() {
@@ -93,9 +93,13 @@ final class LandmarkAnnotationView: MKAnnotationView {
         renderedPin = nil
         renderedStyle = nil
         image = nil
+        bounds = .zero
+        centerOffset = .zero
         iconCenter = .zero
         isEnabled = false
+        isUserInteractionEnabled = false
         isAccessibilityElement = false
+        accessibilityTraits = []
         accessibilityLabel = nil
         accessibilityIdentifier = nil
     }
@@ -115,18 +119,20 @@ final class LandmarkAnnotationView: MKAnnotationView {
         clusteringIdentifier = nil
         canShowCallout = false
         isDraggable = false
-        isEnabled = pin.isDiscovered
-        isUserInteractionEnabled = pin.isDiscovered
         zPriority = pin.isDiscovered ? .defaultUnselected : .min
         selectedZPriority = zPriority
-        isAccessibilityElement = pin.isDiscovered
-        accessibilityTraits = pin.isDiscovered ? .button : []
-        accessibilityLabel = pin.isDiscovered ? pin.name : nil
-        accessibilityIdentifier = "landmark-\(pin.identifier)"
         let destinationStyle = (traits ?? (window == nil ? nil : traitCollection))?.userInterfaceStyle
         // Unattached maps can also supply unspecified traits. Wait for a resolved
         // destination instead of drawing a Light Mode image that insertion must replace.
-        guard let style = destinationStyle.flatMap({ $0 == .unspecified ? nil : $0 }) ?? renderedStyle else { return }
+        guard let style = destinationStyle.flatMap({ $0 == .unspecified ? nil : $0 }) ?? renderedStyle else {
+            isEnabled = false
+            isUserInteractionEnabled = false
+            isAccessibilityElement = false
+            accessibilityTraits = []
+            accessibilityLabel = nil
+            accessibilityIdentifier = nil
+            return
+        }
         guard renderedPin != pin || renderedStyle != style else { return }
         renderedPin = pin
         renderedStyle = style
@@ -150,9 +156,9 @@ final class LandmarkAnnotationView: MKAnnotationView {
                 let pillSize = CGSize(width: icon.size.width + 10, height: icon.size.height + 10)
                 let size = CGSize(width: max(pillSize.width, labelSize.width),
                                   height: pillSize.height + 8 + labelSize.height)
+                let pill = CGRect(x: (size.width - pillSize.width) / 2, y: 0,
+                                  width: pillSize.width, height: pillSize.height)
                 image = UIGraphicsImageRenderer(size: size).image { _ in
-                    let pill = CGRect(x: (size.width - pillSize.width) / 2, y: 0,
-                                      width: pillSize.width, height: pillSize.height)
                     UIColor.systemBackground.withAlphaComponent(0.9).setFill()
                     UIBezierPath(roundedRect: pill, cornerRadius: pillSize.height / 2).fill()
                     icon.draw(at: CGPoint(x: pill.minX + 5, y: 5))
@@ -161,7 +167,7 @@ final class LandmarkAnnotationView: MKAnnotationView {
                 }
                 // Four points below the pill and four above the label.
                 centerOffset = CGPoint(x: 0, y: image!.size.height / 2 - pillSize.height - 4)
-                iconCenter = CGPoint(x: bounds.midX, y: bounds.minY + pillSize.height / 2)
+                iconCenter = CGPoint(x: bounds.minX + pill.midX, y: bounds.minY + pill.midY)
             } else {
                 image = UIGraphicsImageRenderer(size: icon.size).image { _ in
                     icon.draw(at: .zero, blendMode: .normal, alpha: 0.5)
@@ -170,5 +176,11 @@ final class LandmarkAnnotationView: MKAnnotationView {
                 iconCenter = CGPoint(x: bounds.midX, y: bounds.midY)
             }
         }
+        isEnabled = pin.isDiscovered
+        isUserInteractionEnabled = pin.isDiscovered
+        isAccessibilityElement = pin.isDiscovered
+        accessibilityTraits = pin.isDiscovered ? .button : []
+        accessibilityLabel = pin.isDiscovered ? pin.name : nil
+        accessibilityIdentifier = "landmark-\(pin.identifier)"
     }
 }

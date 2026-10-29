@@ -32,6 +32,9 @@ final class LandmarkAnnotationViewTests: XCTestCase {
                 y: center.y + direction.y * 31), with: nil))
         }
         let long = makeView(annotation: annotation(discovered: true, name: String(repeating: "Wide label ", count: 8)))
+        let longCenter = try drawnPillCenter(in: long)
+        XCTAssertEqual(long.iconCenter.x, longCenter.x, accuracy: 0.5)
+        XCTAssertEqual(long.iconCenter.y, longCenter.y, accuracy: 0.5)
         XCTAssertNil(long.hitTest(CGPoint(x: long.bounds.maxX - 2, y: long.bounds.maxY - 2), with: nil))
         let hint = makeView(annotation: annotation(discovered: false))
         XCTAssertFalse(hint.isUserInteractionEnabled)
@@ -49,6 +52,10 @@ final class LandmarkAnnotationViewTests: XCTestCase {
         view.configure(traits: MKMapView().traitCollection.modifyingTraits { $0.userInterfaceStyle = .unspecified })
         view.prepareForDisplay()
         XCTAssertNil(view.image, "An unattached map's unspecified traits must not trigger a placeholder draw")
+        XCTAssertFalse(view.isEnabled)
+        XCTAssertFalse(view.isAccessibilityElement)
+        XCTAssertNil(view.accessibilityLabel)
+        XCTAssertNil(view.accessibilityIdentifier)
         view.configure(traits: UITraitCollection(userInterfaceStyle: .dark))
         let first = view.image
         XCTAssertNotNil(first)
@@ -119,20 +126,23 @@ final class LandmarkAnnotationViewTests: XCTestCase {
         XCTAssertNotNil(view.image)
     }
 
-    /// Read the first opaque run through the rendered pill's centre column. This
-    /// measures the image, independently of the hit-test and anchor arithmetic.
+    /// Measure the rendered pill using the shared top-left pixel accessor.
     private func drawnPillCenter(in view: LandmarkAnnotationView) throws -> CGPoint {
         let image = try XCTUnwrap(view.image)
         let cgImage = try XCTUnwrap(image.cgImage)
         let width = cgImage.width, height = cgImage.height
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        let context = try XCTUnwrap(CGContext(data: &pixels, width: width, height: height,
-            bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-        let opaqueRows = (0..<height).prefix { pixels[($0 * width + width / 2) * 4 + 3] > 0 }
-        XCTAssertFalse(opaqueRows.isEmpty)
-        return CGPoint(x: view.bounds.midX, y: CGFloat(opaqueRows.count) / image.scale / 2)
+        let pixels = pixelBuffer(for: cgImage)
+        func opaque(_ x: Int, _ y: Int) -> Bool {
+            pixelColor(at: CGPoint(x: x, y: y), in: pixels, width: width, height: height).a > 0
+        }
+        // Scan the top connected band (the pill), stopping at the transparent
+        // gap above the label. Measure both axes without any view-layout formula.
+        let rows = (0..<height).prefix { y in (0..<width).contains { opaque($0, y) } }
+        let columns = (0..<width).filter { x in rows.contains { opaque(x, $0) } }
+        let minX = try XCTUnwrap(columns.first), maxX = try XCTUnwrap(columns.last)
+        XCTAssertFalse(rows.isEmpty)
+        return CGPoint(x: CGFloat(minX + maxX + 1) / image.scale / 2,
+                       y: CGFloat(rows.count) / image.scale / 2)
     }
 
     func testEveryCategoryHasAnIconIncludingUnavailableSymbolFallback() {

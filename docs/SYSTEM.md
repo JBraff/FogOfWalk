@@ -78,6 +78,8 @@ including during selection. Wide labels do not claim touches outside the icon ci
 Discovered pins open details and deselect immediately to allow repeated taps. Initial
 rasterization uses resolved map traits; unresolved traits defer drawing until attachment.
 Pre-window preparation reuses a resolved bitmap until the view's actual appearance changes.
+Deferred views stay disabled and outside accessibility until drawn; reuse clears their
+old geometry. The delegate reapplies user-location stacking priority when dequeuing a view.
 
 At settle, the coordinator preserves the existing visible-region selection, then fills
 spare capacity from already-ingested landmarks within twice the visible span. Visible

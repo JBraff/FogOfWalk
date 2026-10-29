@@ -303,7 +303,9 @@ Generation advances on landmark context changes and cache reloads.
   outside that circle. The user location view sits above discovered pins, including
   during selection. Selections open details and immediately deselect so repeated taps
   work. The delegate supplies resolved map traits before the first bitmap draw;
-  unresolved traits defer drawing until attachment supplies the appearance.
+  unresolved traits defer drawing until attachment supplies the appearance. Deferred
+  views stay disabled and outside accessibility until drawn; reuse clears old geometry.
+  Real MapKit regressions cover fresh/reused deferred views and their coordinate anchors.
 - Coupled limits: `GridMath.maxIngestSpanDegrees` (1.0°) ↔ `BundledLandmarkSource` `LIMIT 500`
   (re-measure density before raising the span). `LandmarkStore.maxRenderedPins` = 300.
 - `showLandmarks` is **off by default**. Discovery always runs, and only pin display is gated
@@ -448,8 +450,9 @@ in commit 938ef32, so ignore older docs that describe it.
   background wake-up.
 - **Async timing:** `LandmarkSearchServiceTests` uses a sleep-and-poll loop (the debounce doesn't
   fit expectations well), while `LocalityGeocoderTests` uses `XCTestExpectation`.
-- **Rendering helpers:** `renderFog(...)` and `pixelColor(at:in:)` (`FogOverlayRendererTests`) for
-  fog. `LandmarkMapGeometryTests` checks real MapKit pin placement; `LandmarkInteractionTests`
+- **Rendering helpers:** `renderFog(...)` lives in `FogOverlayRendererTests`;
+  `RenderingTestHelpers` shares the RGBA `pixelBuffer(for:)` and top-left-coordinate
+  `pixelColor(at:in:)` accessors between fog and pin tests. `LandmarkMapGeometryTests` checks real MapKit pin placement; `LandmarkInteractionTests`
   uses the Debug-only `-landmark-interaction-fixture` launch argument for real gestures on
   an in-memory map. The launch flag skips production service construction, so the fixture
   never opens the normal store or starts tracking. Fixture settings and migration flags
