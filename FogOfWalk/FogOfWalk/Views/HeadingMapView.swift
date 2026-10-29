@@ -1,11 +1,14 @@
 import MapKit
+import os
 
 /// A foreground-only compass for the location marker. It never requests locations or
 /// changes the map camera, and is disabled alongside MapKit in the Study app.
 final class MapHeadingController: NSObject, CLLocationManagerDelegate {
     private let manager: CLLocationManager
     private let headingAvailable: Bool
-    private var startedAt: Date?
+    // Capture the session at delegate receipt, before hopping to the main actor.
+    nonisolated private let session = OSAllocatedUnfairLock<UUID?>(initialState: nil)
+    nonisolated var sessionID: UUID? { session.withLock { $0 } }
     private(set) var heading: CLLocationDirection?
     var onChange: (() -> Void)?
 
@@ -22,12 +25,12 @@ final class MapHeadingController: NSObject, CLLocationManagerDelegate {
         let authorized = manager.authorizationStatus == .authorizedAlways
             || manager.authorizationStatus == .authorizedWhenInUse
         let shouldRun = enabled && active && visible && authorized && headingAvailable
-        guard shouldRun != (startedAt != nil) else { return }
+        guard shouldRun != (sessionID != nil) else { return }
         if shouldRun {
-            startedAt = Date()
+            session.withLock { $0 = UUID() }
             manager.startUpdatingHeading()
         } else {
-            startedAt = nil
+            session.withLock { $0 = nil }
             manager.stopUpdatingHeading()
             heading = nil
             onChange?()
@@ -43,17 +46,18 @@ final class MapHeadingController: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    func receive(trueHeading: Double, magneticHeading: Double, accuracy: Double, timestamp: Date) {
-        guard let startedAt, timestamp >= startedAt else { return }
+    func receive(trueHeading: Double, magneticHeading: Double, accuracy: Double, sessionID: UUID?) {
+        guard let sessionID, sessionID == self.sessionID else { return }
         let value = trueHeading >= 0 ? trueHeading : magneticHeading
         heading = accuracy >= 0 && value.isFinite && (0..<360).contains(value) ? value : nil
         onChange?()
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        let receivedSession = sessionID
         Task { @MainActor [weak self] in
             self?.receive(trueHeading: newHeading.trueHeading, magneticHeading: newHeading.magneticHeading,
-                          accuracy: newHeading.headingAccuracy, timestamp: newHeading.timestamp)
+                          accuracy: newHeading.headingAccuracy, sessionID: receivedSession)
         }
     }
 
@@ -63,12 +67,24 @@ final class MapHeadingController: NSObject, CLLocationManagerDelegate {
 }
 
 final class HeadingMapView: MKMapView {
-    let headingController = MapHeadingController()
+    let headingController: MapHeadingController
+    private var geometryObservation: NSKeyValueObservation?
     var locationDisplayEnabled = false { didSet { updateHeading() } }
     var sceneActive = false { didSet { updateHeading() } }
 
     override init(frame: CGRect) {
+        headingController = MapHeadingController()
         super.init(frame: frame)
+        connectHeading()
+    }
+
+    init(frame: CGRect, headingController: MapHeadingController) {
+        self.headingController = headingController
+        super.init(frame: frame)
+        connectHeading()
+    }
+
+    private func connectHeading() {
         headingController.onChange = { [weak self] in
             self?.updateHeading()
             self?.updateHeadingMarker()
@@ -79,12 +95,16 @@ final class HeadingMapView: MKMapView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        geometryObservation?.invalidate()
+        geometryObservation = window?.windowScene?.observe(\.effectiveGeometry, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in self?.updateInterfaceOrientation() }
+        }
+        updateInterfaceOrientation()
         updateHeading()
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        headingController.setOrientation(window?.windowScene?.interfaceOrientation ?? .portrait)
+    private func updateInterfaceOrientation() {
+        headingController.setOrientation(window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .portrait)
     }
 
     private func updateHeading() {

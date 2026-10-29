@@ -39,6 +39,7 @@ struct MapContainerView: UIViewRepresentable {
         // Recenter without entering heading-up tracking. The compass appears only
         // after the user manually rotates the map.
         let trackingButton = Self.makeTrackingButton(for: mapView)
+        context.coordinator.trackingButton = trackingButton
         let compassButton  = MKCompassButton(mapView: mapView)
         compassButton.compassVisibility = .adaptive
         compassButton.translatesAutoresizingMaskIntoConstraints = false
@@ -83,7 +84,7 @@ struct MapContainerView: UIViewRepresentable {
 
     static func makeTrackingButton(for mapView: MKMapView) -> UIButton {
         let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "location.fill"), for: .normal)
+        updateTrackingButton(button, mode: mapView.userTrackingMode)
         button.accessibilityLabel = "Recenter on my location"
         button.addAction(UIAction { [weak mapView] _ in
             guard let mapView, mapView.showsUserLocation else { return }
@@ -93,6 +94,12 @@ struct MapContainerView: UIViewRepresentable {
         button.layer.cornerRadius = 8
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
+    }
+
+    static func updateTrackingButton(_ button: UIButton, mode: MKUserTrackingMode) {
+        let follows = mode != .none
+        button.setImage(UIImage(systemName: follows ? "location.fill" : "location"), for: .normal)
+        button.accessibilityValue = follows ? "Following location" : "Not following location"
     }
 
     /// Shows or hides the blue dot and its tracking button together. Study's automatic
@@ -109,6 +116,9 @@ struct MapContainerView: UIViewRepresentable {
         }
         (mapView as? HeadingMapView)?.locationDisplayEnabled = enabled
         trackingButton?.isHidden = !enabled
+        if let button = trackingButton as? UIButton {
+            updateTrackingButton(button, mode: mapView.userTrackingMode)
+        }
     }
 
     /// Moves the map to a stats-sheet target and leaves follow mode, so the map stays where
@@ -170,6 +180,8 @@ struct MapContainerView: UIViewRepresentable {
         var gridSettings: GridSettings
         var landmarkStore: LandmarkStore
         var searchService: LandmarkSearchService
+
+        weak var trackingButton: UIButton?
 
         // Fog is now an MKOverlay; MapKit holds the strong references.
         weak var fogOverlay:          FogOverlay?
@@ -345,6 +357,10 @@ struct MapContainerView: UIViewRepresentable {
         }
 
         // MARK: - MKMapViewDelegate
+
+        func mapView(_ mapView: MKMapView, didChange mode: MKUserTrackingMode, animated: Bool) {
+            if let trackingButton { MapContainerView.updateTrackingButton(trackingButton, mode: mode) }
+        }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             guard annotation is MKUserLocation else { return nil }

@@ -89,7 +89,7 @@ FogOfWalk/
     Views/
       MapContainerView.swift         # UIViewRepresentable: MKMapView + FogOverlay + LandmarkOverlayView +
                                      # top-right recenter and compass buttons; Coordinator
-      HeadingMapView.swift          # Foreground compass updates only the blue dot's direction pointer
+      HeadingMapView.swift           # Foreground compass updates only the blue dot's direction pointer
       FogOverlay.swift               # FogOverlay (MKOverlay), FogRenderer (pure CG), FogOverlayRenderer
       LandmarkOverlayView.swift      # UIView sibling: discovered pins + "?" hints, tap hit-testing
       LandmarkDetailView.swift       # Sheet for a tapped discovered pin
@@ -263,7 +263,11 @@ to rotate a pointer around MapKit's native blue dot. It starts only with locatio
 heading hardware, a visible window, an active scene and `usesMapLocation` enabled; backgrounding,
 removing the map or Study OFF/live-source selection stops it and clears the pointer. It never
 requests locations or feeds recording. Manual map rotation is still supported; the pointer
-compensates for the camera heading and the adaptive compass resets north.
+compensates for the camera heading and the adaptive compass resets north. The recenter
+button shows an outline arrow when not following and a filled arrow when following.
+Scene geometry observation handles orientation changes even without a layout pass.
+Heading callbacks carry a session ID across the actor hop: the first cached reading in
+a new session is accepted, and callbacks queued in a previous session are rejected.
 
 Fog pans and zooms natively. `LandmarkOverlayView` is a plain `UIView` sibling, so
 `mapViewDidChangeVisibleRegion(_:)` applies a manual `CATransform3D` during gestures (math in
