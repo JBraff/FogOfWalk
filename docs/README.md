@@ -26,6 +26,11 @@ blockers, and next actions; it does not replace these product documents.
   [Adaptive Location Tracking plan](proposals/2026-09-04-adaptive-location-tracking.md)
   remains deprecated. Lifecycle and next actions live in the workspace's Automatic
   Stationary Pause and Walking Resume initiative.
+- [Landmark map responsiveness: investigation and options](proposals/2026-10-28-landmark-map-responsiveness.md)
+  compares repairing the current pin overlay, native MapKit annotations and
+  retained custom pin layers. It is a proposal, not an accepted rendering change.
+  The [simulator probe record](evidence/landmark-rendering-investigation.md)
+  preserves reproducible touch-routing and redraw-order evidence.
 - [Navigation and Explore — simple plan](proposals/2026-10-22-navigation-explore-plan.md)
   is the owner-directed plan for map orientation, a fog peek, nearby undiscovered
   landmarks and an optional route preview. It deliberately leaves turn-by-turn
