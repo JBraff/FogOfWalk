@@ -13,7 +13,8 @@ struct FogOfWalkApp: App {
     /// The fixture gate precedes every production service, store open and recording hook.
     static func servicesForLaunch<T>(arguments: [String], make: @MainActor () -> T) -> T? {
         #if DEBUG
-        if LandmarkInteractionFixture.isRequested(arguments: arguments) { return nil }
+        if LandmarkInteractionFixture.isRequested(arguments: arguments)
+            || RoutePrototypeFixture.isRequested(arguments: arguments) { return nil }
         #endif
         return make()
     }
@@ -22,7 +23,11 @@ struct FogOfWalkApp: App {
         WindowGroup {
             #if DEBUG
             if services == nil {
-                LandmarkInteractionFixture()
+                if RoutePrototypeFixture.isRequested(arguments: ProcessInfo.processInfo.arguments) {
+                    RoutePrototypeFixture()
+                } else {
+                    LandmarkInteractionFixture()
+                }
             } else {
                 appContent
             }
