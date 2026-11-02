@@ -9,6 +9,7 @@ struct MapNavigationTarget {
 }
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(ExplorationStore.self)   private var store
     @Environment(GridSettings.self)       private var gridSettings
     @Environment(LandmarkStore.self)      private var landmarkStore
@@ -20,6 +21,8 @@ struct ContentView: View {
     /// still shows.
     @State private var dismissedPermissionPrompt: LocationService.PermissionPrompt?
     @State private var showSettings = false
+    @State private var showRoutes = false
+    @State private var routePreview = RoutePreviewModel()
     /// The last recovery notice shown. Kept after dismissal clears `store.recoveryNotice`,
     /// so the alert's title and message don't change while it animates away.
     @State private var shownRecoveryNotice: StoreRecoveryNotice?
@@ -56,7 +59,9 @@ struct ContentView: View {
                 },
                 navigateTo: mapTarget,
                 highlightGeneration: store.recentCellsGeneration,
-                visitedCellCount: store.visitedCellsCache.count
+                visitedCellCount: store.visitedCellsCache.count,
+                previewRoutes: routePreview.routes,
+                selectedRouteID: routePreview.selectedRouteID
             )
             .ignoresSafeArea()
 
@@ -68,6 +73,23 @@ struct ContentView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 Spacer()
+                if !locationService.isStudyApp {
+                    HStack {
+                        Button { showRoutes = true } label: {
+                            Label(routePreview.selectedRoute == nil ? "Compare routes" : "Route options",
+                                  systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                        }
+                        .accessibilityIdentifier("compare-routes")
+                        if routePreview.selectedRoute != nil {
+                            Button("Clear", systemImage: "xmark.circle") { routePreview.clear() }
+                                .labelStyle(.iconOnly)
+                                .accessibilityLabel("Clear route preview")
+                        }
+                    }
+                    .padding(12)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.bottom, 8)
+                }
                 StatsView(showStats: $showStats, showSettings: $showSettings)
                     .padding(.bottom, 8)
             }
@@ -91,6 +113,14 @@ struct ContentView: View {
         }
         .sheet(item: $selectedLandmark) { landmark in
             LandmarkDetailView(landmark: landmark)
+        }
+        .sheet(isPresented: $showRoutes, onDismiss: { routePreview.cancelPending() }) {
+            RoutePreviewSheet(model: routePreview, origin: {
+                RoutePreviewModel.usableOrigin(locationService.currentLocation)
+            })
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { routePreview.cancelPending() }
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()

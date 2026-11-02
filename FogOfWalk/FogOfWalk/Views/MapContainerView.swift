@@ -22,6 +22,8 @@ struct MapContainerView: UIViewRepresentable {
     /// Explicit inputs ensure ingest and discovery refresh annotations even without a new cell.
     var landmarkGeneration: UInt64 = 0
     var showsLandmarks: Bool = false
+    var previewRoutes: [DiscoveryRoute] = []
+    var selectedRouteID: UUID?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(store: store, gridSettings: gridSettings,
@@ -147,6 +149,8 @@ struct MapContainerView: UIViewRepresentable {
             coordinator.lastNavigationTargetID = target.id
         }
 
+        coordinator.updateRoutes(previewRoutes, selectedID: selectedRouteID, mapView: mapView)
+
         // If the cache was populated after the renderer was created (e.g.
         // initial Core Data load completing after makeUIView), push the
         // updated cells to the fog renderer.
@@ -211,6 +215,30 @@ struct MapContainerView: UIViewRepresentable {
             self.gridSettings  = gridSettings
             self.landmarkStore = landmarkStore
             self.searchService = searchService
+        }
+
+        private(set) var routeOverlays: [UUID: MKPolyline] = [:]
+        private(set) var selectedRouteID: UUID?
+        private var routeOrder: [UUID] = []
+
+        /// Rebuild only on route/selection changes; fog and landmark overlays are untouched.
+        func updateRoutes(_ routes: [DiscoveryRoute], selectedID: UUID?, mapView: MKMapView) {
+            let ids = routes.map(\.id)
+            guard ids != routeOrder || selectedID != selectedRouteID else { return }
+            mapView.removeOverlays(Array(routeOverlays.values))
+            routeOverlays = Dictionary(uniqueKeysWithValues: routes.map { ($0.id, $0.polyline) })
+            routeOrder = ids
+            selectedRouteID = selectedID
+            for route in routes where route.id != selectedID {
+                mapView.addOverlay(route.polyline, level: .aboveLabels)
+            }
+            if let selected = routes.first(where: { $0.id == selectedID }) {
+                mapView.addOverlay(selected.polyline, level: .aboveLabels)
+                mapView.setUserTrackingMode(.none, animated: false)
+                mapView.setVisibleMapRect(selected.polyline.boundingMapRect,
+                    edgePadding: UIEdgeInsets(top: min(100, mapView.bounds.height * 0.15),
+                        left: 32, bottom: min(340, mapView.bounds.height * 0.42), right: 32), animated: true)
+            }
         }
 
         // MARK: - Fog tile management
@@ -315,6 +343,16 @@ struct MapContainerView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let line = overlay as? MKPolyline,
+               routeOverlays.values.contains(where: { $0 === line }) {
+                let renderer = MKPolylineRenderer(polyline: line)
+                let selected = selectedRouteID.flatMap { routeOverlays[$0] } === line
+                renderer.strokeColor = selected ? .systemBlue : .systemGray2
+                renderer.lineWidth = selected ? 6 : 4
+                renderer.lineCap = .round
+                renderer.lineJoin = .round
+                return renderer
+            }
             guard let fogOverlay = overlay as? FogOverlay else {
                 return MKOverlayRenderer(overlay: overlay)
             }
@@ -352,10 +390,13 @@ struct LandmarkMapView: View {
     var navigateTo: MapNavigationTarget?
     var highlightGeneration: UInt64
     var visitedCellCount: Int
+    var previewRoutes: [DiscoveryRoute] = []
+    var selectedRouteID: UUID?
 
     var body: some View {
         MapContainerView(onLandmarkTapped: onLandmarkTapped, navigateTo: navigateTo,
             highlightGeneration: highlightGeneration, visitedCellCount: visitedCellCount,
-            landmarkGeneration: landmarks.renderGeneration, showsLandmarks: settings.showLandmarks)
+            landmarkGeneration: landmarks.renderGeneration, showsLandmarks: settings.showLandmarks,
+            previewRoutes: previewRoutes, selectedRouteID: selectedRouteID)
     }
 }

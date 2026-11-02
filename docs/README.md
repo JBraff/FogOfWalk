@@ -41,6 +41,10 @@ blockers, and next actions; it does not replace these product documents.
   is preserved as supplied. Lifecycle lives in the workspace
   `fog-walking-companion` initiative.
 
+- [Destination-first route comparison prototype](evidence/destination-route-prototype.md)
+  describes the normal-app search, route selection, local new-cell estimates,
+  limitations and isolated offline visual demo.
+
 ## Documentation areas
 
 - `proposals/` holds product designs that are under consideration and have not

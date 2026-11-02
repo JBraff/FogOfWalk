@@ -279,6 +279,17 @@ the display setting and passes them as explicit representable inputs. This inclu
 count-neutral Core Data edits without making the root screen observe every landmark change.
 Generation advances on landmark context changes and cache reloads.
 
+### Route preview
+
+Normal Fog's **Compare routes** UI is owned by `RoutePreviewModel` and
+`RoutePreviewSheet`. Search/routing are explicit online actions; the existing
+location service supplies a fresh origin. `RouteCellEstimator` reads grid geometry
+and the visited cache only: never feed a preview to `ExplorationRecorder`.
+Route overlays stay above fog and are cleared independently of fog/landmarks.
+The entry point is hidden in Study. Debug `-route-prototype-fixture` uses only
+in-memory stores and synthetic public-coordinate routes, gated before production
+service construction. See `docs/evidence/destination-route-prototype.md`.
+
 ### Landmarks
 
 - Data: `landmarks.sqlite` (14,943 Wikidata items in 10 categories). Rows are copied into Core

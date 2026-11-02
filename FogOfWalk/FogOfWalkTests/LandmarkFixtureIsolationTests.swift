@@ -11,6 +11,10 @@ final class LandmarkFixtureIsolationTests: XCTestCase {
                 return "Production store and tracking"
             }
             XCTAssertNil(fixture)
+            XCTAssertNil(FogOfWalkApp.servicesForLaunch(arguments: ["-route-prototype-fixture"]) {
+                builds += 1
+                return "Production store and tracking"
+            })
             XCTAssertEqual(builds, 0)
             XCTAssertEqual(FogOfWalkApp.servicesForLaunch(arguments: []) { builds += 1; return 7 }, 7)
             XCTAssertEqual(builds, 1, "Normal and background launch still construct their services immediately")

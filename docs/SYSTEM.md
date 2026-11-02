@@ -3,7 +3,8 @@
 Fog of Walk is an iOS application that clears a fog-of-war overlay from Apple
 Maps as the user physically explores. It represents exploration as fixed 50 m
 grid cells and persists those cells locally with Core Data. Everything runs
-on-device. The only network use is Apple's reverse geocoding for locality names.
+on-device. Network use includes Apple's reverse geocoding for locality names and, on explicit
+request, destination search and walking directions. Exploration history stays local.
 
 ## System shape
 
@@ -162,3 +163,21 @@ trial and evidence limits.
 
 For implementation-specific constraints, build commands, and agent behavior,
 read the repository's `AGENTS.md`.
+
+## Destination route preview
+
+The normal-app UI owns an in-memory `RoutePreviewModel`, using `MKLocalSearch` and
+`MKDirections` only when the user submits a destination search or requests routes.
+No routing state is persisted. Generation checks discard superseded or cancelled
+responses. The origin comes from the existing location service; routing creates
+no location stream, recording callback or background work. The entry point is
+hidden in Study.
+
+`RouteCellEstimator` traverses route geometry using the existing `GridMath` grid,
+with bounded work and unique-cell membership. Subtracting `visitedCellsCache`
+yields an estimated new-cell count; the UI recomputes that subtraction as visited
+cells change. This read path never calls the recorder or mutates exploration.
+Route polylines are owned separately from the fog overlay and drawn above it,
+with the selected route last. Route/selection identity prevents unrelated updates
+from resetting a camera the user has panned. See the
+[prototype and verification guide](evidence/destination-route-prototype.md).
