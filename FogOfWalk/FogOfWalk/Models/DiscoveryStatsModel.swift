@@ -48,35 +48,47 @@ struct LocalityStats: Identifiable {
 
 // MARK: - LocalityStats geometry helpers
 
-private func localityCentroid(_ cells: [CellID]) -> CLLocationCoordinate2D {
-    guard !cells.isEmpty else { return CLLocationCoordinate2D() }
-    var sumLat = 0.0
-    var sumLon = 0.0
-    for cell in cells {
-        let c = GridMath.center(for: cell)
-        sumLat += c.latitude
-        sumLon += c.longitude
-    }
-    return CLLocationCoordinate2D(latitude: sumLat / Double(cells.count),
-                                  longitude: sumLon / Double(cells.count))
-}
-
-private func localitySpan(_ cells: [CellID]) -> MKCoordinateSpan {
+/// Cut the longitude circle at its largest empty gap, so a locality straddling
+/// the date line has the same compact extent and mean as an ordinary locality.
+private func localityGeometry(_ cells: [CellID]) -> (center: CLLocationCoordinate2D, span: MKCoordinateSpan) {
     guard !cells.isEmpty else {
-        return MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+        return (CLLocationCoordinate2D(), MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))
     }
+    func positiveLongitude(_ longitude: Double) -> Double {
+        longitude - 360 * floor(longitude / 360)
+    }
+    let longitudes = cells.map { positiveLongitude(GridMath.center(for: $0).longitude) }.sorted()
+    var start = longitudes[0]
+    var largestGap = -Double.infinity
+    for index in longitudes.indices {
+        let next = index + 1 < longitudes.count ? longitudes[index + 1] : longitudes[0] + 360
+        if next - longitudes[index] > largestGap {
+            largestGap = next - longitudes[index]
+            start = longitudes[(index + 1) % longitudes.count]
+        }
+    }
+    var sumLat = 0.0, sumLon = 0.0
     var minLat = Double.infinity, maxLat = -Double.infinity
     var minLon = Double.infinity, maxLon = -Double.infinity
     for cell in cells {
-        let b = GridMath.bounds(for: cell)
-        minLat = min(minLat, b.min.latitude)
-        maxLat = max(maxLat, b.max.latitude)
-        minLon = min(minLon, b.min.longitude)
-        maxLon = max(maxLon, b.max.longitude)
+        let center = GridMath.center(for: cell)
+        let bounds = GridMath.bounds(for: cell)
+        let positive = positiveLongitude(center.longitude)
+        let longitude = positive < start ? positive + 360 : positive
+        sumLat += center.latitude
+        sumLon += longitude
+        minLat = min(minLat, bounds.min.latitude)
+        maxLat = max(maxLat, bounds.max.latitude)
+        // Keep both cell edges in the same unwrapped interval as its center.
+        minLon = min(minLon, longitude + bounds.min.longitude - center.longitude)
+        maxLon = max(maxLon, longitude + bounds.max.longitude - center.longitude)
     }
-    return MKCoordinateSpan(
-        latitudeDelta: max((maxLat - minLat) * 1.5, 0.01),
-        longitudeDelta: max((maxLon - minLon) * 1.5, 0.01)
+    let meanLongitude = sumLon / Double(cells.count)
+    return (
+        CLLocationCoordinate2D(latitude: sumLat / Double(cells.count),
+                               longitude: positiveLongitude(meanLongitude + 180) - 180),
+        MKCoordinateSpan(latitudeDelta: min(180, max((maxLat - minLat) * 1.5, 0.01)),
+                         longitudeDelta: min(360, max((maxLon - minLon) * 1.5, 0.01)))
     )
 }
 
@@ -182,7 +194,7 @@ final class DiscoveryStatsModel {
 
         // All-time stats
         allTimeTotal   = cells.count
-        firstWalkDate  = cells.first?.firstVisited
+        firstWalkDate  = cells.lazy.compactMap(\.firstVisited).min()
 
         if let best = allDayCounts.max(by: { $0.value < $1.value }) {
             bestDayCount = best.value
@@ -243,11 +255,12 @@ final class DiscoveryStatsModel {
         // Locality breakdown by period
         func buildStats(_ dict: [String: [CellID]]) -> [LocalityStats] {
             dict.map { name, ids in
-                LocalityStats(
+                let geometry = localityGeometry(ids)
+                return LocalityStats(
                     name: name,
                     count: ids.count,
-                    center: localityCentroid(ids),
-                    span: localitySpan(ids)
+                    center: geometry.center,
+                    span: geometry.span
                 )
             }
             .sorted { $0.count > $1.count }

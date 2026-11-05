@@ -25,7 +25,7 @@ final class DiscoveryStatsModelTests: XCTestCase {
         in ctx: NSManagedObjectContext,
         x: Int32 = 0, y: Int32 = 0,
         cellSizeMeters: Double = 50,
-        firstVisited: Date,
+        firstVisited: Date?,
         locality: String? = nil,
         state: String? = nil,
         country: String? = nil
@@ -97,6 +97,57 @@ final class DiscoveryStatsModelTests: XCTestCase {
             XCTAssertEqual(model.firstWalkDate?.timeIntervalSinceReferenceDate ?? 0,
                            oldest.timeIntervalSinceReferenceDate,
                            accuracy: 1)
+        }
+    }
+
+    func testFirstWalkIgnoresMissingDatesAndClearsWhenNoneRemain() async {
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let ctx = container.viewContext
+            let earliest = Date(timeIntervalSince1970: 1_000)
+            insertCell(in: ctx, x: 0, firstVisited: nil)
+            let dated = insertCell(in: ctx, x: 1, firstVisited: earliest)
+            let later = insertCell(in: ctx, x: 2, firstVisited: earliest.addingTimeInterval(100))
+            let model = DiscoveryStatsModel()
+            model.refresh(context: ctx)
+            XCTAssertEqual(model.firstWalkDate, earliest)
+            XCTAssertEqual(model.allTimeTotal, 3)
+            dated.firstVisited = nil
+            later.firstVisited = nil
+            try! ctx.save()
+            model.refresh(context: ctx)
+            XCTAssertNil(model.firstWalkDate)
+            XCTAssertEqual(model.allTimeTotal, 3)
+        }
+    }
+
+    func testLocalityGeometryAcrossDateLineAndOrdinaryMeridians() async {
+        await MainActor.run {
+            for longitudes in [[179.9, -179.9], [-0.1, 0.1], [-74.1, -73.9]] {
+                let container = makeInMemoryContainer()
+                let ctx = container.viewContext
+                let ids = longitudes.map {
+                    GridMath.cellID(for: CLLocationCoordinate2D(latitude: 10, longitude: $0))
+                }
+                for id in ids {
+                    insertCell(in: ctx, x: id.x, y: id.y, firstVisited: Date(), locality: "Town")
+                }
+                let model = DiscoveryStatsModel()
+                model.refresh(context: ctx)
+                let stats = model.locality(for: .allTime).first!
+                let expectedLongitude = longitudes[0] > 179 ? 180.0 : longitudes.reduce(0, +) / 2
+                let difference = abs(stats.center.longitude - expectedLongitude)
+                XCTAssertLessThan(min(difference, 360 - difference), 0.001)
+                XCTAssertEqual(stats.center.latitude, 10, accuracy: 0.001)
+                XCTAssertGreaterThan(stats.span.longitudeDelta, 0.3)
+                XCTAssertLessThan(stats.span.longitudeDelta, 0.302)
+                XCTAssertEqual(stats.span.latitudeDelta, 0.01, accuracy: 0.0001)
+                // Each cell center must fit within the returned date-line-aware region.
+                for id in ids {
+                    let delta = abs(GridMath.center(for: id).longitude - stats.center.longitude)
+                    XCTAssertLessThanOrEqual(min(delta, 360 - delta), stats.span.longitudeDelta / 2)
+                }
+            }
         }
     }
 

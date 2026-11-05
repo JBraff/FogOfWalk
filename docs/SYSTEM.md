@@ -51,7 +51,9 @@ which draws the overlay on MapKit's background rendering threads.
 - `GridSettings` owns persisted presentation settings. Its default storage is standard
   UserDefaults; isolated fixtures can select memory-only settings.
 - `BackupService` performs manual, versioned export/import and merge of
-  exploration and discovery state. It does not provide automatic sync.
+  exploration and discovery state. Successful cell merges rebuild any active recent-cell
+  highlight using its stored cutoff, including merges that only move visit dates earlier.
+  It does not provide automatic sync.
 
 ## Two app identities
 
@@ -162,3 +164,7 @@ trial and evidence limits.
 
 For implementation-specific constraints, build commands, and agent behavior,
 read the repository's `AGENTS.md`.
+
+Discovery statistics ignore missing dates when selecting the first walk. Locality map
+centers and spans unwrap longitude across the largest empty gap, keeping date-line
+localities compact rather than centering them near Greenwich.
