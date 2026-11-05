@@ -748,6 +748,51 @@ final class ExplorationStoreTests: XCTestCase {
         }
     }
 
+    func testImportRebuildsActiveHighlightUsingItsOriginalCutoff() async throws {
+        try await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            let cutoff = Date(timeIntervalSince1970: 5_000)
+            store.nowProvider = { cutoff.addingTimeInterval(500) }
+            store.configure()
+            store.loadRecentCells(since: cutoff)
+            let generation = store.recentCellsGeneration
+            let added = try store.addCells([
+                BackupVisitedCell(cellX: 1, cellY: 1, cellSizeMeters: kCellSizeMeters,
+                                  firstVisited: cutoff, locality: nil),
+                BackupVisitedCell(cellX: 2, cellY: 2, cellSizeMeters: kCellSizeMeters,
+                                  firstVisited: cutoff.addingTimeInterval(-1), locality: nil)
+            ])
+            XCTAssertEqual(added, 2)
+            XCTAssertEqual(store.recentCellsCache, [CellID(x: 1, y: 1)])
+            XCTAssertGreaterThan(store.recentCellsGeneration, generation)
+            let beforeMerge = store.recentCellsGeneration
+            let merged = try store.addCells([
+                BackupVisitedCell(cellX: 1, cellY: 1, cellSizeMeters: kCellSizeMeters,
+                                  firstVisited: cutoff.addingTimeInterval(-100), locality: nil)
+            ])
+            XCTAssertEqual(merged, 0)
+            XCTAssertEqual(store.totalVisitedCount, 2)
+            XCTAssertTrue(store.recentCellsCache.isEmpty)
+            XCTAssertGreaterThan(store.recentCellsGeneration, beforeMerge)
+        }
+    }
+
+    func testImportDoesNotRearmDisabledHighlight() async throws {
+        try await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            store.configure()
+            store.loadRecentCells(since: .distantPast)
+            store.loadRecentCells(since: nil)
+            let generation = store.recentCellsGeneration
+            _ = try store.addCells([
+                BackupVisitedCell(cellX: 1, cellY: 1, cellSizeMeters: kCellSizeMeters,
+                                  firstVisited: Date(), locality: nil)
+            ])
+            XCTAssertTrue(store.recentCellsCache.isEmpty)
+            XCTAssertEqual(store.recentCellsGeneration, generation)
+        }
+    }
+
     func testAddCellsInsertsNewCellsAndReturnsCount() async throws {
         try await MainActor.run {
             let store = ExplorationStore(container: makeInMemoryContainer())

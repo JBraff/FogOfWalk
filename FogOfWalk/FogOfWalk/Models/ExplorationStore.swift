@@ -27,6 +27,7 @@ final class ExplorationStore {
     /// Used by addCell to insert new cells into recentCellsCache even when the cache is
     /// currently empty (e.g., early in the day before any cells are visited).
     private var isHighlightActive = false
+    private var highlightCutoff: Date?
 
     /// Injectable clock, required to test day-rollover behavior deterministically.
     var nowProvider: () -> Date = { Date() }
@@ -239,6 +240,7 @@ final class ExplorationStore {
         guard let cutoff = cutoffDate else {
             recentCellsCache = []
             isHighlightActive = false
+            highlightCutoff = nil
             recentCellsGeneration &+= 1
             return
         }
@@ -252,11 +254,13 @@ final class ExplorationStore {
             let cells = try container.viewContext.fetch(request)
             recentCellsCache = Set(cells.map { CellID(x: $0.cellX, y: $0.cellY) })
             isHighlightActive = true
+            highlightCutoff = cutoff
             recentCellsGeneration &+= 1
         } catch {
             print("ExplorationStore: recent cells load failed: \(error)")
             recentCellsCache = []
             isHighlightActive = false
+            highlightCutoff = nil
             recentCellsGeneration &+= 1
         }
     }
@@ -361,6 +365,9 @@ final class ExplorationStore {
         }
 
         reloadCache()
+        if let highlightCutoff {
+            loadRecentCells(since: highlightCutoff)
+        }
         return addedCount
     }
 
@@ -422,6 +429,7 @@ final class ExplorationStore {
         visitedCellsCache.removeAll()
         recentCellsCache.removeAll()
         isHighlightActive = false
+        highlightCutoff = nil
         recentCellsGeneration &+= 1
         totalVisitedCount = 0
         todayVisitedCount = 0

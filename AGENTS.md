@@ -338,8 +338,9 @@ files from a newer version are rejected. A sample `visitedCells` entry:
 ```
 
 Import merges and never overwrites. `ExplorationStore.addCells(_:)` inserts missing cells and
-keeps the earlier `firstVisited` date. `LandmarkStore.restoreDiscovered(_:)` marks known
-identifiers discovered, keeps the earlier date, and skips unknown identifiers. The two merges
+keeps the earlier `firstVisited` date. A successful merge rebuilds the active highlight
+using its stored cutoff and advances its generation, including date-only merges.
+`LandmarkStore.restoreDiscovered(_:)` marks known identifiers discovered, keeps the earlier date, and skips unknown identifiers. The two merges
 are not jointly atomic. `SettingsView` exports through `ShareLink` and imports through
 `.fileImporter`. Backup is manual only: there is no CloudKit or automatic sync.
 
@@ -350,7 +351,8 @@ produces:
 - **Today**: since local midnight (the property is named `last24HourCount`, but it is not a
   rolling 24 hours).
 - A 7-day chart, current and longest streaks, and estimated distance (cell count × 50 m).
-- Locality lists per period.
+- Locality lists per period, with longitude centers and spans unwrapped across the date line.
+- First walk uses the earliest non-nil visit date; incomplete rows still count in totals.
 - All-time **States**, limited to the 50 US states and normalized through `USState`.
 - All-time **Countries**, excluding nil, blank, and "Unknown" labels. Unresolved cells still
   contribute to exploration totals.
