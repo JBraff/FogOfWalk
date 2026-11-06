@@ -7,9 +7,11 @@ blockers, and next actions; it does not replace these product documents.
 
 ## Start here
 
-- [`AGENTS.md`](../AGENTS.md) at the repository root is the working guide for
-  contributors and coding agents: layout, data flow, gotchas, test conventions,
-  and build commands. [`SETUP.md`](../SETUP.md) covers project wiring, the Study
+- [`AGENTS.md`](../AGENTS.md) at the repository root holds the working rules
+  for contributors and coding agents: constraints, test conventions, build
+  commands and the feature checklist. The [codebase guide](CODEBASE.md) is its
+  implementation reference: layout, data flow, rendering, landmarks, backup and
+  test helpers. [`SETUP.md`](../SETUP.md) covers project wiring, the Study
   app build, and regenerating the landmark database.
 - [System architecture](SYSTEM.md) describes the enduring application structure,
   data ownership, and operational constraints.
