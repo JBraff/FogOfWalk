@@ -31,7 +31,7 @@ FogOfWalk/
       LocalityGeocoder.swift         # Reverse-geocodes cells → locality/state/country (CLGeocoder)
       DiscoveryStatsModel.swift      # Stats sheet model: counts, streaks, locality/state/country lists
       USState.swift                  # 50-state normalization for the States list
-      BackupService.swift            # Versioned JSON export/import with merge semantics
+      BackupService.swift            # Versioned JSON export/import: merge or atomic replace
     Services/
       LocationService.swift          # CLLocationManager wrapper: legacy tracking + Study source switching
       ExplorationRecorder.swift      # The recording path (location → cell → landmark ingest/discovery); connect()
@@ -269,12 +269,46 @@ files from a newer version are rejected. A sample `visitedCells` entry:
 }
 ```
 
-Import merges and never overwrites. `ExplorationStore.addCells(_:)` inserts missing cells and
-keeps the earlier `firstVisited` date. A successful merge rebuilds the active highlight
-using its stored cutoff and advances its generation, including date-only merges.
-`LandmarkStore.restoreDiscovered(_:)` marks known identifiers discovered, keeps the earlier date, and skips unknown identifiers. The two merges
-are not jointly atomic. `SettingsView` exports through `ShareLink` and imports through
-`.fileImporter`. Backup is manual only: there is no CloudKit or automatic sync.
+Settings decodes the chosen file before showing inline **Merge** and **Replace** choices.
+Import errors also appear inline, so file-picker dismissal never presents another modal.
+Merge retains its existing behavior: `ExplorationStore.addCells(_:)` inserts missing cells and keeps the
+earlier `firstVisited` date without replacing existing labels. A successful merge rebuilds
+the active highlight using its stored cutoff, including date-only merges.
+`LandmarkStore.restoreDiscovered(_:)` marks known identifiers discovered, keeps the earlier
+date, and skips unknown identifiers. These two merge saves are not jointly atomic.
+
+Replace requires a second destructive confirmation explaining that existing map squares,
+labels and discovered landmarks will be replaced. `BackupService.replace` deletes the old
+cells, inserts the file's cells with their dates, sizes and labels, and resets landmark
+discovery to the file's identifiers and dates. As with Merge, a missing cell visit date uses
+the import clock and a missing landmark discovery date uses the file's export time.
+Undiscovered reference metadata is retained. Missing landmark metadata is loaded by identifier
+through the app-owned bundled source; an unresolvable identifier or duplicate record rejects the replacement before any mutation.
+Empty backups intentionally clear all exploration and discovery history. Replacement only
+updates landmark properties whose target state or date differs, avoiding writes to unchanged
+reference rows. Reference insertion shares its field mapping with ordinary landmark ingest.
+
+The normal launch self-heal still re-derives discoveries from the retained visited cells.
+An omitted landmark near a retained cell can therefore be rediscovered on a later launch,
+with that launch's date. Both the import footer and destructive alert explain this.
+Removing a flight must remove its supporting visited cells as well as its discoveries;
+Replace does not persist a discovery exclusion list.
+
+Both stores must share the same clean `viewContext`. Geocoder failure recovery preserves
+pre-existing unsaved edits: it refreshes only touched cells and restores their prior pending
+values. A whole-context rollback is used only if the context was clean before the cluster's
+synchronous label writes. A failed geocoder write does not leave its own edits blocking
+import; other pending changes produce an error asking for a restart. Replacement uses
+ordinary managed-object deletes and one save for both entities, with rollback on failure. It never uses batch deletes
+or invokes new-cell recording/geocoding callbacks. Cache reloads happen after success: cell
+and today counts, the active highlight (advancing its generation even with highlighting off
+or unchanged cell count), landmark counts, and the undiscovered spatial index. The map
+observes those generations; Discovery Stats queries the updated context when opened.
+Decode or save failures leave history unchanged, and cancellation never invokes an import.
+The Replace summary uses the reloaded current-grid counts and handles singular/plural labels.
+
+`SettingsView` exports through `ShareLink` and imports through `.fileImporter`. Backup is
+manual only: there is no CloudKit or automatic sync.
 
 ### Discovery Stats
 
@@ -329,8 +363,8 @@ in commit 938ef32, so ignore older docs that describe it.
   pairing, `xcodebuild test` fails with a scheme-membership message (see Build & test in `AGENTS.md`).
 - **Code with no production caller:** `GridMath.cells(in:)`/`cellBounds(in:)` (the 10,000-cell
   cap, used only by tests), `ExplorationStore.deleteAllCells`/`visitedCellCount(in:)`, and
-  `Coordinator.replaceFogOverlay`. The running app cannot delete location history. That is a
-  known gap, and backup import only merges.
+  `Coordinator.replaceFogOverlay`. The running app has no individual history editor. That is a
+  known gap for individual edits; confirmed backup replacement can replace the whole history.
 - **Permission UI:** `LocationService.permissionPrompt` (`.denied` or `.upgradeToAlways`) drives
   `LocationPermissionBanner`. Dismissal is per prompt, so a later different problem still shows.
 - **Geocoding queue:** at most `LocalityGeocoder.maxQueueSize` (200) clusters. Newly walked
@@ -361,6 +395,11 @@ in commit 938ef32, so ignore older docs that describe it.
   `LandmarkTestSupport` holds the deadline-bounded `waitForLandmarkUI` poll and the shared
   `anchorError(of:for:in:)` placement check. `makeLandmarkCoordinator()` is memory-only
   unless a test passes `defaults: .standard`.
+- **Backup import UI:** `BackupImportInteractionTests` uses the Debug-only
+  `-backup-import-fixture` to exercise the production inline choices, destructive
+  confirmation, cancellation and Merge. It uses view state only; the launch gate skips
+  production storage, preferences and location services. The system file picker is not
+  automated by this fixture.
 - **Hosted tests:** unit tests run inside `Fog-Of-Walk.app`, so `FogOfWalkApp.init` (real Core Data
   store, real `CLLocationManager`) runs first. A few tests touch `UserDefaults.standard`: the
   Wikidata migration flag and `showLandmarks`.

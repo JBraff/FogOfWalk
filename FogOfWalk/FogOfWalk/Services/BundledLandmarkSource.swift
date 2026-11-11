@@ -7,6 +7,11 @@ import SQLite3
 /// Provides landmarks for a given map region. Abstracted for testability.
 protocol LandmarkDataProviding {
     func landmarks(in region: MKCoordinateRegion) -> [WikidataLandmark]
+    func landmark(withIdentifier identifier: String) -> WikidataLandmark?
+}
+
+extension LandmarkDataProviding {
+    func landmark(withIdentifier identifier: String) -> WikidataLandmark? { nil }
 }
 
 // MARK: - BundledLandmarkSource
@@ -95,6 +100,22 @@ final class BundledLandmarkSource: LandmarkDataProviding {
     }
 
     // MARK: - Private
+
+    /// Backup replacement can restore a discovery before its region has ever been shown.
+    func landmark(withIdentifier identifier: String) -> WikidataLandmark? {
+        guard let db else { return nil }
+        let sql = "SELECT id, name, description, lat, lon, category, image FROM landmarks WHERE id = ?"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(stmt, 1, identifier, -1, transient)
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              let id = column(stmt, index: 0), let name = column(stmt, index: 1) else { return nil }
+        return WikidataLandmark(id: id, name: name, description: column(stmt, index: 2),
+                                lat: sqlite3_column_double(stmt, 3), lon: sqlite3_column_double(stmt, 4),
+                                category: column(stmt, index: 5) ?? "landmark", imageURL: column(stmt, index: 6))
+    }
 
     private func column(_ stmt: OpaquePointer?, index: Int32) -> String? {
         guard let ptr = sqlite3_column_text(stmt, index) else { return nil }

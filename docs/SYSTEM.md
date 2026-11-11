@@ -50,9 +50,14 @@ which draws the overlay on MapKit's background rendering threads.
   only when a country is returned; existing known labels are preserved.
 - `GridSettings` owns persisted presentation settings. Its default storage is standard
   UserDefaults; isolated fixtures can select memory-only settings.
-- `BackupService` performs manual, versioned export/import and merge of
-  exploration and discovery state. Successful cell merges rebuild any active recent-cell
-  highlight using its stored cutoff, including merges that only move visit dates earlier.
+- `BackupService` performs manual, versioned export/import of exploration and discovery
+  state. Settings offers Merge, preserving existing history, or Replace with a second
+  destructive confirmation. Replace writes the file's cells, labels and discovered landmarks
+  in a single Core Data save; decode, resolution or save failures leave history unchanged.
+  Missing visit/discovery dates use the same defaults as Merge. The normal launch sweep can
+  rediscover omitted landmarks near retained cells; replacement does not suppress later discovery.
+  Successful imports refresh the relevant caches, including active highlights; Replace also
+  advances the fog generation when cell counts are unchanged or highlighting is off.
   It does not provide automatic sync.
 
 ## Two app identities
@@ -99,7 +104,8 @@ needs a landmark refresh. No manual bitmap transform or mid-gesture refill is us
 
 For Debug gesture tests, the fixture launch gate runs before production `AppServices`
 construction. The fixture opens only its own in-memory store, uses memory-only preferences
-and creates no production location services. Normal launch still constructs and connects
+and creates no production location services. The backup-import UI fixture uses the same
+launch gate and only local view state. Normal launch still constructs and connects
 recording synchronously before any scene, including a background relaunch.
 
 ## Map orientation

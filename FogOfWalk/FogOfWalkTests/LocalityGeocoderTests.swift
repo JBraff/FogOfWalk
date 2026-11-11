@@ -615,4 +615,50 @@ final class LocalityGeocoderTests: XCTestCase {
             XCTAssertNil(cell.locality, "Locality should remain nil when geocoding fails")
         }
     }
+
+    func testFailedGeocoderSaveRestoresOnlyItsEditsAndAllowsReplacement() async throws {
+        for preservePendingEdits in [false, true] {
+            let recovered = XCTestExpectation(description: "read-only save failed and recovery completed")
+            let (container, cellID, otherID) = await MainActor.run {
+                let mock = MockGeocoder(locality: "Unsaved Town", state: "Unsaved State", country: "Geocoded Country")
+                let container = makeInMemoryContainer()
+                let context = container.viewContext
+                let cell = insertCell(in: context)
+                let other = insertCell(in: context, x: 1)
+                let persistentStore = container.persistentStoreCoordinator.persistentStores.first!
+                persistentStore.isReadOnly = true
+                if preservePendingEdits {
+                    cell.country = "Pending country"
+                    other.locality = "Pending town"
+                }
+                let geocoder = LocalityGeocoder(geocoder: mock, requestDelay: .zero, onSaveFailure: { _ in
+                    XCTAssertTrue(persistentStore.isReadOnly, "The save must fail before writability is restored")
+                    recovered.fulfill()
+                })
+                geocoder.enqueue(cell)
+                return (container, cell.objectID, other.objectID)
+            }
+            await fulfillment(of: [recovered], timeout: 5)
+            try await MainActor.run {
+                let context = container.viewContext
+                let cell = try XCTUnwrap(context.existingObject(with: cellID) as? VisitedCell)
+                let other = try XCTUnwrap(context.existingObject(with: otherID) as? VisitedCell)
+                XCTAssertNil(cell.locality)
+                XCTAssertNil(cell.state)
+                XCTAssertEqual(cell.country, preservePendingEdits ? "Pending country" : nil)
+                XCTAssertEqual(other.locality, preservePendingEdits ? "Pending town" : nil)
+                XCTAssertEqual(context.hasChanges, preservePendingEdits)
+                container.persistentStoreCoordinator.persistentStores.first!.isReadOnly = false
+                if preservePendingEdits { try context.save() }
+                let store = ExplorationStore(container: container)
+                store.configure()
+                let landmarks = LandmarkStore(container: container, defaults: nil)
+                let payload = BackupPayload(schemaVersion: 2, exportedAt: Date(), visitedCells: [], landmarks: [])
+                XCTAssertNoThrow(try BackupService.replace(payload, into: store, landmarkStore: landmarks,
+                                                           landmarkSource: EmptyLandmarkSource()))
+                XCTAssertTrue(store.visitedCellsCache.isEmpty)
+            }
+        }
+    }
+
 }
