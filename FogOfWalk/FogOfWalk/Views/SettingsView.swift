@@ -12,6 +12,9 @@ struct SettingsView: View {
     @State private var exportErrorMessage = ""
 
     @State private var showImporter = false
+    @State private var pendingImport: BackupPayload?
+    @State private var showImportOptions = false
+    @State private var showReplaceConfirmation = false
     @State private var showImportError = false
     @State private var importErrorMessage = ""
     @State private var importSummaryMessage: String?
@@ -35,7 +38,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Backup")
                 } footer: {
-                    Text("Export your exploration history and discovered landmarks to a file you control. Import merges a backup into what's already on this device — nothing is ever overwritten.")
+                    Text("Export your exploration history and discovered landmarks to a file you control. Import can merge a backup with your history or replace it with the file's contents.")
                 }
 
                 if let importSummaryMessage {
@@ -120,6 +123,19 @@ struct SettingsView: View {
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
             handleImportResult(result)
         }
+        .confirmationDialog("Import Backup", isPresented: $showImportOptions, titleVisibility: .visible) {
+            Button("Merge") { importBackup(replacing: false) }
+            Button("Replace…", role: .destructive) { showReplaceConfirmation = true }
+            Button("Cancel", role: .cancel) { pendingImport = nil }
+        } message: {
+            Text("Merge keeps your existing history. Replace uses only the cells and discovered landmarks in this file.")
+        }
+        .alert("Replace Existing Data?", isPresented: $showReplaceConfirmation) {
+            Button("Replace", role: .destructive) { importBackup(replacing: true) }
+            Button("Cancel", role: .cancel) { pendingImport = nil }
+        } message: {
+            Text("All existing map squares, their labels, and discovered landmarks will be replaced by this backup. Anything missing from the file will be removed. Export a backup first if you want to keep your current history.")
+        }
         .alert("Export Failed", isPresented: $showExportError) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -152,6 +168,8 @@ struct SettingsView: View {
     }
 
     private func handleImportResult(_ result: Result<URL, Error>) {
+        pendingImport = nil
+        importSummaryMessage = nil
         switch result {
         case .failure(let error):
             importErrorMessage = error.localizedDescription
@@ -161,14 +179,30 @@ struct SettingsView: View {
             defer { if didStart { url.stopAccessingSecurityScopedResource() } }
             do {
                 let data = try Data(contentsOf: url)
-                let payload = try BackupService.decode(data)
-                let summary = try BackupService.merge(payload, into: store, landmarkStore: landmarkStore)
-                importSummaryMessage = "Imported \(summary.cellsAdded) new cell\(summary.cellsAdded == 1 ? "" : "s"), "
-                    + "\(summary.landmarksAdded) new landmark\(summary.landmarksAdded == 1 ? "" : "s")."
+                pendingImport = try BackupService.decode(data)
+                showImportOptions = true
             } catch {
                 importErrorMessage = error.localizedDescription
                 showImportError = true
             }
+        }
+    }
+
+    private func importBackup(replacing: Bool) {
+        guard let payload = pendingImport else { return }
+        defer { pendingImport = nil }
+        do {
+            if replacing {
+                try BackupService.replace(payload, into: store, landmarkStore: landmarkStore)
+                importSummaryMessage = "Replaced history with \(payload.visitedCells.count) cells and \(payload.landmarks.count) discovered landmarks."
+            } else {
+                let summary = try BackupService.merge(payload, into: store, landmarkStore: landmarkStore)
+                importSummaryMessage = "Imported \(summary.cellsAdded) new cell\(summary.cellsAdded == 1 ? "" : "s"), "
+                    + "\(summary.landmarksAdded) new landmark\(summary.landmarksAdded == 1 ? "" : "s")."
+            }
+        } catch {
+            importErrorMessage = error.localizedDescription
+            showImportError = true
         }
     }
 

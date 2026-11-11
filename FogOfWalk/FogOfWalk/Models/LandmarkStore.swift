@@ -90,6 +90,7 @@ final class LandmarkStore {
     // MARK: - Dependencies
 
     private let container: NSPersistentContainer
+    var viewContext: NSManagedObjectContext { container.viewContext }
     private let defaults: UserDefaults?
 
     // MARK: - Init
@@ -153,6 +154,10 @@ final class LandmarkStore {
     }
 
     // MARK: - Write
+
+    func reloadAfterReplacement() {
+        loadFromStore()
+    }
 
     /// Persist landmarks from the bundled Wikidata dataset. Deduplicates by identifier.
     ///

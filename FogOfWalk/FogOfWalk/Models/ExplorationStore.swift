@@ -234,6 +234,12 @@ final class ExplorationStore {
 
     // MARK: - Recent cells
 
+    /// Also invalidates fog snapshots for count-neutral replacements with highlighting off.
+    func reloadAfterReplacement() {
+        reloadCache()
+        loadRecentCells(since: highlightCutoff)
+    }
+
     /// Populates `recentCellsCache` from Core Data using `cutoffDate`.
     /// Pass nil (for `.off`) to clear the cache.
     func loadRecentCells(since cutoffDate: Date?) {

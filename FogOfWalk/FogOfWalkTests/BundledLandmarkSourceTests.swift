@@ -92,6 +92,23 @@ final class BundledLandmarkSourceTests: XCTestCase {
         XCTAssertThrowsError(try BundledLandmarkSource(databaseURL: url))
     }
 
+    func testLookupByIdentifierReturnsMetadataAndBindsInput() throws {
+        let url = try makeTestDatabase(landmarks: [nyMuseum, sfAirport])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let source = try BundledLandmarkSource(databaseURL: url)
+        let landmark = try XCTUnwrap(source.landmark(withIdentifier: "Q11111"))
+        XCTAssertEqual(landmark.id, "Q11111")
+        XCTAssertEqual(landmark.name, "NY Museum")
+        XCTAssertEqual(landmark.description, "art museum")
+        XCTAssertEqual(landmark.lat, 40.7794)
+        XCTAssertEqual(landmark.lon, -73.9632)
+        XCTAssertEqual(landmark.category, "museum")
+        XCTAssertEqual(landmark.imageURL, "https://example.com/img.jpg")
+        XCTAssertNil(source.landmark(withIdentifier: "missing"))
+        XCTAssertNil(source.landmark(withIdentifier: "Q11111' OR 1=1 --"))
+        XCTAssertNil(source.landmark(withIdentifier: "Q22222")?.imageURL)
+    }
+
     // MARK: - Basic query
 
     func testLandmarkInRegionIsReturned() throws {

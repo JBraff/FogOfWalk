@@ -31,7 +31,7 @@ FogOfWalk/
       LocalityGeocoder.swift         # Reverse-geocodes cells → locality/state/country (CLGeocoder)
       DiscoveryStatsModel.swift      # Stats sheet model: counts, streaks, locality/state/country lists
       USState.swift                  # 50-state normalization for the States list
-      BackupService.swift            # Versioned JSON export/import with merge semantics
+      BackupService.swift            # Versioned JSON export/import: merge or atomic replace
     Services/
       LocationService.swift          # CLLocationManager wrapper: legacy tracking + Study source switching
       ExplorationRecorder.swift      # The recording path (location → cell → landmark ingest/discovery); connect()
@@ -269,12 +269,31 @@ files from a newer version are rejected. A sample `visitedCells` entry:
 }
 ```
 
-Import merges and never overwrites. `ExplorationStore.addCells(_:)` inserts missing cells and
-keeps the earlier `firstVisited` date. A successful merge rebuilds the active highlight
-using its stored cutoff and advances its generation, including date-only merges.
-`LandmarkStore.restoreDiscovered(_:)` marks known identifiers discovered, keeps the earlier date, and skips unknown identifiers. The two merges
-are not jointly atomic. `SettingsView` exports through `ShareLink` and imports through
-`.fileImporter`. Backup is manual only: there is no CloudKit or automatic sync.
+Settings decodes the chosen file before offering **Merge** or **Replace**. Merge retains
+its existing behavior: `ExplorationStore.addCells(_:)` inserts missing cells and keeps the
+earlier `firstVisited` date without replacing existing labels. A successful merge rebuilds
+the active highlight using its stored cutoff, including date-only merges.
+`LandmarkStore.restoreDiscovered(_:)` marks known identifiers discovered, keeps the earlier
+date, and skips unknown identifiers. These two merge saves are not jointly atomic.
+
+Replace requires a second destructive confirmation explaining that existing map squares,
+labels and discovered landmarks will be replaced. `BackupService.replace` deletes the old
+cells, inserts the file's cells with their exact dates, sizes and labels, and resets landmark
+discovery to exactly the file's identifiers and dates. Undiscovered reference metadata is
+retained. Missing landmark metadata is loaded by identifier from the bundled database; an
+unresolvable identifier or duplicate record rejects the replacement before any mutation.
+Empty backups intentionally clear all exploration and discovery history.
+
+Both stores must share the same clean `viewContext`. Replacement uses ordinary managed-object
+deletes and one save for both entities, with rollback on failure. It never uses batch deletes
+or invokes new-cell recording/geocoding callbacks. Cache reloads happen after success: cell
+and today counts, the active highlight (advancing its generation even with highlighting off
+or unchanged cell count), landmark counts, and the undiscovered spatial index. The map
+observes those generations; Discovery Stats queries the updated context when opened.
+Decode or save failures leave history unchanged, and cancellation never invokes an import.
+
+`SettingsView` exports through `ShareLink` and imports through `.fileImporter`. Backup is
+manual only: there is no CloudKit or automatic sync.
 
 ### Discovery Stats
 
@@ -329,8 +348,8 @@ in commit 938ef32, so ignore older docs that describe it.
   pairing, `xcodebuild test` fails with a scheme-membership message (see Build & test in `AGENTS.md`).
 - **Code with no production caller:** `GridMath.cells(in:)`/`cellBounds(in:)` (the 10,000-cell
   cap, used only by tests), `ExplorationStore.deleteAllCells`/`visitedCellCount(in:)`, and
-  `Coordinator.replaceFogOverlay`. The running app cannot delete location history. That is a
-  known gap, and backup import only merges.
+  `Coordinator.replaceFogOverlay`. The running app has no individual history editor. That is a
+  known gap for individual edits; confirmed backup replacement can replace the whole history.
 - **Permission UI:** `LocationService.permissionPrompt` (`.denied` or `.upgradeToAlways`) drives
   `LocationPermissionBanner`. Dismissal is per prompt, so a later different problem still shows.
 - **Geocoding queue:** at most `LocalityGeocoder.maxQueueSize` (200) clusters. Newly walked

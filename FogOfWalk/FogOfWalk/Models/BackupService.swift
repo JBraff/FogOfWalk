@@ -37,11 +37,20 @@ struct BackupPayload: Codable, Equatable {
 
 enum BackupError: LocalizedError, Equatable {
     case unsupportedSchemaVersion(Int)
+    case replacementUnavailable
+    case duplicateRecords
+    case unknownLandmark(String)
 
     var errorDescription: String? {
         switch self {
         case .unsupportedSchemaVersion(let version):
             return "This backup file uses a newer format (version \(version)) that this version of the app doesn't support."
+        case .replacementUnavailable:
+            return "Exploration storage is busy or unavailable. Please try importing again."
+        case .duplicateRecords:
+            return "This backup contains duplicate cells or landmarks and cannot replace your data."
+        case .unknownLandmark(let identifier):
+            return "This backup contains a landmark (\(identifier)) unavailable in this version of the app. Your data has not been replaced."
         }
     }
 }
@@ -107,6 +116,95 @@ enum BackupService {
     }
 
     // MARK: - Import
+
+    /// Replaces user history in one save on the stores' shared view context. Ordinary
+    /// deletes (not batch deletes) let Core Data roll back both entities on save failure.
+    /// No cache is published until that save succeeds, and no recording/geocoding callbacks
+    /// run for imported cells. Missing landmark metadata comes from the bundled database;
+    /// an unresolvable identifier rejects the replacement rather than silently losing it.
+    @MainActor
+    static func replace(_ payload: BackupPayload,
+                        into explorationStore: ExplorationStore,
+                        landmarkStore: LandmarkStore,
+                        landmarkSource: (any LandmarkDataProviding)? = nil) throws {
+        if let loadError = explorationStore.loadError { throw loadError }
+        let context = explorationStore.viewContext
+        guard context === landmarkStore.viewContext, !context.hasChanges else {
+            throw BackupError.replacementUnavailable
+        }
+        guard payload.schemaVersion <= BackupPayload.currentSchemaVersion else {
+            throw BackupError.unsupportedSchemaVersion(payload.schemaVersion)
+        }
+
+        struct CellKey: Hashable {
+            let x: Int32
+            let y: Int32
+            let size: Double
+        }
+        let keys = payload.visitedCells.map { CellKey(x: $0.cellX, y: $0.cellY, size: $0.cellSizeMeters) }
+        guard Set(keys).count == keys.count,
+              Set(payload.landmarks.map(\.identifier)).count == payload.landmarks.count else {
+            throw BackupError.duplicateRecords
+        }
+
+        // Resolve and fetch everything before touching existing history.
+        let cells = try context.fetch(VisitedCell.fetchRequest())
+        let landmarks = try context.fetch(Landmark.fetchRequest())
+        let known = Set(landmarks.map(\.identifier))
+        let missing = payload.landmarks.filter { !known.contains($0.identifier) }
+        var metadata: [WikidataLandmark] = []
+        if !missing.isEmpty {
+            let source = landmarkSource ?? LandmarkSearchService.bundledSource()
+            for record in missing {
+                guard let item = source.landmark(withIdentifier: record.identifier) else {
+                    throw BackupError.unknownLandmark(record.identifier)
+                }
+                metadata.append(item)
+            }
+        }
+
+        do {
+            for cell in cells { context.delete(cell) }
+            for record in payload.visitedCells {
+                let cell = VisitedCell(context: context)
+                cell.cellX = record.cellX
+                cell.cellY = record.cellY
+                cell.cellSizeMeters = record.cellSizeMeters
+                cell.firstVisited = record.firstVisited
+                cell.locality = record.locality
+                cell.state = record.state
+                cell.country = record.country
+            }
+
+            var byIdentifier = Dictionary(uniqueKeysWithValues: landmarks.map { ($0.identifier, $0) })
+            for item in metadata {
+                let landmark = Landmark(context: context)
+                landmark.identifier = item.id
+                landmark.name = item.name
+                landmark.category = item.category
+                landmark.latitude = item.lat
+                landmark.longitude = item.lon
+                landmark.discoveryRadiusMeters = LandmarkStore.categoryRadius[item.category] ?? 100
+                landmark.firstSeen = payload.exportedAt
+                byIdentifier[item.id] = landmark
+            }
+            for landmark in byIdentifier.values {
+                landmark.isDiscovered = false
+                landmark.firstDiscovered = nil
+            }
+            for record in payload.landmarks {
+                let landmark = byIdentifier[record.identifier]!
+                landmark.isDiscovered = true
+                landmark.firstDiscovered = record.firstDiscovered
+            }
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
+        explorationStore.reloadAfterReplacement()
+        landmarkStore.reloadAfterReplacement()
+    }
 
     /// Merges a decoded backup payload into both stores.
     ///
