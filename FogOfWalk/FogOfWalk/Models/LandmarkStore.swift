@@ -178,6 +178,21 @@ final class LandmarkStore {
         }
     }
 
+    /// Stages reference metadata without saving or publishing caches. Import and ingest
+    /// use the same mapping, with each caller owning its save/rollback boundary.
+    func insertReferenceLandmark(_ item: WikidataLandmark, firstSeen: Date = Date()) -> Landmark {
+        let entity = Landmark(context: viewContext)
+        entity.identifier = item.id
+        entity.name = item.name
+        entity.category = item.category
+        entity.latitude = item.lat
+        entity.longitude = item.lon
+        entity.discoveryRadiusMeters = Self.categoryRadius[item.category] ?? 100
+        entity.isDiscovered = false
+        entity.firstSeen = firstSeen
+        return entity
+    }
+
     /// Throws only when insertion fails, so walk-time ingest can leave its buckets retryable.
     private func persistLandmarks(_ items: [WikidataLandmark],
                                   visitedCells: Set<CellID>) throws -> [Landmark] {
@@ -186,17 +201,7 @@ final class LandmarkStore {
         for item in items {
             guard !knownIdentifiers.contains(item.id) else { continue }
 
-            let radius = Self.categoryRadius[item.category] ?? 100
-
-            let entity = Landmark(context: ctx)
-            entity.identifier            = item.id
-            entity.name                  = item.name
-            entity.category              = item.category
-            entity.latitude              = item.lat
-            entity.longitude             = item.lon
-            entity.discoveryRadiusMeters = radius
-            entity.isDiscovered          = false
-            entity.firstSeen             = Date()
+            let entity = insertReferenceLandmark(item)
 
             knownIdentifiers.insert(item.id)
             inserted.append(entity)

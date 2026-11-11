@@ -5,6 +5,7 @@ struct SettingsView: View {
     @Environment(ExplorationStore.self) private var store
     @Environment(LandmarkStore.self)    private var landmarkStore
     @Environment(LocationService.self) private var locationService
+    @Environment(LandmarkSearchService.self) private var searchService
     @Environment(\.dismiss)             private var dismiss
 
     @State private var exportURL: URL?
@@ -13,9 +14,6 @@ struct SettingsView: View {
 
     @State private var showImporter = false
     @State private var pendingImport: BackupPayload?
-    @State private var showImportOptions = false
-    @State private var showReplaceConfirmation = false
-    @State private var showImportError = false
     @State private var importErrorMessage = ""
     @State private var importSummaryMessage: String?
     @State private var study = LocationStudyDiagnostics.shared
@@ -39,6 +37,19 @@ struct SettingsView: View {
                     Text("Backup")
                 } footer: {
                     Text("Export your exploration history and discovered landmarks to a file you control. Import can merge a backup with your history or replace it with the file's contents.")
+                }
+
+                if pendingImport != nil {
+                    BackupImportControls(
+                        onMerge: { importBackup(replacing: false) },
+                        onReplace: { importBackup(replacing: true) },
+                        onCancel: { pendingImport = nil })
+                }
+
+                if !importErrorMessage.isEmpty {
+                    Section("Import Failed") {
+                        Text(importErrorMessage).foregroundStyle(.red)
+                    }
                 }
 
                 if let importSummaryMessage {
@@ -123,28 +134,10 @@ struct SettingsView: View {
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
             handleImportResult(result)
         }
-        .confirmationDialog("Import Backup", isPresented: $showImportOptions, titleVisibility: .visible) {
-            Button("Merge") { importBackup(replacing: false) }
-            Button("Replace…", role: .destructive) { showReplaceConfirmation = true }
-            Button("Cancel", role: .cancel) { pendingImport = nil }
-        } message: {
-            Text("Merge keeps your existing history. Replace uses only the cells and discovered landmarks in this file.")
-        }
-        .alert("Replace Existing Data?", isPresented: $showReplaceConfirmation) {
-            Button("Replace", role: .destructive) { importBackup(replacing: true) }
-            Button("Cancel", role: .cancel) { pendingImport = nil }
-        } message: {
-            Text("All existing map squares, their labels, and discovered landmarks will be replaced by this backup. Anything missing from the file will be removed. Export a backup first if you want to keep your current history.")
-        }
         .alert("Export Failed", isPresented: $showExportError) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(exportErrorMessage)
-        }
-        .alert("Import Failed", isPresented: $showImportError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(importErrorMessage)
         }
     }
 
@@ -170,20 +163,18 @@ struct SettingsView: View {
     private func handleImportResult(_ result: Result<URL, Error>) {
         pendingImport = nil
         importSummaryMessage = nil
+        importErrorMessage = ""
         switch result {
         case .failure(let error):
             importErrorMessage = error.localizedDescription
-            showImportError = true
         case .success(let url):
             let didStart = url.startAccessingSecurityScopedResource()
             defer { if didStart { url.stopAccessingSecurityScopedResource() } }
             do {
                 let data = try Data(contentsOf: url)
                 pendingImport = try BackupService.decode(data)
-                showImportOptions = true
             } catch {
                 importErrorMessage = error.localizedDescription
-                showImportError = true
             }
         }
     }
@@ -191,10 +182,12 @@ struct SettingsView: View {
     private func importBackup(replacing: Bool) {
         guard let payload = pendingImport else { return }
         defer { pendingImport = nil }
+        importErrorMessage = ""
         do {
             if replacing {
-                try BackupService.replace(payload, into: store, landmarkStore: landmarkStore)
-                importSummaryMessage = "Replaced history with \(payload.visitedCells.count) cells and \(payload.landmarks.count) discovered landmarks."
+                try BackupService.replace(payload, into: store, landmarkStore: landmarkStore,
+                                          landmarkSource: searchService.source)
+                importSummaryMessage = Self.replacementSummary(cells: store.totalVisitedCount, landmarks: landmarkStore.totalDiscovered)
             } else {
                 let summary = try BackupService.merge(payload, into: store, landmarkStore: landmarkStore)
                 importSummaryMessage = "Imported \(summary.cellsAdded) new cell\(summary.cellsAdded == 1 ? "" : "s"), "
@@ -202,8 +195,12 @@ struct SettingsView: View {
             }
         } catch {
             importErrorMessage = error.localizedDescription
-            showImportError = true
         }
+    }
+
+    static func replacementSummary(cells: Int, landmarks: Int) -> String {
+        "Replaced history with \(cells) cell\(cells == 1 ? "" : "s") and "
+            + "\(landmarks) discovered landmark\(landmarks == 1 ? "" : "s")."
     }
 
     private func queryMotionHistory() {
@@ -219,6 +216,33 @@ struct SettingsView: View {
                 studyMessage = "Motion history unavailable: \(error.localizedDescription)"
             }
             isQueryingMotion = false
+        }
+    }
+}
+
+/// Inline choices are visible after the file picker closes. Only a later user tap
+/// presents the destructive alert, so no modal is presented from another's dismissal.
+struct BackupImportControls: View {
+    let onMerge: () -> Void
+    let onReplace: () -> Void
+    let onCancel: () -> Void
+    @State private var showReplaceConfirmation = false
+
+    var body: some View {
+        Section {
+            Button("Merge", action: onMerge)
+            Button("Replace…", role: .destructive) { showReplaceConfirmation = true }
+            Button("Cancel Import", role: .cancel, action: onCancel)
+        } header: {
+            Text("Ready to Import")
+        } footer: {
+            Text("Merge keeps your existing history. Replace uses only the cells and discovered landmarks in this file. Landmarks near retained visited cells may be rediscovered on a later launch.")
+        }
+        .alert("Replace Existing Data?", isPresented: $showReplaceConfirmation) {
+            Button("Replace", role: .destructive, action: onReplace)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("All existing map squares, their labels, and discovered landmarks will be replaced by this backup. Anything missing from the file will be removed. Export a backup first if you want to keep your current history.")
         }
     }
 }

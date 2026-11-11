@@ -269,8 +269,9 @@ files from a newer version are rejected. A sample `visitedCells` entry:
 }
 ```
 
-Settings decodes the chosen file before offering **Merge** or **Replace**. Merge retains
-its existing behavior: `ExplorationStore.addCells(_:)` inserts missing cells and keeps the
+Settings decodes the chosen file before showing inline **Merge** and **Replace** choices.
+Import errors also appear inline, so file-picker dismissal never presents another modal.
+Merge retains its existing behavior: `ExplorationStore.addCells(_:)` inserts missing cells and keeps the
 earlier `firstVisited` date without replacing existing labels. A successful merge rebuilds
 the active highlight using its stored cutoff, including date-only merges.
 `LandmarkStore.restoreDiscovered(_:)` marks known identifiers discovered, keeps the earlier
@@ -278,19 +279,30 @@ date, and skips unknown identifiers. These two merge saves are not jointly atomi
 
 Replace requires a second destructive confirmation explaining that existing map squares,
 labels and discovered landmarks will be replaced. `BackupService.replace` deletes the old
-cells, inserts the file's cells with their exact dates, sizes and labels, and resets landmark
-discovery to exactly the file's identifiers and dates. Undiscovered reference metadata is
-retained. Missing landmark metadata is loaded by identifier from the bundled database; an
-unresolvable identifier or duplicate record rejects the replacement before any mutation.
-Empty backups intentionally clear all exploration and discovery history.
+cells, inserts the file's cells with their dates, sizes and labels, and resets landmark
+discovery to the file's identifiers and dates. As with Merge, a missing cell visit date uses
+the import clock and a missing landmark discovery date uses the file's export time.
+Undiscovered reference metadata is retained. Missing landmark metadata is loaded by identifier
+through the app-owned bundled source; an unresolvable identifier or duplicate record rejects the replacement before any mutation.
+Empty backups intentionally clear all exploration and discovery history. Replacement only
+updates landmark properties whose target state or date differs, avoiding writes to unchanged
+reference rows. Reference insertion shares its field mapping with ordinary landmark ingest.
 
-Both stores must share the same clean `viewContext`. Replacement uses ordinary managed-object
+The normal launch self-heal still re-derives discoveries from the retained visited cells.
+An omitted landmark near a retained cell can therefore be rediscovered on a later launch,
+with that launch's date. Removing a flight must remove its supporting visited cells as well
+as its discoveries; Replace does not persist a discovery exclusion list.
+
+Both stores must share the same clean `viewContext`. Geocoder save failures roll back their
+label edits so they cannot block import for the rest of the launch; other pending changes
+produce an error asking for a restart. Replacement uses ordinary managed-object
 deletes and one save for both entities, with rollback on failure. It never uses batch deletes
 or invokes new-cell recording/geocoding callbacks. Cache reloads happen after success: cell
 and today counts, the active highlight (advancing its generation even with highlighting off
 or unchanged cell count), landmark counts, and the undiscovered spatial index. The map
 observes those generations; Discovery Stats queries the updated context when opened.
 Decode or save failures leave history unchanged, and cancellation never invokes an import.
+The Replace summary uses the reloaded current-grid counts and handles singular/plural labels.
 
 `SettingsView` exports through `ShareLink` and imports through `.fileImporter`. Backup is
 manual only: there is no CloudKit or automatic sync.
@@ -380,6 +392,11 @@ in commit 938ef32, so ignore older docs that describe it.
   `LandmarkTestSupport` holds the deadline-bounded `waitForLandmarkUI` poll and the shared
   `anchorError(of:for:in:)` placement check. `makeLandmarkCoordinator()` is memory-only
   unless a test passes `defaults: .standard`.
+- **Backup import UI:** `BackupImportInteractionTests` uses the Debug-only
+  `-backup-import-fixture` to exercise the production inline choices, destructive
+  confirmation, cancellation and Merge. It uses view state only; the launch gate skips
+  production storage, preferences and location services. The system file picker is not
+  automated by this fixture.
 - **Hosted tests:** unit tests run inside `Fog-Of-Walk.app`, so `FogOfWalkApp.init` (real Core Data
   store, real `CLLocationManager`) runs first. A few tests touch `UserDefaults.standard`: the
   Wikidata migration flag and `showLandmarks`.

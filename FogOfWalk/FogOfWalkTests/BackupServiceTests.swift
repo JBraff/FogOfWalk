@@ -268,7 +268,9 @@ final class BackupServiceTests: XCTestCase {
         try await MainActor.run {
             for highlighting in [false, true] {
                 let (store, landmarks) = try replacementFixture()
-                let cutoff = Calendar.current.startOfDay(for: Date())
+                let now = Date()
+                store.nowProvider = { now }
+                let cutoff = Calendar.current.startOfDay(for: now)
                 store.loadRecentCells(since: highlighting ? cutoff : nil)
                 let generation = store.recentCellsGeneration
                 let landmarkGeneration = landmarks.renderGeneration
@@ -281,7 +283,7 @@ final class BackupServiceTests: XCTestCase {
                 var callbacks = 0
                 store.onNewCell = { _ in callbacks += 1 }
 
-                try BackupService.replace(payload, into: store, landmarkStore: landmarks)
+                try BackupService.replace(payload, into: store, landmarkStore: landmarks, landmarkSource: EmptyLandmarkSource())
 
                 // Compare without encode/decode's subsecond date rounding.
                 let cells = try store.viewContext.fetch(VisitedCell.fetchRequest())
@@ -290,16 +292,16 @@ final class BackupServiceTests: XCTestCase {
                 XCTAssertEqual(kept.locality, "New Town")
                 XCTAssertNil(kept.state)
                 XCTAssertEqual(kept.country, "New Country")
-                XCTAssertNil(cells.first { $0.cellX == 9 }?.firstVisited)
+                XCTAssertEqual(cells.first { $0.cellX == 9 }?.firstVisited, now)
                 XCTAssertEqual(store.visitedCellsCache, [CellID(x: 1, y: 2), CellID(x: 9, y: 9)])
                 XCTAssertEqual(store.totalVisitedCount, 2)
-                XCTAssertEqual(store.todayVisitedCount, 1)
-                XCTAssertEqual(store.recentCellsCache, highlighting ? [CellID(x: 1, y: 2)] : [])
+                XCTAssertEqual(store.todayVisitedCount, 2)
+                XCTAssertEqual(store.recentCellsCache, highlighting ? [CellID(x: 1, y: 2), CellID(x: 9, y: 9)] : [])
                 XCTAssertGreaterThan(store.recentCellsGeneration, generation)
                 XCTAssertGreaterThan(landmarks.renderGeneration, landmarkGeneration)
                 XCTAssertEqual(landmarks.totalDiscovered, 1)
                 XCTAssertTrue(try XCTUnwrap(landmarks.allLandmarks.first { $0.identifier == "Q42" }).isDiscovered)
-                XCTAssertNil(landmarks.allLandmarks.first { $0.identifier == "Q42" }?.firstDiscovered)
+                XCTAssertEqual(landmarks.allLandmarks.first { $0.identifier == "Q42" }?.firstDiscovered, payload.exportedAt)
                 let removed = try XCTUnwrap(landmarks.allLandmarks.first { $0.identifier == "Q43" })
                 XCTAssertFalse(removed.isDiscovered)
                 XCTAssertNil(removed.firstDiscovered)
@@ -307,7 +309,7 @@ final class BackupServiceTests: XCTestCase {
                 let stats = DiscoveryStatsModel()
                 stats.refresh(context: store.viewContext)
                 XCTAssertEqual(stats.allTimeTotal, 2)
-                XCTAssertEqual(stats.locality(for: .allTime).map(\.name), ["New Town"])
+                XCTAssertEqual(Set(stats.locality(for: .allTime).map(\.name)), ["New Town", "Unknown"])
                 XCTAssertEqual(stats.countryStats.map(\.name), ["New Country"])
             }
         }
@@ -318,7 +320,7 @@ final class BackupServiceTests: XCTestCase {
             let (store, landmarks) = try replacementFixture()
             store.loadRecentCells(since: .distantPast)
             let payload = BackupPayload(schemaVersion: 2, exportedAt: Date(), visitedCells: [], landmarks: [])
-            try BackupService.replace(payload, into: store, landmarkStore: landmarks)
+            try BackupService.replace(payload, into: store, landmarkStore: landmarks, landmarkSource: EmptyLandmarkSource())
             XCTAssertTrue(try store.viewContext.fetch(VisitedCell.fetchRequest()).isEmpty)
             XCTAssertTrue(store.visitedCellsCache.isEmpty)
             XCTAssertTrue(store.recentCellsCache.isEmpty)
@@ -341,7 +343,7 @@ final class BackupServiceTests: XCTestCase {
             let generation = store.recentCellsGeneration
             let persistentStore = try XCTUnwrap(store.container.persistentStoreCoordinator.persistentStores.first)
             persistentStore.isReadOnly = true
-            XCTAssertThrowsError(try BackupService.replace(samplePayload(), into: store, landmarkStore: landmarks))
+            XCTAssertThrowsError(try BackupService.replace(samplePayload(), into: store, landmarkStore: landmarks, landmarkSource: EmptyLandmarkSource()))
             assertSameHistory(try history(store, landmarks), before)
             XCTAssertEqual(store.visitedCellsCache, visited)
             XCTAssertEqual(store.recentCellsCache, recent)
@@ -351,7 +353,7 @@ final class BackupServiceTests: XCTestCase {
             XCTAssertFalse(store.viewContext.hasChanges)
             persistentStore.isReadOnly = false
             // Retrying after a failed save must work and restore exact file dates/labels.
-            try BackupService.replace(samplePayload(), into: store, landmarkStore: landmarks)
+            try BackupService.replace(samplePayload(), into: store, landmarkStore: landmarks, landmarkSource: EmptyLandmarkSource())
             assertSameHistory(try history(store, landmarks), samplePayload())
         }
     }
@@ -362,7 +364,7 @@ final class BackupServiceTests: XCTestCase {
             let before = try history(store, landmarks)
             let future = BackupPayload(schemaVersion: 999, exportedAt: Date(), visitedCells: [], landmarks: [])
             for data in [Data("not json".utf8), try BackupService.encode(future)] {
-                XCTAssertThrowsError(try BackupService.replace(BackupService.decode(data), into: store, landmarkStore: landmarks))
+                XCTAssertThrowsError(try BackupService.replace(BackupService.decode(data), into: store, landmarkStore: landmarks, landmarkSource: EmptyLandmarkSource()))
                 assertSameHistory(try history(store, landmarks), before)
             }
         }
@@ -392,11 +394,11 @@ final class BackupServiceTests: XCTestCase {
             let (store, landmarks) = try replacementFixture()
             let before = try history(store, landmarks)
             let separate = LandmarkStore(container: makeInMemoryContainer(), defaults: nil)
-            XCTAssertThrowsError(try BackupService.replace(samplePayload(), into: store, landmarkStore: separate))
+            XCTAssertThrowsError(try BackupService.replace(samplePayload(), into: store, landmarkStore: separate, landmarkSource: EmptyLandmarkSource()))
             assertSameHistory(try history(store, landmarks), before)
             let cell = try XCTUnwrap(store.viewContext.fetch(VisitedCell.fetchRequest()).first)
             cell.locality = "Pending edit"
-            XCTAssertThrowsError(try BackupService.replace(samplePayload(), into: store, landmarkStore: landmarks))
+            XCTAssertThrowsError(try BackupService.replace(samplePayload(), into: store, landmarkStore: landmarks, landmarkSource: EmptyLandmarkSource()))
             XCTAssertEqual(cell.locality, "Pending edit")
             XCTAssertTrue(store.viewContext.hasChanges)
             store.viewContext.rollback()
@@ -437,6 +439,88 @@ final class BackupServiceTests: XCTestCase {
             XCTAssertEqual(kept.firstVisited, Date(timeIntervalSince1970: 10))
             XCTAssertEqual(landmarks.allLandmarks.first { $0.identifier == "Q42" }?.firstDiscovered,
                            Date(timeIntervalSince1970: 10))
+        }
+    }
+
+    func testMissingDatesUseMergeDefaultsAndCanLaterMergeEarlierDates() async throws {
+        try await MainActor.run {
+            let (store, landmarks) = try replacementFixture()
+            let now = Date(timeIntervalSince1970: 5_000)
+            store.nowProvider = { now }
+            let payload = BackupPayload(schemaVersion: 1, exportedAt: Date(timeIntervalSince1970: 4_000),
+                                        visitedCells: [BackupVisitedCell(cellX: 1, cellY: 2, cellSizeMeters: kCellSizeMeters,
+                                                                         firstVisited: nil, locality: nil)],
+                                        landmarks: [BackupLandmark(identifier: "Q42", firstDiscovered: nil)])
+            try BackupService.replace(payload, into: store, landmarkStore: landmarks, landmarkSource: EmptyLandmarkSource())
+            let restored = try history(store, landmarks)
+            XCTAssertEqual(restored.visitedCells[0].firstVisited, now)
+            XCTAssertEqual(restored.landmarks[0].firstDiscovered, payload.exportedAt)
+            let earlier = Date(timeIntervalSince1970: 100)
+            let merge = BackupPayload(schemaVersion: 2, exportedAt: now,
+                                      visitedCells: [BackupVisitedCell(cellX: 1, cellY: 2, cellSizeMeters: kCellSizeMeters,
+                                                                       firstVisited: earlier, locality: nil)],
+                                      landmarks: [BackupLandmark(identifier: "Q42", firstDiscovered: earlier)])
+            _ = try BackupService.merge(merge, into: store, landmarkStore: landmarks)
+            let merged = try history(store, landmarks)
+            XCTAssertEqual(merged.visitedCells[0].firstVisited, earlier)
+            XCTAssertEqual(merged.landmarks[0].firstDiscovered, earlier)
+        }
+    }
+
+    func testLaunchSweepRederivesOmittedDiscoveriesOnlyNearRetainedCells() async throws {
+        try await MainActor.run {
+            let (store, landmarks) = try replacementFixture()
+            let payload = BackupPayload(schemaVersion: 2, exportedAt: Date(),
+                                        visitedCells: [BackupVisitedCell(cellX: 0, cellY: 0, cellSizeMeters: kCellSizeMeters,
+                                                                         firstVisited: Date(), locality: nil)], landmarks: [])
+            try BackupService.replace(payload, into: store, landmarkStore: landmarks, landmarkSource: EmptyLandmarkSource())
+            XCTAssertEqual(landmarks.totalDiscovered, 0, "Replace itself restores only the file's discoveries")
+            // Reconstruct the stores and invoke the same self-heal the app invokes at launch.
+            let relaunchedCells = ExplorationStore(container: store.container)
+            relaunchedCells.configure()
+            let relaunchedLandmarks = LandmarkStore(container: store.container, defaults: nil)
+            let discoveries = relaunchedLandmarks.sweepAllUndiscovered(visitedCells: relaunchedCells.visitedCellsCache)
+            XCTAssertEqual(discoveries.map(\.identifier), ["Q42"])
+            XCTAssertEqual(relaunchedLandmarks.totalDiscovered, 1)
+            XCTAssertFalse(try XCTUnwrap(relaunchedLandmarks.allLandmarks.first { $0.identifier == "Q43" }).isDiscovered,
+                           "Removing a landmark's supporting visited cells prevents launch rediscovery")
+        }
+    }
+
+    func testReplaceOnlyUpdatesLandmarksWhoseTargetDiffers() async throws {
+        try await MainActor.run {
+            let (store, landmarks) = try replacementFixture()
+            landmarks.addLandmarks((100..<200).map {
+                WikidataLandmark(id: "Q\($0)", name: "Hint \($0)", description: nil,
+                                 lat: 30, lon: 40, category: "museum", imageURL: nil)
+            }, visitedCells: [])
+            let observer = NotificationCenter.default.addObserver(forName: .NSManagedObjectContextWillSave,
+                                                                   object: store.viewContext, queue: nil) { _ in
+                MainActor.assumeIsolated {
+                    let updated = store.viewContext.updatedObjects.compactMap { ($0 as? Landmark)?.identifier }
+                    XCTAssertEqual(Set(updated), ["Q43"], "Unchanged discoveries and hints must not be written")
+                }
+            }
+            defer { NotificationCenter.default.removeObserver(observer) }
+            let payload = BackupPayload(schemaVersion: 2, exportedAt: Date(), visitedCells: [],
+                                        landmarks: [BackupLandmark(identifier: "Q42", firstDiscovered: Date(timeIntervalSince1970: 10))])
+            try BackupService.replace(payload, into: store, landmarkStore: landmarks, landmarkSource: EmptyLandmarkSource())
+            XCTAssertEqual(landmarks.totalDiscovered, 1)
+        }
+    }
+
+    func testReplacementSummaryUsesVisibleCountsAndPluralizes() async throws {
+        try await MainActor.run {
+            let (store, landmarks) = try replacementFixture()
+            let payload = BackupPayload(schemaVersion: 2, exportedAt: Date(), visitedCells: [
+                BackupVisitedCell(cellX: 0, cellY: 0, cellSizeMeters: kCellSizeMeters, firstVisited: Date(), locality: nil),
+                BackupVisitedCell(cellX: 1, cellY: 1, cellSizeMeters: 100, firstVisited: Date(), locality: nil)
+            ], landmarks: [BackupLandmark(identifier: "Q42", firstDiscovered: Date())])
+            try BackupService.replace(payload, into: store, landmarkStore: landmarks, landmarkSource: EmptyLandmarkSource())
+            XCTAssertEqual(SettingsView.replacementSummary(cells: store.totalVisitedCount, landmarks: landmarks.totalDiscovered),
+                           "Replaced history with 1 cell and 1 discovered landmark.")
+            XCTAssertEqual(SettingsView.replacementSummary(cells: 0, landmarks: 2),
+                           "Replaced history with 0 cells and 2 discovered landmarks.")
         }
     }
 

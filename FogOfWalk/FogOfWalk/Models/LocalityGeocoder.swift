@@ -167,7 +167,13 @@ final class LocalityGeocoder {
                     cell.country = country
                 }
             }
-            try? ctx.save()
+            do {
+                try ctx.save()
+            } catch {
+                // Leave the shared view context clean so a failed label write cannot
+                // permanently block backup replacement for the rest of this launch.
+                ctx.rollback()
+            }
         } catch {
             // Silently swallow — cells stay nil and will be retried on next launch.
         }

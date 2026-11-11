@@ -6,11 +6,13 @@ final class LandmarkFixtureIsolationTests: XCTestCase {
     func testFixtureLaunchNeverConstructsProductionServices() async {
         await MainActor.run {
             var builds = 0
-            let fixture = FogOfWalkApp.servicesForLaunch(arguments: ["-landmark-interaction-fixture"]) {
-                builds += 1
-                return "Production store and tracking"
+            for flag in ["-landmark-interaction-fixture", "-backup-import-fixture"] {
+                let fixture = FogOfWalkApp.servicesForLaunch(arguments: [flag]) {
+                    builds += 1
+                    return "Production store and tracking"
+                }
+                XCTAssertNil(fixture)
             }
-            XCTAssertNil(fixture)
             XCTAssertEqual(builds, 0)
             XCTAssertEqual(FogOfWalkApp.servicesForLaunch(arguments: []) { builds += 1; return 7 }, 7)
             XCTAssertEqual(builds, 1, "Normal and background launch still construct their services immediately")

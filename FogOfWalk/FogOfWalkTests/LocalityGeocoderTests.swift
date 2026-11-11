@@ -615,4 +615,33 @@ final class LocalityGeocoderTests: XCTestCase {
             XCTAssertNil(cell.locality, "Locality should remain nil when geocoding fails")
         }
     }
+
+    func testFailedGeocoderSaveRollsBackAndAllowsReplacementWithoutRestart() async throws {
+        let called = XCTestExpectation(description: "geocoder called")
+        let container = await MainActor.run {
+            let mock = MockGeocoder(locality: "Unsaved Town", onCall: { called.fulfill() })
+            let container = makeInMemoryContainer()
+            let cell = insertCell(in: container.viewContext)
+            container.persistentStoreCoordinator.persistentStores.first!.isReadOnly = true
+            LocalityGeocoder(geocoder: mock, requestDelay: .zero).enqueue(cell)
+            return container
+        }
+        await fulfillment(of: [called], timeout: 5)
+        // The callback fulfills before the label save; allow the main-actor task to finish.
+        try await Task.sleep(for: .milliseconds(100))
+        try await MainActor.run {
+            let context = container.viewContext
+            XCTAssertFalse(context.hasChanges)
+            XCTAssertNil(try context.fetch(VisitedCell.fetchRequest()).first?.locality)
+            container.persistentStoreCoordinator.persistentStores.first!.isReadOnly = false
+            let store = ExplorationStore(container: container)
+            store.configure()
+            let landmarks = LandmarkStore(container: container, defaults: nil)
+            let payload = BackupPayload(schemaVersion: 2, exportedAt: Date(), visitedCells: [], landmarks: [])
+            XCTAssertNoThrow(try BackupService.replace(payload, into: store, landmarkStore: landmarks,
+                                                       landmarkSource: EmptyLandmarkSource()))
+            XCTAssertTrue(store.visitedCellsCache.isEmpty)
+        }
+    }
+
 }

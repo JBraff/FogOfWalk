@@ -30,7 +30,8 @@ final class LandmarkSearchService {
 
     // MARK: - Dependencies
 
-    private let source: any LandmarkDataProviding
+    /// Shared with backup import so reference lookup reuses the app-owned connection.
+    let source: any LandmarkDataProviding
 
     // MARK: - Init
 

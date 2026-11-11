@@ -46,7 +46,7 @@ enum BackupError: LocalizedError, Equatable {
         case .unsupportedSchemaVersion(let version):
             return "This backup file uses a newer format (version \(version)) that this version of the app doesn't support."
         case .replacementUnavailable:
-            return "Exploration storage is busy or unavailable. Please try importing again."
+            return "Exploration storage has unsaved changes or is unavailable. Restart the app before importing again."
         case .duplicateRecords:
             return "This backup contains duplicate cells or landmarks and cannot replace your data."
         case .unknownLandmark(let identifier):
@@ -117,25 +117,23 @@ enum BackupService {
 
     // MARK: - Import
 
-    /// Replaces user history in one save on the stores' shared view context. Ordinary
+    /// Replaces a decoded payload in one save on the stores' shared view context. Ordinary
     /// deletes (not batch deletes) let Core Data roll back both entities on save failure.
     /// No cache is published until that save succeeds, and no recording/geocoding callbacks
     /// run for imported cells. Missing landmark metadata comes from the bundled database;
     /// an unresolvable identifier rejects the replacement rather than silently losing it.
+    /// Missing dates use Merge's defaults. The normal launch sweep may subsequently
+    /// rediscover omitted landmarks near retained cells; no discovery exclusions are stored.
     @MainActor
     static func replace(_ payload: BackupPayload,
                         into explorationStore: ExplorationStore,
                         landmarkStore: LandmarkStore,
-                        landmarkSource: (any LandmarkDataProviding)? = nil) throws {
+                        landmarkSource: any LandmarkDataProviding) throws {
         if let loadError = explorationStore.loadError { throw loadError }
         let context = explorationStore.viewContext
         guard context === landmarkStore.viewContext, !context.hasChanges else {
             throw BackupError.replacementUnavailable
         }
-        guard payload.schemaVersion <= BackupPayload.currentSchemaVersion else {
-            throw BackupError.unsupportedSchemaVersion(payload.schemaVersion)
-        }
-
         struct CellKey: Hashable {
             let x: Int32
             let y: Int32
@@ -154,9 +152,9 @@ enum BackupService {
         let missing = payload.landmarks.filter { !known.contains($0.identifier) }
         var metadata: [WikidataLandmark] = []
         if !missing.isEmpty {
-            let source = landmarkSource ?? LandmarkSearchService.bundledSource()
             for record in missing {
-                guard let item = source.landmark(withIdentifier: record.identifier) else {
+                guard let item = landmarkSource.landmark(withIdentifier: record.identifier),
+                      item.id == record.identifier else {
                     throw BackupError.unknownLandmark(record.identifier)
                 }
                 metadata.append(item)
@@ -170,32 +168,23 @@ enum BackupService {
                 cell.cellX = record.cellX
                 cell.cellY = record.cellY
                 cell.cellSizeMeters = record.cellSizeMeters
-                cell.firstVisited = record.firstVisited
+                cell.firstVisited = record.firstVisited ?? explorationStore.nowProvider()
                 cell.locality = record.locality
                 cell.state = record.state
                 cell.country = record.country
             }
 
-            var byIdentifier = Dictionary(uniqueKeysWithValues: landmarks.map { ($0.identifier, $0) })
+            var allLandmarks = landmarks
             for item in metadata {
-                let landmark = Landmark(context: context)
-                landmark.identifier = item.id
-                landmark.name = item.name
-                landmark.category = item.category
-                landmark.latitude = item.lat
-                landmark.longitude = item.lon
-                landmark.discoveryRadiusMeters = LandmarkStore.categoryRadius[item.category] ?? 100
-                landmark.firstSeen = payload.exportedAt
-                byIdentifier[item.id] = landmark
+                allLandmarks.append(landmarkStore.insertReferenceLandmark(item, firstSeen: payload.exportedAt))
             }
-            for landmark in byIdentifier.values {
-                landmark.isDiscovered = false
-                landmark.firstDiscovered = nil
-            }
-            for record in payload.landmarks {
-                let landmark = byIdentifier[record.identifier]!
-                landmark.isDiscovered = true
-                landmark.firstDiscovered = record.firstDiscovered
+            let targets = Dictionary(uniqueKeysWithValues: payload.landmarks.map { ($0.identifier, $0) })
+            for landmark in allLandmarks {
+                let target = targets[landmark.identifier]
+                let discovered = target != nil
+                let date = target.map { $0.firstDiscovered ?? payload.exportedAt }
+                if landmark.isDiscovered != discovered { landmark.isDiscovered = discovered }
+                if landmark.firstDiscovered != date { landmark.firstDiscovered = date }
             }
             try context.save()
         } catch {
