@@ -242,7 +242,7 @@ struct BackupImportControls: View {
             Button("Replace", role: .destructive, action: onReplace)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("All existing map squares, their labels, and discovered landmarks will be replaced by this backup. Anything missing from the file will be removed. Export a backup first if you want to keep your current history.")
+            Text("All existing map squares, their labels, and discovered landmarks will be replaced by this backup. Anything missing from the file will be removed. Landmarks near retained visited cells may be rediscovered on a later launch. Export a backup first if you want to keep your current history.")
         }
     }
 }

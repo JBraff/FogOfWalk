@@ -53,13 +53,17 @@ final class LocalityGeocoder {
     // MARK: - Dependencies
 
     private let geocoder: any GeocoderProtocol
+    /// Signals completed failure recovery for deterministic tests.
+    private let onSaveFailure: ((Error) -> Void)?
     let requestDelay: Duration
 
     // MARK: - Init
 
-    init(geocoder: any GeocoderProtocol = CLGeocoder(), requestDelay: Duration = .seconds(1)) {
+    init(geocoder: any GeocoderProtocol = CLGeocoder(), requestDelay: Duration = .seconds(1),
+         onSaveFailure: ((Error) -> Void)? = nil) {
         self.geocoder = geocoder
         self.requestDelay = requestDelay
+        self.onSaveFailure = onSaveFailure
     }
 
     // MARK: - Public API
@@ -155,8 +159,13 @@ final class LocalityGeocoder {
             let state   = p.administrativeArea ?? "Unknown"
             let country = Self.resolvedCountry(p.country)
             let ctx = cluster.context
+            let hadPendingChanges = ctx.hasChanges
+            var touched: [(cell: VisitedCell, pendingChanges: [String: Any])] = []
             for id in cluster.objectIDs {
                 guard let cell = try? ctx.existingObject(with: id) as? VisitedCell else { continue }
+                guard cell.locality == nil || cell.state == nil
+                    || (country != nil && Self.resolvedCountry(cell.country) == nil) else { continue }
+                touched.append((cell, cell.changedValues()))
                 if cell.locality == nil { cell.locality = name }
                 if cell.state    == nil { cell.state    = state }
                 // Missing countries must remain retryable, including the old Unknown sentinel.
@@ -170,9 +179,18 @@ final class LocalityGeocoder {
             do {
                 try ctx.save()
             } catch {
-                // Leave the shared view context clean so a failed label write cannot
-                // permanently block backup replacement for the rest of this launch.
-                ctx.rollback()
+                // There are no awaits between the snapshot above and this recovery.
+                // Whole-context rollback is safe only if the cluster started from a clean
+                // context; otherwise refresh just touched cells and restore their prior edits.
+                if !hadPendingChanges {
+                    ctx.rollback()
+                } else {
+                    for (cell, pendingChanges) in touched {
+                        ctx.refresh(cell, mergeChanges: false)
+                        cell.setValuesForKeys(pendingChanges)
+                    }
+                }
+                onSaveFailure?(error)
             }
         } catch {
             // Silently swallow — cells stay nil and will be retried on next launch.

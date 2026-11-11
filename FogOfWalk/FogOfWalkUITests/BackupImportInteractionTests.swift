@@ -16,6 +16,9 @@ final class BackupImportInteractionTests: XCTestCase {
         app.buttons["Replace…"].tap()
         let confirmation = app.alerts["Replace Existing Data?"]
         XCTAssertTrue(confirmation.waitForExistence(timeout: 3))
+        XCTAssertTrue(confirmation.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS %@", "may be rediscovered on a later launch")
+        ).firstMatch.exists, "The confirmation must explain later landmark rediscovery")
         XCTAssertEqual(result.label, "No import", "Choosing Replace must not import before confirmation")
         confirmation.buttons["Cancel"].tap()
         XCTAssertEqual(result.label, "No import")

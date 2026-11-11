@@ -290,13 +290,16 @@ reference rows. Reference insertion shares its field mapping with ordinary landm
 
 The normal launch self-heal still re-derives discoveries from the retained visited cells.
 An omitted landmark near a retained cell can therefore be rediscovered on a later launch,
-with that launch's date. Removing a flight must remove its supporting visited cells as well
-as its discoveries; Replace does not persist a discovery exclusion list.
+with that launch's date. Both the import footer and destructive alert explain this.
+Removing a flight must remove its supporting visited cells as well as its discoveries;
+Replace does not persist a discovery exclusion list.
 
-Both stores must share the same clean `viewContext`. Geocoder save failures roll back their
-label edits so they cannot block import for the rest of the launch; other pending changes
-produce an error asking for a restart. Replacement uses ordinary managed-object
-deletes and one save for both entities, with rollback on failure. It never uses batch deletes
+Both stores must share the same clean `viewContext`. Geocoder failure recovery preserves
+pre-existing unsaved edits: it refreshes only touched cells and restores their prior pending
+values. A whole-context rollback is used only if the context was clean before the cluster's
+synchronous label writes. A failed geocoder write does not leave its own edits blocking
+import; other pending changes produce an error asking for a restart. Replacement uses
+ordinary managed-object deletes and one save for both entities, with rollback on failure. It never uses batch deletes
 or invokes new-cell recording/geocoding callbacks. Cache reloads happen after success: cell
 and today counts, the active highlight (advancing its generation even with highlighting off
 or unchanged cell count), landmark counts, and the undiscovered spatial index. The map
