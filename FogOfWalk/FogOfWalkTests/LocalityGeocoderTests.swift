@@ -152,6 +152,118 @@ final class LocalityGeocoderTests: XCTestCase {
         }
     }
 
+    // MARK: - walked cells share one request per area
+
+    /// Polls until every cell has a locality, like the search-service tests' sleep-and-poll.
+    private func waitForLocalities(_ ids: [NSManagedObjectID], in ctx: NSManagedObjectContext) async {
+        for _ in 0..<100 {
+            let done = await MainActor.run {
+                ids.allSatisfy { (try? ctx.existingObject(with: $0) as? VisitedCell)?.locality != nil }
+            }
+            if done { return }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// Regression: every newly walked 50 m cell made its own network request, which kept the
+    /// radio awake for a whole walk. Cells in one ~1 km cluster must share the first answer,
+    /// whether they arrive while it is in flight or after it returned.
+    func testWalkedCellsInOneAreaShareOneRequest() async {
+        let mock = MockGeocoder(locality: "WalkCity", state: "NY", country: "United States")
+        var ids: [NSManagedObjectID] = []
+        var context: NSManagedObjectContext?
+        var geocoder: LocalityGeocoder?
+
+        await MainActor.run {
+            let ctx = makeInMemoryContainer().viewContext
+            context = ctx
+            geocoder = LocalityGeocoder(geocoder: mock, requestDelay: .milliseconds(20))
+            // The first is requested at once; the next two wait behind it.
+            for x in Int32(0)..<3 {
+                let cell = insertCell(in: ctx, x: x, y: 0)
+                ids.append(cell.objectID)
+                geocoder!.enqueue(cell)
+            }
+        }
+        await waitForLocalities(ids, in: context!)
+
+        await MainActor.run {
+            let late = insertCell(in: context!, x: 3, y: 1)
+            ids.append(late.objectID)
+            geocoder!.enqueue(late)
+        }
+        await waitForLocalities(ids, in: context!)
+
+        await MainActor.run {
+            XCTAssertEqual(mock.callCount, 1)
+            for id in ids {
+                let cell = try? context!.existingObject(with: id) as? VisitedCell
+                XCTAssertEqual(cell?.locality, "WalkCity")
+                XCTAssertEqual(cell?.state, "NY")
+                XCTAssertEqual(cell?.country, "United States")
+            }
+            geocoder = nil
+        }
+    }
+
+    func testWalkedCellInAnotherAreaGetsItsOwnRequest() async {
+        let mock = MockGeocoder()
+        var ids: [NSManagedObjectID] = []
+        var context: NSManagedObjectContext?
+
+        await MainActor.run {
+            let ctx = makeInMemoryContainer().viewContext
+            context = ctx
+            let geocoder = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
+            // 300 cells is ~15 km, far outside one cluster.
+            for x in [Int32(0), 300] {
+                let cell = insertCell(in: ctx, x: x, y: 0)
+                ids.append(cell.objectID)
+                geocoder.enqueue(cell)
+            }
+        }
+        await waitForLocalities(ids, in: context!)
+
+        await MainActor.run { XCTAssertEqual(mock.callCount, 2) }
+    }
+
+    /// A failed lookup must not be remembered: the next cell in the area asks again.
+    func testFailedLookupIsNotReusedForTheArea() async {
+        final class FailsOnceGeocoder: GeocoderProtocol, @unchecked Sendable {
+            private(set) var callCount = 0
+            func reverseGeocodeLocation(_ location: CLLocation) async throws -> [CLPlacemark] {
+                callCount += 1
+                if callCount == 1 { throw NSError(domain: "test", code: -1) }
+                return [MockPlacemark(locality: "RetryCity")]
+            }
+        }
+        let mock = FailsOnceGeocoder()
+        var context: NSManagedObjectContext?
+        var geocoder: LocalityGeocoder?
+        var secondID: NSManagedObjectID?
+
+        await MainActor.run {
+            let ctx = makeInMemoryContainer().viewContext
+            context = ctx
+            geocoder = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
+            geocoder!.enqueue(insertCell(in: ctx, x: 0, y: 0))
+        }
+        try? await Task.sleep(for: .milliseconds(100))
+        await MainActor.run {
+            let second = insertCell(in: context!, x: 1, y: 0)
+            secondID = second.objectID
+            geocoder!.enqueue(second)
+        }
+        await waitForLocalities([secondID!], in: context!)
+
+        await MainActor.run {
+            XCTAssertEqual(mock.callCount, 2)
+            let cell = try? context!.existingObject(with: secondID!) as? VisitedCell
+            XCTAssertEqual(cell?.locality, "RetryCity")
+            geocoder = nil
+        }
+    }
+
     // MARK: - geocodeUntaggedCells
 
     func testBackfillRunsOnlyOnce() async {

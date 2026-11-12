@@ -1,5 +1,6 @@
 import XCTest
 import MapKit
+import SwiftUI
 import CoreData
 @testable import FogOfWalk
 
@@ -83,6 +84,71 @@ final class MapLocationControlTests: XCTestCase {
 
             XCTAssertFalse(button.isHidden)
             XCTAssertTrue(mapView.showsUserLocation)
+        }
+    }
+
+    /// MapKit's own location request must not keep running while the app is in the
+    /// background, and returning must restore the blue dot and the mode the user left.
+    func testBackgroundPausesMapLocationAndRestoresTrackingMode() async {
+        await MainActor.run {
+            let coordinator = makeLandmarkCoordinator()
+            for mode in [MKUserTrackingMode.follow, .none] {
+                let mapView = FollowStateMapView()
+                mapView.showsUserLocation = true
+                mapView.userTrackingMode = mode
+
+                MapContainerView.pauseLocationDisplay(true, on: mapView,
+                                                      coordinator: coordinator, allowed: true)
+                XCTAssertFalse(mapView.showsUserLocation)
+                // A repeated background update must not overwrite the remembered mode.
+                mapView.userTrackingMode = .none
+                MapContainerView.pauseLocationDisplay(true, on: mapView,
+                                                      coordinator: coordinator, allowed: true)
+
+                MapContainerView.pauseLocationDisplay(false, on: mapView,
+                                                      coordinator: coordinator, allowed: true)
+                XCTAssertTrue(mapView.showsUserLocation)
+                XCTAssertEqual(mapView.userTrackingMode, mode)
+            }
+        }
+    }
+
+    func testForegroundDoesNotEnableMapLocationThatWasNeverPausedOrIsNoLongerAllowed() async {
+        await MainActor.run {
+            let coordinator = makeLandmarkCoordinator()
+            let mapView = FollowStateMapView()
+
+            // Study OFF: location display was already off, so there is nothing to restore.
+            MapContainerView.pauseLocationDisplay(true, on: mapView,
+                                                  coordinator: coordinator, allowed: false)
+            MapContainerView.pauseLocationDisplay(false, on: mapView,
+                                                  coordinator: coordinator, allowed: true)
+            XCTAssertFalse(mapView.showsUserLocation)
+
+            // Switched off while the app was away.
+            mapView.showsUserLocation = true
+            MapContainerView.pauseLocationDisplay(true, on: mapView,
+                                                  coordinator: coordinator, allowed: true)
+            MapContainerView.pauseLocationDisplay(false, on: mapView,
+                                                  coordinator: coordinator, allowed: false)
+            XCTAssertFalse(mapView.showsUserLocation)
+        }
+    }
+
+    /// Cells recorded in the background must not rebuild the whole fog snapshot each time;
+    /// one rebuild happens on return.
+    func testFogSnapshotWaitsForForeground() async {
+        await MainActor.run {
+            let coordinator = makeLandmarkCoordinator()
+            XCTAssertTrue(coordinator.refreshFogIfChanged(in: .active))
+            XCTAssertFalse(coordinator.refreshFogIfChanged(in: .active))
+
+            coordinator.store.addCell(CellID(x: 1, y: 1))
+            coordinator.store.addCell(CellID(x: 2, y: 1))
+            XCTAssertFalse(coordinator.refreshFogIfChanged(in: .background))
+            XCTAssertTrue(coordinator.refreshFogIfChanged(in: .active))
+            XCTAssertEqual(coordinator.lastSnapshotCellCount, 2)
+            XCTAssertFalse(coordinator.refreshFogIfChanged(in: .inactive))
         }
     }
 

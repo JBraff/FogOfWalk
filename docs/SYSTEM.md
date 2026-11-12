@@ -43,7 +43,9 @@ which draws the overlay on MapKit's background rendering threads.
   failed inserts reset the identifier cache, leave their areas retryable, and are
   logged as `landmark_ingest_failed` in a Study capture.
 - `LocalityGeocoder` annotates visited cells with locality, state, and country
-  for the statistics sheet. Newly walked cells are geocoded ahead of the launch
+  for the statistics sheet. Cells within about 1 km share one lookup per launch,
+  so a walk does not make a network request per cell. Newly walked cells are
+  geocoded ahead of the launch
   backfill of older untagged cells. Country statistics exclude unresolved labels without
   removing visits from exploration totals. Missing countries (including legacy empty or
   "Unknown" labels) are retried by the bounded backfill on later launches and replaced
@@ -127,6 +129,10 @@ heading is used when true heading is unavailable. Each callback captures the cur
 session ID before the main-actor hop: callbacks queued before a stop/restart are
 ignored, while the first cached reading in the new session is accepted. This manager
 never requests location samples or changes recording.
+
+While the app is in the background the map turns off MapKit's user location and stops
+rebuilding the fog snapshot; both resume when the app returns. Only `LocationService`
+requests locations then.
 
 ## Location and correctness constraints
 
