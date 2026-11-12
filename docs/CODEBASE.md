@@ -102,8 +102,9 @@ CLLocationManager (legacy)                       CLLocationUpdate.liveUpdates(.f
                              diagnostics.recordDownstream(...)       (no-op unless a Study capture runs)
                                           ▼
                            ContentView re-renders (visitedCellCount / highlightGeneration change)
-                           → MapContainerView.updateUIView → Coordinator.invalidateFogTiles()
+                           → MapContainerView.updateUIView → Coordinator.refreshFogIfChanged(in:)
                            → fresh CellSnapshot → renderer.setNeedsDisplay()
+                           (skipped in the background; one rebuild on return)
 ```
 
 Other flows:
@@ -187,7 +188,12 @@ Hole radius is 0.9 × the projected cell size, floored at `kMinCellScreenPoints`
 renderer applies no cell-count cap. The `radius > 0.5` guards are inert because of that floor.
 
 `Coordinator.invalidateFogTiles()` is the only way to push new state to the renderer.
-`updateUIView` calls it when the cached cell count or `recentCellsGeneration` changes.
+`updateUIView` calls it through `refreshFogIfChanged(in:)` when the cached cell count or
+`recentCellsGeneration` changes. A snapshot re-indexes every visited cell, so in the
+`.background` scene phase the refresh is skipped; the phase change on return re-runs
+`updateUIView`, which rebuilds once. `updateUIView` also turns `showsUserLocation` off in the
+background and restores it with the previous tracking mode (`pauseLocationDisplay`), so MapKit
+keeps no location request of its own while the app is away. Recording is unaffected.
 Recording happens outside the map, so `ContentView` passes `visitedCellCount` and
 `highlightGeneration` as inputs to guarantee SwiftUI re-runs `updateUIView`. Keep those
 inputs if you restructure the view. The recenter button requests only `.follow`, including repeated taps, so turning the phone
@@ -369,10 +375,14 @@ in commit 938ef32, so ignore older docs that describe it.
   `LocationPermissionBanner`. Dismissal is per prompt, so a later different problem still shows.
 - **Geocoding queue:** at most `LocalityGeocoder.maxQueueSize` (200) clusters. Newly walked
   cells go ahead of launch backfill and, when the queue is full, displace the newest backfill
-  cluster (its cells stay untagged for a later launch).
+  cluster (its cells stay untagged for a later launch). A walked cell joins a waiting walked
+  cluster for the same area instead of adding one.
 - **Geocoding:** the launch backfill groups untagged cells into
   `LocalityGeocoder.backfillClusterDegrees` (0.01°, ~1.1 km) clusters and writes one placemark's
-  names into every nil field in the cluster. Missing countries remain retryable on later
+  names into every nil field in the cluster. Walked cells use the same clusters: the first
+  successful answer for a cluster is kept for the launch and reused without a network request,
+  so a walk makes about one request per kilometre rather than one per 50 m cell. Failed
+  lookups are not kept. Missing countries remain retryable on later
   launches; legacy empty/"Unknown" countries are also retried and replaced only with a
   known country. Known countries are preserved. Missing state/locality still use the
   "Unknown" sentinel. Cells mislabelled by the old 0.5° clustering are not

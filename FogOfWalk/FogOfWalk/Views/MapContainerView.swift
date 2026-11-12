@@ -118,6 +118,24 @@ struct MapContainerView: UIViewRepresentable {
         }
     }
 
+    /// Turns MapKit's own location request off while the app is in the background and
+    /// restores it, with the tracking mode it had, on return. Recording never depends on it:
+    /// `LocationService` keeps delivering samples, and the blue dot is not visible anyway.
+    static func pauseLocationDisplay(_ paused: Bool, on mapView: MKMapView,
+                                     coordinator: Coordinator, allowed: Bool) {
+        if paused {
+            guard coordinator.pausedTrackingMode == nil, mapView.showsUserLocation else { return }
+            coordinator.pausedTrackingMode = mapView.userTrackingMode
+            mapView.showsUserLocation = false
+        } else if let mode = coordinator.pausedTrackingMode {
+            coordinator.pausedTrackingMode = nil
+            // Study may have switched the map's location off while the app was away.
+            guard allowed else { return }
+            mapView.showsUserLocation = true
+            mapView.userTrackingMode = mode
+        }
+    }
+
     /// Moves the map to a stats-sheet target and leaves follow mode, so the map stays where
     /// it was sent instead of snapping back to the user. Tapping the tracking button resumes.
     static func navigate(_ mapView: MKMapView, to target: MapNavigationTarget) {
@@ -129,6 +147,9 @@ struct MapContainerView: UIViewRepresentable {
     func updateUIView(_ container: UIView, context: Context) {
         guard let mapView = container.subviews.first as? MKMapView else { return }
         (mapView as? HeadingMapView)?.sceneActive = scenePhase == .active
+        Self.pauseLocationDisplay(scenePhase == .background, on: mapView,
+                                  coordinator: context.coordinator,
+                                  allowed: locationService.usesMapLocation)
         context.coordinator.store         = store
         context.coordinator.gridSettings  = gridSettings
         context.coordinator.landmarkStore = landmarkStore
@@ -150,12 +171,7 @@ struct MapContainerView: UIViewRepresentable {
         // If the cache was populated after the renderer was created (e.g.
         // initial Core Data load completing after makeUIView), push the
         // updated cells to the fog renderer.
-        let currentCount = store.visitedCellsCache.count
-        let currentRecentGen = store.recentCellsGeneration
-        if currentCount != coordinator.lastSnapshotCellCount
-            || currentRecentGen != coordinator.lastRecentCellGeneration {
-            coordinator.invalidateFogTiles()
-        }
+        coordinator.refreshFogIfChanged(in: scenePhase)
         // A new cell re-runs this method; rebuild pins only when landmark state changed.
         // Region changes refresh pins through `regionDidChangeAnimated`.
         coordinator.refreshLandmarksIfChanged(in: mapView.region, mapView: mapView)
@@ -188,6 +204,10 @@ struct MapContainerView: UIViewRepresentable {
         /// Tracks the recent-cell generation so `updateUIView` can detect highlight changes
         /// even when the cell count is unchanged (e.g., toggling on/off with 0 cells today).
         var lastRecentCellGeneration: UInt64 = 0
+
+        /// The tracking mode to restore after a background pause of MapKit's user location;
+        /// nil when not paused. See `MapContainerView.pauseLocationDisplay`.
+        var pausedTrackingMode: MKUserTrackingMode?
 
         /// Tracks the last navigation target ID applied so `updateUIView` only animates once per tap.
         var lastNavigationTargetID: UUID?
@@ -225,6 +245,19 @@ struct MapContainerView: UIViewRepresentable {
             fogRenderer?.setNeedsDisplay()
             lastSnapshotCellCount    = store.visitedCellsCache.count
             lastRecentCellGeneration = store.recentCellsGeneration
+        }
+
+        /// Pushes a snapshot only when cells or the highlight changed since the last one.
+        /// Returns whether it did. A snapshot re-indexes every visited cell, so cells recorded
+        /// in the background wait: the scene-phase change on return re-runs `updateUIView`,
+        /// which pushes them once.
+        @discardableResult
+        func refreshFogIfChanged(in phase: ScenePhase) -> Bool {
+            guard phase != .background else { return false }
+            guard store.visitedCellsCache.count != lastSnapshotCellCount
+                || store.recentCellsGeneration != lastRecentCellGeneration else { return false }
+            invalidateFogTiles()
+            return true
         }
 
         /// Removes the current FogOverlay and adds a new one with a fresh snapshot.
