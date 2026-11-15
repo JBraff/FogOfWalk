@@ -45,8 +45,7 @@ final class BundledLandmarkSource: LandmarkDataProviding {
 
         let minLat = region.center.latitude  - region.span.latitudeDelta  / 2
         let maxLat = region.center.latitude  + region.span.latitudeDelta  / 2
-        let minLon = region.center.longitude - region.span.longitudeDelta / 2
-        let maxLon = region.center.longitude + region.span.longitudeDelta / 2
+        let lonRanges = Self.longitudeRanges(in: region)
 
         // Join against the R-tree for fast bounding-box filtering.
         //
@@ -64,8 +63,8 @@ final class BundledLandmarkSource: LandmarkDataProviding {
             JOIN landmarks_rtree r ON l.rowid = r.rowid
             WHERE r.max_lat >= ?
               AND r.min_lat <= ?
-              AND r.max_lon >= ?
-              AND r.min_lon <= ?
+              AND ((r.max_lon >= ? AND r.min_lon <= ?)
+                OR (r.max_lon >= ? AND r.min_lon <= ?))
             ORDER BY l.rowid
             LIMIT 500
             """
@@ -76,8 +75,13 @@ final class BundledLandmarkSource: LandmarkDataProviding {
 
         sqlite3_bind_double(stmt, 1, minLat)
         sqlite3_bind_double(stmt, 2, maxLat)
-        sqlite3_bind_double(stmt, 3, minLon)
-        sqlite3_bind_double(stmt, 4, maxLon)
+        // A region crossing ±180° is split into two ranges. One statement covers both, so a
+        // landmark is returned at most once and the LIMIT applies to the merged result.
+        let second = lonRanges.count > 1 ? lonRanges[1] : lonRanges[0]
+        sqlite3_bind_double(stmt, 3, lonRanges[0].lowerBound)
+        sqlite3_bind_double(stmt, 4, lonRanges[0].upperBound)
+        sqlite3_bind_double(stmt, 5, second.lowerBound)
+        sqlite3_bind_double(stmt, 6, second.upperBound)
 
         var results: [WikidataLandmark] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
@@ -97,6 +101,23 @@ final class BundledLandmarkSource: LandmarkDataProviding {
             ))
         }
         return results
+    }
+
+    /// The region's longitude interval in stored (-180...180) coordinates. A region that
+    /// crosses the antimeridian yields two ranges, one on each side of ±180°.
+    static func longitudeRanges(in region: MKCoordinateRegion) -> [ClosedRange<Double>] {
+        let halfSpan = region.span.longitudeDelta / 2
+        guard halfSpan < 180 else { return [-180.0...180.0] }
+        let center = remainder(region.center.longitude, 360)   // -180...180
+        let minLon = center - halfSpan
+        let maxLon = center + halfSpan
+        if minLon < -180 {
+            return [(minLon + 360)...180.0, -180.0...maxLon]
+        }
+        if maxLon > 180 {
+            return [minLon...180.0, -180.0...(maxLon - 360)]
+        }
+        return [minLon...maxLon]
     }
 
     // MARK: - Private

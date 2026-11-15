@@ -249,6 +249,8 @@ Generation advances on landmark context changes and cache reloads.
   fresh or hand-recycled; it does not exercise MapKit's own reuse queue.
 - Coupled limits: `GridMath.maxIngestSpanDegrees` (1.0°) ↔ `BundledLandmarkSource` `LIMIT 500`
   (re-measure density before raising the span). `LandmarkStore.maxRenderedPins` = 300.
+- A region crossing ±180° queries two longitude ranges in one statement, so rows stay unique
+  and `LIMIT 500` caps the merged result.
 - `showLandmarks` is **off by default**. Discovery always runs, and only pin display is gated
   (`Coordinator.refreshLandmarks`). Check the toggle before suspecting a discovery bug.
 - If `landmarks.sqlite` is missing or unreadable, `LandmarkSearchService.bundledSource()` logs one
