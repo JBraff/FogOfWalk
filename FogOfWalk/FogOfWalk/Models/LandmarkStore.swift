@@ -474,7 +474,7 @@ final class LandmarkStore {
 
         let visible = allLandmarks.filter { landmark in
             abs(landmark.latitude  - center.latitude)  <= latDelta
-                && abs(landmark.longitude - center.longitude) <= lonDelta
+                && abs(remainder(landmark.longitude - center.longitude, 360)) <= lonDelta
         }
 
         guard visible.count > limit else { return visible }
@@ -495,7 +495,7 @@ final class LandmarkStore {
         var visibleCount = 0
         for landmark in allLandmarks {
             let latitudeDelta = abs(landmark.latitude - region.center.latitude)
-            let longitudeDelta = abs(landmark.longitude - region.center.longitude)
+            let longitudeDelta = abs(remainder(landmark.longitude - region.center.longitude, 360))
             guard latitudeDelta <= region.span.latitudeDelta,
                   longitudeDelta <= region.span.longitudeDelta else { continue }
             if latitudeDelta <= region.span.latitudeDelta / 2

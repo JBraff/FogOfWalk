@@ -228,6 +228,122 @@ final class BundledLandmarkSourceTests: XCTestCase {
         XCTAssertEqual(source.landmarks(in: region).count, 2)
     }
 
+    // MARK: - Antimeridian
+
+    private func landmarkAt(_ id: String, lat: Double = -17.0, lon: Double)
+        -> (id: String, name: String, description: String?, lat: Double, lon: Double,
+            category: String, image: String?) {
+        (id: id, name: id, description: nil, lat: lat, lon: lon, category: "landmark", image: nil)
+    }
+
+    func testEastwardAntimeridianCrossingIncludesWrappedSide() throws {
+        let url = try makeTestDatabase(landmarks: [
+            landmarkAt("west", lon: 179.8), landmarkAt("east", lon: -179.7),
+            landmarkAt("farEast", lon: -179.0), landmarkAt("farWest", lon: 179.0),
+        ])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let source = try BundledLandmarkSource(databaseURL: url)
+
+        // Centre 180, span 1° → 179.5...180 and -180...-179.5.
+        let region = MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: -17.0, longitude: 180.0),
+            span: MKCoordinateSpan(latitudeDelta: 1.0, longitudeDelta: 1.0)
+        )
+        XCTAssertEqual(Set(source.landmarks(in: region).map(\.id)), ["west", "east"])
+    }
+
+    func testWestwardAntimeridianCrossingIncludesWrappedSide() throws {
+        let url = try makeTestDatabase(landmarks: [
+            landmarkAt("west", lon: 179.9), landmarkAt("east", lon: -179.6),
+            landmarkAt("farEast", lon: -179.0), landmarkAt("farWest", lon: 179.5),
+        ])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let source = try BundledLandmarkSource(databaseURL: url)
+
+        // Centre -179.8, span 1° → -180...-179.3 and 179.7...180.
+        let region = MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: -17.0, longitude: -179.8),
+            span: MKCoordinateSpan(latitudeDelta: 1.0, longitudeDelta: 1.0)
+        )
+        XCTAssertEqual(Set(source.landmarks(in: region).map(\.id)), ["west", "east"])
+    }
+
+    func testAntimeridianCrossingKeepsCapWithoutDuplicates() throws {
+        // 300 landmarks on each side of ±180°: 600 matches, above the LIMIT.
+        var landmarks: [(id: String, name: String, description: String?,
+                         lat: Double, lon: Double, category: String, image: String?)] = []
+        for i in 0..<300 {
+            let offset = Double(i) * 0.0001
+            landmarks.append(landmarkAt("W\(i)", lon: 179.9 + offset))
+            landmarks.append(landmarkAt("E\(i)", lon: -179.9 - offset))
+        }
+        // A landmark exactly on the shared boundary must appear once.
+        landmarks.insert(landmarkAt("edge", lon: 180.0), at: 0)
+        let url = try makeTestDatabase(landmarks: landmarks)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let source = try BundledLandmarkSource(databaseURL: url)
+
+        let region = MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: -17.0, longitude: 180.0),
+            span: MKCoordinateSpan(latitudeDelta: 1.0, longitudeDelta: 1.0)
+        )
+        let ids = source.landmarks(in: region).map(\.id)
+        XCTAssertEqual(ids.count, 500)
+        XCTAssertEqual(Set(ids).count, ids.count, "Merged ranges must not duplicate landmarks")
+        XCTAssertEqual(ids.filter { $0 == "edge" }.count, 1)
+        XCTAssertTrue(ids.contains { $0.hasPrefix("E") }, "Wrapped side must contribute rows")
+    }
+
+    // MARK: - longitudeRanges
+
+    private func ranges(center: Double, span: Double) -> [ClosedRange<Double>] {
+        BundledLandmarkSource.longitudeRanges(in: MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 0, longitude: center),
+            span: MKCoordinateSpan(latitudeDelta: 1.0, longitudeDelta: span)
+        ))
+    }
+
+    func testLongitudeRangesNormalizesCentreOutsideStoredRange() {
+        // 540 is the antimeridian; -181 is 179.
+        XCTAssertEqual(ranges(center: 540, span: 1), [179.5...180.0, -180.0...(-179.5)])
+        XCTAssertEqual(ranges(center: -181, span: 1), [178.5...179.5])
+    }
+
+    func testLongitudeRangesWholeWorldForHalfSpanOf180OrMore() {
+        XCTAssertEqual(ranges(center: 10, span: 360), [-180.0...180.0])
+        XCTAssertEqual(ranges(center: 10, span: 400), [-180.0...180.0])
+    }
+
+    func testLongitudeRangesSpanExactlyReachingAntimeridianIsOneRange() {
+        XCTAssertEqual(ranges(center: 179.5, span: 1), [179.0...180.0])
+        XCTAssertEqual(ranges(center: -179.5, span: 1), [-180.0...(-179.0)])
+    }
+
+    func testLongitudeRangesZeroSpan() {
+        XCTAssertEqual(ranges(center: 12.5, span: 0), [12.5...12.5])
+    }
+
+    func testLongitudeRangesInvalidInputYieldsNoRanges() {
+        XCTAssertEqual(ranges(center: 10, span: -1), [])
+        XCTAssertEqual(ranges(center: 10, span: .nan), [])
+        XCTAssertEqual(ranges(center: 10, span: .infinity), [])
+        XCTAssertEqual(ranges(center: .nan, span: 1), [])
+        XCTAssertEqual(ranges(center: .infinity, span: 1), [])
+    }
+
+    func testInvalidRegionReturnsNoLandmarks() throws {
+        let url = try makeTestDatabase(landmarks: [landmarkAt("a", lat: 0, lon: 10)])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let source = try BundledLandmarkSource(databaseURL: url)
+        for (center, span) in [(10.0, -1.0), (10.0, Double.nan), (Double.nan, 1.0)] {
+            let region = MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: 0, longitude: center),
+                span: MKCoordinateSpan(latitudeDelta: 1.0, longitudeDelta: span)
+            )
+            XCTAssertTrue(source.landmarks(in: region).isEmpty)
+        }
+    }
+
     // MARK: - Result cap
 
     func testBundledSourceRespectsLimit() throws {
