@@ -46,6 +46,7 @@ final class BundledLandmarkSource: LandmarkDataProviding {
         let minLat = region.center.latitude  - region.span.latitudeDelta  / 2
         let maxLat = region.center.latitude  + region.span.latitudeDelta  / 2
         let lonRanges = Self.longitudeRanges(in: region)
+        guard !lonRanges.isEmpty else { return [] }
 
         // Join against the R-tree for fast bounding-box filtering.
         //
@@ -104,11 +105,13 @@ final class BundledLandmarkSource: LandmarkDataProviding {
     }
 
     /// The region's longitude interval in stored (-180...180) coordinates. A region that
-    /// crosses the antimeridian yields two ranges, one on each side of ±180°.
+    /// crosses the antimeridian yields two ranges, one on each side of ±180°. A negative or
+    /// non-finite span, or a non-finite centre, yields no ranges.
     static func longitudeRanges(in region: MKCoordinateRegion) -> [ClosedRange<Double>] {
         let halfSpan = region.span.longitudeDelta / 2
-        guard halfSpan < 180 else { return [-180.0...180.0] }
         let center = remainder(region.center.longitude, 360)   // -180...180
+        guard halfSpan.isFinite, halfSpan >= 0, center.isFinite else { return [] }
+        guard halfSpan < 180 else { return [-180.0...180.0] }
         let minLon = center - halfSpan
         let maxLon = center + halfSpan
         if minLon < -180 {

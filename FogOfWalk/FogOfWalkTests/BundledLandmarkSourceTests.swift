@@ -294,6 +294,56 @@ final class BundledLandmarkSourceTests: XCTestCase {
         XCTAssertTrue(ids.contains { $0.hasPrefix("E") }, "Wrapped side must contribute rows")
     }
 
+    // MARK: - longitudeRanges
+
+    private func ranges(center: Double, span: Double) -> [ClosedRange<Double>] {
+        BundledLandmarkSource.longitudeRanges(in: MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 0, longitude: center),
+            span: MKCoordinateSpan(latitudeDelta: 1.0, longitudeDelta: span)
+        ))
+    }
+
+    func testLongitudeRangesNormalizesCentreOutsideStoredRange() {
+        // 540 is the antimeridian; -181 is 179.
+        XCTAssertEqual(ranges(center: 540, span: 1), [179.5...180.0, -180.0...(-179.5)])
+        XCTAssertEqual(ranges(center: -181, span: 1), [178.5...179.5])
+    }
+
+    func testLongitudeRangesWholeWorldForHalfSpanOf180OrMore() {
+        XCTAssertEqual(ranges(center: 10, span: 360), [-180.0...180.0])
+        XCTAssertEqual(ranges(center: 10, span: 400), [-180.0...180.0])
+    }
+
+    func testLongitudeRangesSpanExactlyReachingAntimeridianIsOneRange() {
+        XCTAssertEqual(ranges(center: 179.5, span: 1), [179.0...180.0])
+        XCTAssertEqual(ranges(center: -179.5, span: 1), [-180.0...(-179.0)])
+    }
+
+    func testLongitudeRangesZeroSpan() {
+        XCTAssertEqual(ranges(center: 12.5, span: 0), [12.5...12.5])
+    }
+
+    func testLongitudeRangesInvalidInputYieldsNoRanges() {
+        XCTAssertEqual(ranges(center: 10, span: -1), [])
+        XCTAssertEqual(ranges(center: 10, span: .nan), [])
+        XCTAssertEqual(ranges(center: 10, span: .infinity), [])
+        XCTAssertEqual(ranges(center: .nan, span: 1), [])
+        XCTAssertEqual(ranges(center: .infinity, span: 1), [])
+    }
+
+    func testInvalidRegionReturnsNoLandmarks() throws {
+        let url = try makeTestDatabase(landmarks: [landmarkAt("a", lat: 0, lon: 10)])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let source = try BundledLandmarkSource(databaseURL: url)
+        for (center, span) in [(10.0, -1.0), (10.0, Double.nan), (Double.nan, 1.0)] {
+            let region = MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: 0, longitude: center),
+                span: MKCoordinateSpan(latitudeDelta: 1.0, longitudeDelta: span)
+            )
+            XCTAssertTrue(source.landmarks(in: region).isEmpty)
+        }
+    }
+
     // MARK: - Result cap
 
     func testBundledSourceRespectsLimit() throws {
