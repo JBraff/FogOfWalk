@@ -365,6 +365,32 @@ final class LandmarkStoreTests: XCTestCase {
 
     // MARK: - landmarks(in:)
 
+    func testQueriedAntimeridianLandmarksRemainVisibleAndBuffered() async throws {
+        try await MainActor.run {
+            for direction in [1.0, -1.0] {
+                let store = LandmarkStore(container: makeInMemoryContainer(), defaults: nil)
+                let url = try makeTestDatabase(landmarks: [
+                    ("Q1", "Near side", nil, 0, direction * 179.98, "landmark", nil),
+                    ("Q2", "Wrapped visible", nil, 0, direction * -179.98, "landmark", nil),
+                    ("Q3", "Wrapped buffer", nil, 0, direction * -179.90, "landmark", nil),
+                    ("Q4", "Outside buffer", nil, 0, direction * -179.70, "landmark", nil),
+                ])
+                defer { try? FileManager.default.removeItem(at: url) }
+                let source = try BundledLandmarkSource(databaseURL: url)
+                let center = CLLocationCoordinate2D(latitude: 0, longitude: direction * 179.95)
+                let region = MKCoordinateRegion(center: center,
+                    span: MKCoordinateSpan(latitudeDelta: 0.2, longitudeDelta: 0.2))
+                let bufferedRegion = MKCoordinateRegion(center: center,
+                    span: MKCoordinateSpan(latitudeDelta: 0.4, longitudeDelta: 0.4))
+                store.addLandmarks(source.landmarks(in: bufferedRegion), visitedCells: [])
+                XCTAssertEqual(Set(store.landmarks(in: region).compactMap { $0.identifier }), ["Q1", "Q2"])
+                XCTAssertEqual(Set(store.landmarksForDisplay(in: region).compactMap { $0.identifier }),
+                               ["Q1", "Q2", "Q3"])
+                XCTAssertEqual(store.landmarks(in: region, limit: 1).count, 1)
+            }
+        }
+    }
+
     func testLandmarksInRegionFiltersCorrectly() async {
         await MainActor.run {
             let store = makeStore()

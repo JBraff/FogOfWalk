@@ -251,6 +251,8 @@ Generation advances on landmark context changes and cache reloads.
   (re-measure density before raising the span). `LandmarkStore.maxRenderedPins` = 300.
 - A region crossing ±180° queries two longitude ranges in one statement, so rows stay unique
   and `LIMIT 500` caps the merged result.
+  Visible and buffered pin selection use wrapped longitude deltas so the returned
+  landmarks on the far side remain eligible for display.
 - `showLandmarks` is **off by default**. Discovery always runs, and only pin display is gated
   (`Coordinator.refreshLandmarks`). Check the toggle before suspecting a discovery bug.
 - If `landmarks.sqlite` is missing or unreadable, `LandmarkSearchService.bundledSource()` logs one
