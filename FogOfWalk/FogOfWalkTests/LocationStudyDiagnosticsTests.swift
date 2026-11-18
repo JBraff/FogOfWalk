@@ -52,6 +52,7 @@ final class LocationStudyDiagnosticsTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         try await MainActor.run {
             let defaults = UserDefaults(suiteName: defaultsSuite)!
+            defer { defaults.removePersistentDomain(forName: defaultsSuite) }
             let diagnostics = LocationStudyDiagnostics(
                 isStudyApp: true, directoryURL: directory, defaults: defaults
             )
@@ -92,6 +93,32 @@ final class LocationStudyDiagnosticsTests: XCTestCase {
         }
     }
 
+    private typealias Key = LocationStudyDiagnostics.DefaultsKey
+
+    /// Runs `body` on the main actor with a fresh Study directory and defaults suite.
+    private func withStudyFixture(
+        _ body: @MainActor (URL, UserDefaults) throws -> Void
+    ) async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fog-study-tests-\(UUID().uuidString)")
+        let suite = "fog-study-tests-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await MainActor.run {
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            try body(directory, defaults)
+        }
+    }
+
+    /// Writes a capture file whose modification date is past the retention limit.
+    private func writeExpiredCapture(in directory: URL, modified: Date) throws -> URL {
+        let file = directory.appendingPathComponent("location-expired.jsonl")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("{}\n".utf8).write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: file.path)
+        return file
+    }
+
     func testExpiredActiveCaptureClearsSavedStateAndCanStartAgain() async throws {
         try await checkMissingCapture(expired: true, active: true)
     }
@@ -100,65 +127,82 @@ final class LocationStudyDiagnosticsTests: XCTestCase {
         try await checkMissingCapture(expired: false, active: true)
     }
 
-    func testMissingCompletedCaptureClearsSavedStateAndCanStartAgain() async throws {
+    func testMissingCompletedCaptureClearsSavedStateQuietly() async throws {
         try await checkMissingCapture(expired: false, active: false)
     }
 
+    func testExpiredCompletedCaptureClearsSavedStateQuietly() async throws {
+        try await checkMissingCapture(expired: true, active: false)
+    }
+
     private func checkMissingCapture(expired: Bool, active: Bool) async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("fog-study-tests-\(UUID().uuidString)")
-        let suite = "fog-study-tests-\(UUID().uuidString)"
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try await MainActor.run {
-            let defaults = UserDefaults(suiteName: suite)!
-            defer { defaults.removePersistentDomain(forName: suite) }
-            let file = directory.appendingPathComponent("location-expired.jsonl")
+        try await withStudyFixture { directory, defaults in
             let start = Date().addingTimeInterval(-8 * 86_400)
-            defaults.set(file.lastPathComponent, forKey: "locationStudy.fileName")
-            defaults.set(start, forKey: "locationStudy.startedAt")
-            defaults.set(start.addingTimeInterval(60), forKey: "locationStudy.endedAt")
-            defaults.set(active, forKey: "locationStudy.active")
-            if expired {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                try Data("{}\n".utf8).write(to: file)
-                try FileManager.default.setAttributes([.modificationDate: start], ofItemAtPath: file.path)
-            }
+            let file = expired
+                ? try writeExpiredCapture(in: directory, modified: start)
+                : directory.appendingPathComponent("location-expired.jsonl")
+            defaults.set(file.lastPathComponent, forKey: Key.fileName)
+            defaults.set(start, forKey: Key.startedAt)
+            defaults.set(start.addingTimeInterval(60), forKey: Key.endedAt)
+            defaults.set(active, forKey: Key.active)
 
             let diagnostics = LocationStudyDiagnostics(
                 isStudyApp: true, directoryURL: directory, defaults: defaults
             )
             XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
             XCTAssertFalse(diagnostics.isCapturing)
-            XCTAssertFalse(defaults.bool(forKey: "locationStudy.active"))
-            for key in ["fileName", "startedAt", "endedAt"] {
-                XCTAssertNil(defaults.object(forKey: "locationStudy.\(key)"))
+            XCTAssertFalse(defaults.bool(forKey: Key.active))
+            for key in [Key.fileName, Key.startedAt, Key.endedAt] {
+                XCTAssertNil(defaults.object(forKey: key))
             }
             XCTAssertNil(diagnostics.currentFileURL)
             XCTAssertNil(diagnostics.captureStartedAt)
             XCTAssertNil(diagnostics.captureEndedAt)
-            XCTAssertTrue(diagnostics.lastError?.contains("expired or is missing") == true)
+            if active {
+                XCTAssertTrue(diagnostics.lastError?.contains("expired or is missing") == true)
+            } else {
+                XCTAssertNil(diagnostics.lastError)
+            }
 
-            // A later relaunch must not keep rediscovering stale metadata.
+            // A later relaunch must not rediscover stale metadata, and can start afresh.
             let relaunched = LocationStudyDiagnostics(
                 isStudyApp: true, directoryURL: directory, defaults: defaults
             )
             XCTAssertNil(relaunched.lastError)
-            try diagnostics.startCapture()
-            XCTAssertTrue(diagnostics.isCapturing)
+            XCTAssertFalse(relaunched.isCapturing)
+            XCTAssertNil(relaunched.currentFileURL)
+            XCTAssertNil(relaunched.captureStartedAt)
+            XCTAssertNil(relaunched.captureEndedAt)
+            try relaunched.startCapture()
+            XCTAssertTrue(relaunched.isCapturing)
+            let newFile = try XCTUnwrap(relaunched.currentFileURL)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: newFile.path))
+            XCTAssertEqual(defaults.string(forKey: Key.fileName), newFile.lastPathComponent)
+            XCTAssertTrue(defaults.bool(forKey: Key.active))
+            relaunched.stopCapture()
+        }
+    }
+
+    func testFailedStartReplacesMissingCaptureNotice() async throws {
+        try await withStudyFixture { directory, defaults in
+            defaults.set("location-gone.jsonl", forKey: Key.fileName)
+            defaults.set(true, forKey: Key.active)
+            let diagnostics = LocationStudyDiagnostics(
+                isStudyApp: true, directoryURL: directory, defaults: defaults
+            )
+            XCTAssertNotNil(diagnostics.lastError)
+            // A file where the directory should be makes startCapture throw.
+            try FileManager.default.removeItem(at: directory)
+            try Data().write(to: directory)
+            XCTAssertThrowsError(try diagnostics.startCapture())
+            // Settings prefers lastError, so the stale notice must not hide the failure.
             XCTAssertNil(diagnostics.lastError)
-            XCTAssertNotEqual(diagnostics.currentFileURL, file)
-            diagnostics.stopCapture()
+            XCTAssertFalse(diagnostics.isCapturing)
         }
     }
 
     func testFreshActiveCaptureResumesOnRelaunch() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("fog-study-tests-\(UUID().uuidString)")
-        let suite = "fog-study-tests-\(UUID().uuidString)"
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try await MainActor.run {
-            let defaults = UserDefaults(suiteName: suite)!
-            defer { defaults.removePersistentDomain(forName: suite) }
+        try await withStudyFixture { directory, defaults in
             let start = Date()
             let original = LocationStudyDiagnostics(
                 isStudyApp: true, directoryURL: directory, defaults: defaults
@@ -166,8 +210,8 @@ final class LocationStudyDiagnosticsTests: XCTestCase {
             try original.startCapture(at: start)
             original.stopCapture()
             // Model the saved state left by a process exiting during capture.
-            defaults.set(true, forKey: "locationStudy.active")
-            defaults.removeObject(forKey: "locationStudy.endedAt")
+            defaults.set(true, forKey: Key.active)
+            defaults.removeObject(forKey: Key.endedAt)
             let resumed = LocationStudyDiagnostics(
                 isStudyApp: true, directoryURL: directory, defaults: defaults
             )
@@ -183,21 +227,12 @@ final class LocationStudyDiagnosticsTests: XCTestCase {
     }
 
     func testNormalAppDoesNotCleanUpOrResumeSavedStudyCapture() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("fog-study-tests-\(UUID().uuidString)")
-        let suite = "fog-study-tests-\(UUID().uuidString)"
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try await MainActor.run {
-            let defaults = UserDefaults(suiteName: suite)!
-            defer { defaults.removePersistentDomain(forName: suite) }
-            let file = directory.appendingPathComponent("location-expired.jsonl")
+        try await withStudyFixture { directory, defaults in
             let start = Date().addingTimeInterval(-8 * 86_400)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try Data("{}\n".utf8).write(to: file)
-            try FileManager.default.setAttributes([.modificationDate: start], ofItemAtPath: file.path)
-            defaults.set(file.lastPathComponent, forKey: "locationStudy.fileName")
-            defaults.set(start, forKey: "locationStudy.startedAt")
-            defaults.set(true, forKey: "locationStudy.active")
+            let file = try writeExpiredCapture(in: directory, modified: start)
+            defaults.set(file.lastPathComponent, forKey: Key.fileName)
+            defaults.set(start, forKey: Key.startedAt)
+            defaults.set(true, forKey: Key.active)
 
             let diagnostics = LocationStudyDiagnostics(
                 isStudyApp: false, directoryURL: directory, defaults: defaults
@@ -205,9 +240,9 @@ final class LocationStudyDiagnosticsTests: XCTestCase {
             XCTAssertFalse(diagnostics.isCapturing)
             XCTAssertNil(diagnostics.currentFileURL)
             XCTAssertNil(diagnostics.lastError)
-            XCTAssertTrue(defaults.bool(forKey: "locationStudy.active"))
-            XCTAssertEqual(defaults.string(forKey: "locationStudy.fileName"), file.lastPathComponent)
-            XCTAssertEqual(defaults.object(forKey: "locationStudy.startedAt") as? Date, start)
+            XCTAssertTrue(defaults.bool(forKey: Key.active))
+            XCTAssertEqual(defaults.string(forKey: Key.fileName), file.lastPathComponent)
+            XCTAssertEqual(defaults.object(forKey: Key.startedAt) as? Date, start)
             XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
         }
     }

@@ -84,8 +84,9 @@ overrides are in [`SETUP.md`](../SETUP.md) section 3.
 
 Study diagnostic files retain their seven-day limit, including an active capture
 left idle across launches. If the saved capture file has expired or was removed,
-launch clears its active flag, file reference and timestamps and shows a notice in
-Location Study. A new capture can be started normally; missing captures cannot be
+launch clears its active flag, file reference and timestamps. Location Study shows
+a notice only when that capture was still running; a finished capture expiring is
+silent. A new capture can be started normally; missing captures cannot be
 exported or used for a motion-history query. Normal Fog does not perform this cleanup.
 
 ### Data flow
