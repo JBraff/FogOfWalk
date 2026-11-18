@@ -143,6 +143,15 @@ final class LocationStudyDiagnostics: LocationDiagnosticRecording {
                         defaults.set(false, forKey: "locationStudy.active")
                     }
                 }
+            } else {
+                // Retention cleanup can remove the saved capture before resume.
+                // Clear its metadata too, so subsequent launches and motion queries
+                // cannot treat a missing file as a usable capture.
+                defaults.set(false, forKey: "locationStudy.active")
+                defaults.removeObject(forKey: "locationStudy.fileName")
+                defaults.removeObject(forKey: "locationStudy.startedAt")
+                defaults.removeObject(forKey: "locationStudy.endedAt")
+                lastError = "The previous diagnostic capture expired or is missing. Start a new capture to record diagnostics."
             }
         }
     }
