@@ -390,9 +390,13 @@ in commit 938ef32, so ignore older docs that describe it.
   cluster for the same area instead of adding one.
 - **Geocoding:** the launch backfill groups untagged cells into
   `LocalityGeocoder.backfillClusterDegrees` (0.01°, ~1.1 km) clusters and writes one placemark's
-  names into every nil field in the cluster. Walked cells use the same clusters: the first
-  successful answer for a cluster is kept for the launch and reused without a network request,
-  so a walk makes about one request per kilometre rather than one per 50 m cell. Failed
+  names into every nil field in the cluster. Walked cells use
+  `LocalityGeocoder.walkedClusterDegrees` (500 / `GridMath.metersPerDegree`), about
+  500 m north-south and narrower east-west away from the equator. Their first successful
+  answer per cluster is kept for the launch and reused without a network request.
+  Cache keys include the cluster size, so a coarse backfill answer cannot supply a
+  smaller walked area. This reduces requests compared with one per 50 m cell while
+  limiting label sharing across town boundaries; boundaries can still cross a bucket. Failed
   lookups are not kept. Missing countries remain retryable on later
   launches; legacy empty/"Unknown" countries are also retried and replaced only with a
   known country. Known countries are preserved. Missing state/locality still use the

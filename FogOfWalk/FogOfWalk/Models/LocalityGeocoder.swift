@@ -31,10 +31,13 @@ final class LocalityGeocoder {
     private struct BucketKey: Hashable {
         let lat: Int
         let lon: Int
+        // Walk and backfill buckets use different sizes; equal indices must not share labels.
+        let clusterDegrees: Double
 
-        init(_ coord: CLLocationCoordinate2D) {
-            lat = Int(floor(coord.latitude / LocalityGeocoder.backfillClusterDegrees))
-            lon = Int(floor(coord.longitude / LocalityGeocoder.backfillClusterDegrees))
+        init(_ coord: CLLocationCoordinate2D, clusterDegrees: Double) {
+            lat = Int(floor(coord.latitude / clusterDegrees))
+            lon = Int(floor(coord.longitude / clusterDegrees))
+            self.clusterDegrees = clusterDegrees
         }
     }
 
@@ -61,7 +64,11 @@ final class LocalityGeocoder {
     /// newest backfill cluster; only a queue full of walked cells drops new ones.
     static let maxQueueSize = 200
 
-    /// Cluster size in degrees (~1.1 km of latitude), for the backfill and for walked cells.
+    /// Walked cells share labels over about 500 m north-south, narrower east-west away
+    /// from the equator, matching the exploration grid's degree-based geometry.
+    static let walkedClusterDegrees = 500 / GridMath.metersPerDegree
+
+    /// Backfill cluster size in degrees (~1.1 km of latitude), kept larger to bound requests.
     /// Every untagged cell in a cluster receives the representative cell's placemark, so this
     /// must stay well below town scale:
     /// at 0.5° (~55 km) a whole region was labelled with one town's name. Clusters beyond
@@ -94,7 +101,7 @@ final class LocalityGeocoder {
         guard cell.locality == nil || Self.resolvedCountry(cell.country) == nil else { return }
         guard let ctx = cell.managedObjectContext else { return }
         let coord = GridMath.center(for: CellID(x: cell.cellX, y: cell.cellY))
-        let bucket = BucketKey(coord)
+        let bucket = BucketKey(coord, clusterDegrees: Self.walkedClusterDegrees)
         if let waiting = queue.firstIndex(where: {
             !$0.isBackfill && $0.bucket == bucket && $0.context === ctx
         }) {
@@ -123,11 +130,11 @@ final class LocalityGeocoder {
         )
         guard let cells = try? context.fetch(request), !cells.isEmpty else { return }
 
-        // Group nearby cells to limit CLGeocoder requests without crossing town boundaries.
+        // Group nearby cells to limit CLGeocoder requests; a bucket can cross a town boundary.
         var buckets: [BucketKey: [VisitedCell]] = [:]
         for cell in cells {
             let coord = GridMath.center(for: CellID(x: cell.cellX, y: cell.cellY))
-            buckets[BucketKey(coord), default: []].append(cell)
+            buckets[BucketKey(coord, clusterDegrees: Self.backfillClusterDegrees), default: []].append(cell)
         }
 
         for (key, group) in buckets {

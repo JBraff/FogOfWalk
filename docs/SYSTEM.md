@@ -43,10 +43,11 @@ which draws the overlay on MapKit's background rendering threads.
   failed inserts reset the identifier cache, leave their areas retryable, and are
   logged as `landmark_ingest_failed` in a Study capture.
 - `LocalityGeocoder` annotates visited cells with locality, state, and country
-  for the statistics sheet. Cells within about 1 km share one lookup per launch,
-  so a walk does not make a network request per cell. Newly walked cells are
-  geocoded ahead of the launch
-  backfill of older untagged cells. Country statistics exclude unresolved labels without
+  for the statistics sheet. Newly walked cells share one lookup per launch in
+  roughly 500 m degree-based areas (500 m north-south, narrower east-west away from
+  the equator), so a walk does not make a network request per cell. They are geocoded
+  ahead of the launch backfill of older untagged cells, which retains its larger
+  0.01° (~1.1 km north-south) areas and a separate label cache. Country statistics exclude unresolved labels without
   removing visits from exploration totals. Missing countries (including legacy empty or
   "Unknown" labels) are retried by the bounded backfill on later launches and replaced
   only when a country is returned; existing known labels are preserved.
