@@ -3,12 +3,14 @@
 > Scope update, 2026-10-15: this document retains the earlier measurement procedure and its original evidence limits. Follow [Automatic stationary pause and walking resume](../proposals/2026-10-15-automatic-stationary-pause-and-resume.md) for current delivery. The long comparison/qualification gates and old next-test instructions below are historical, not prerequisites for the focused prototype and idle-to-walk check. Manual tracking OFF is not an automatic-resume candidate.
 
 
-**Status:** Study build 3's foreground profiler-targeting check Passed. Formal stationary energy qualification awaits locked-screen measurement readiness and attribution; walking-reference qualification remains unresolved. No formal baseline result is recorded here.
-**Study phone:** iPhone 15 Pro Max; record the exact iOS build on each trial.
-**Next preparation:** Study build 4 adds the internal stationary OFF control.
+**Historical findings:** Foreground profiler target/data availability was verified.
+Formal stationary energy, consumer attribution and walking-reference qualification
+were not established. No formal baseline result is recorded here.
+**Private trial metadata:** Record device model and exact OS/app build locally.
+**Historical control:** Study build 4 added the internal stationary OFF control.
 Follow the [control qualification and comparison protocol](location-energy-tracking-control-protocol.md).
-Study 1.0/build 4 is now installed and launched on the physical phone through
-the paired Wi-Fi connection. Physical OFF/sleep qualification remains pending.
+Physical installation does not establish OFF resource behavior or sleep
+qualification; see the [technical findings](location-energy-diagnostics-verification.md).
 **Authority:** [Location Energy and Reliable Resume](../proposals/2026-10-09-location-energy-and-reliability.md). If this sheet changes after candidate results are seen, record the revision and repeat affected pairs.
 
 ## Diagnostic contract
@@ -48,16 +50,11 @@ PRODUCT_NAME=Fog-Walk-Study
 CURRENT_PROJECT_VERSION=3
 ```
 
-The current study build is version 1.0/build 3. Its invocation-only product name
-gives it the distinct `Fog-Walk-Study` bundle/executable name; the normal product
-and checked-in project defaults remain unchanged, and the Swift module remains
-`FogOfWalk`. Build 2 shared the normal executable name, and the owner observed
-coupled profiler app switches. Build 3 is installed with the same study bundle ID
-and preserved container. The owner reports the updated profiler selection works
-after checking Study on with normal Fog off. This is owner-reported UI evidence;
-the brief foreground preflight now verifies the distinct Study target and
-nonzero app work. This passes foreground instrumentation only. Finish sleep/wake
-and background-consumer readiness before another long run.
+These are historical build-3 packaging overrides; use the actual tested build
+number when applying the procedure. A distinct `Fog-Walk-Study` product/executable
+name avoids the shared-name profiler-target ambiguity while the Swift module
+remains `FogOfWalk`. Foreground target/data availability was verified; this does
+not qualify sleep/wake evidence or background-consumer attribution.
 Use the [locked-screen readiness procedure](location-energy-locked-screen-readiness.md)
 for the specific remaining check; the passed foreground preflight need not be
 repeated. Stop Diagnostic Capture ends logging, not tracking. Set Study location
@@ -71,8 +68,8 @@ Before the first formal run, verify the diagnostic export contains a batch, ever
 
 ## Motion-reference pilot
 
-The build-2 reporting check passed, but its timer/capture alignment and mapped
-distance remain unqualified. Follow the
+Capture-origin motion reporting was verified, but independent timing and
+early-distance uncertainty remain unqualified. Follow the
 [reference qualification addendum](location-energy-reference-qualification.md)
 before another pilot: select the actual measured-distance method, record Start
 and Stop stopwatch brackets, and treat return separately from capture Stop.
@@ -84,11 +81,16 @@ observation, clock, or early-distance error bounds.
 3. Stop capture and run **Query Motion History for Last Capture**. Compare the activity transition with the noted start time and compare pedometer distance with the marked route. Quantify onset resolution and distance error; report an interval or bound, not just a point estimate.
 4. Repeat if the first query is unavailable or ambiguous. If the uncertainty could straddle the 100 m departure threshold, formal departure trials are inconclusive until the reference method improves. Never use the location stream under evaluation to infer walking onset.
 
-The pilot's manually noted start and marked distance are approximate. Keep route maps, logs, and motion JSON private. Record only redacted uncertainty and feasibility conclusions in the repository.
+Keep route maps, logs, motion JSON and participant-linked measurements private.
+Publish only the reference method, technical feasibility conclusions and evidence
+limits; redacting coordinates alone does not make personal trial records public.
 
 ## Fixed formal trial sheet
 
-Make one local row per run, grouped by pair ID, and preserve the original rows when repeating an invalid pair. Record these fields before analyzing a candidate:
+Make one private local row per run, grouped by pair ID, and preserve original
+rows when repeating an invalid pair. This is a blank method/template, not a public
+results table. Never commit populated rows. Record these fields before analyzing
+a candidate:
 
 | Group | Fields |
 |---|---|
@@ -131,10 +133,9 @@ If alignment or coverage cannot be established, retain the run as inconclusive
 and improve the measurement before interpreting a primary rate. Scene-phase
 events are app lifecycle observations, not exact physical screen-lock timestamps.
 
-The short stationary timing rehearsal verified boundary logging, not stopwatch
-calibration or fresh location delivery. Another short stopwatch rehearsal is
-unnecessary for this stationary energy recording. Walking-reference qualification
-remains separate; no departure is scored from stationary timing or callback silence.
+Boundary/lifecycle logging does not calibrate an independent stopwatch or prove
+fresh location delivery. Walking-reference qualification remains separate; no
+departure is scored from stationary timing or callback silence.
 
 On-device setup follows Apple's
 [Power Profiler instructions](https://developer.apple.com/documentation/xcode/measuring-your-app-s-power-use-with-power-profiler):

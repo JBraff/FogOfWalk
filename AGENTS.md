@@ -64,6 +64,12 @@ context starts at `docs/README.md` and `docs/SYSTEM.md`.
   shadow-only. The live source has its own freshness filter.
 - Diagnostic logs and motion files hold precise locations. They stay in the Study app's
   container (excluded from backup, 7-day retention, 16 MiB cap). Never commit them or raw traces.
+- This repository is public. Study evidence must contain only technical findings,
+  methods, software test results and explicit evidence limits. Keep personal trial narratives, participant-linked
+  step/distance/timing or battery measurements, device inventories, connection history and
+  setup anecdotes private, even when coordinates and identifiers have been removed. Use
+  clearly synthetic examples when an illustration is needed. Apply this rule to docs,
+  commit messages, PRs and issues as well as code and fixtures.
 - Lifecycle and next actions for this work live in the workspace initiative
   `fog-adaptive-location-tracking`. Physical installs and phone trials are owner-coordinated;
   follow `docs/evidence/automatic-pause-resume-prototype.md`, and never uninstall the Study app

@@ -83,19 +83,14 @@ app's packaging defaults were not changed. Existing actor-isolation warnings in
 unrelated files remain. Private build logs and `.xcresult` evidence are retained
 outside Git.
 
-## Installation and one focused trial
+## Installation method and focused trial
 
 Install over the existing Study identity; do not uninstall or reset its data.
 Before updating, verify capture is inactive and privately copy Application Support
 and preferences. Verify preserved files/preferences before first launch, installed
-build metadata and debugger-free launch. The first probe found the phone unavailable. After the owner readied the phone,
-CoreDevice installed build 5 over build 4 successfully. Before first launch all
-17 original Application Support files were byte-identical and every original
-preference was preserved; capture was inactive, tracking OFF was false and the
-source default remained Legacy. Installed metadata confirms Study 1.0/build 5;
-normal Fog remains 1.0/build 11. The remote debugger-free launch attempt was
-refused because the phone had locked. Manual opening/setup and the physical trial
-remain pending; no automatic pause/resume or battery result is claimed.
+build metadata and debugger-free launch. An in-place build-5 update verified
+preservation of existing app data and preferences. Installation does not establish
+physical automatic pause/resume; that feasibility result remains pending.
 
 1. In Study Settings, select **Automatic pause/resume** and leave **Tracking off**
    unchecked. Verify Always permission and receipt of a fresh setup location.

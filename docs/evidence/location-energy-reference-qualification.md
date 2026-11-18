@@ -1,4 +1,4 @@
-# Departure reference qualification after the build-2 pilot
+# Departure reference qualification method
 
 > Scope update, 2026-10-15: this document preserves earlier measurement preparation and observations. Current delivery follows [Automatic stationary pause and walking resume](../proposals/2026-10-15-automatic-stationary-pause-and-resume.md): a minimal Study-only prototype and one focused locked-screen idle-to-walk check. Old next-test directions, formal energy qualification and repetition requirements below are historical, not prototype prerequisites. Manual OFF/sleep evidence does not establish automatic pause/resume.
 
@@ -9,28 +9,19 @@
 and [baseline protocol](location-energy-baseline-protocol.md). This addendum does
 not change the 100 m gate, select a candidate, or authorize a passing trial.
 
-## What the existing pilot establishes
+## Technical findings from reporting checks
 
-The [physical verification record](location-energy-diagnostics-verification.md)
-establishes capture-origin reporting on build 2: 587 steps, 385.8 estimated
-metres, 92 endpoints, and pre-classification counts retained. It establishes
-correct legacy forwarding of 22 fresh, shadow-accepted samples. It does not
-establish the distance walked from departure through first accepted receipt.
+The [technical verification](location-energy-diagnostics-verification.md)
+establishes capture-origin motion reporting, retention of pre-classification
+movement, and original-last-sample legacy forwarding. It does not establish the
+distance travelled from physical departure through first accepted receipt.
 
-The reported stopwatch readings were 10:18 at departure and 15:35 at finish;
-their difference, 5:17, is owner-reported. The capture lasted 928.6 seconds,
-6.4 seconds less than the reported timer total. Neither the timer's capture-start
-reading nor its return/Stop relation was recorded. This discrepancy does not
-identify an offset or prove a clock defect. The earlier minute-level departure
-estimate is superseded for scoring purposes. A guessed five-second alignment,
-walking classification, or the location samples cannot recover the missing anchor.
-
-The approximately 400 m map estimate and 385.8 m pedometer total differ by about
-3.5%. That agreement does not bound either measurement, and the earlier loop's
-12.5% disagreement does not calibrate this route. Whole-route agreement cannot
-establish error in the first 100 m, exclude compensating errors, or assign phone
-handling steps to the walk. Retain both pilots as reporting/feasibility evidence;
-do not rescore either as a formal departure pass or failure.
+Independent timer/capture anchors and bounded early-route measurements were not
+qualified. Walking classification, location samples under evaluation and guessed
+clock alignment cannot recover a missing independent anchor. Whole-route map or
+pedometer agreement cannot bound early-distance error or attribute handling steps.
+Keep reporting feasibility separate from a formal departure pass or failure.
+Personal trial measurements and narratives remain outside the public record.
 
 ## Recorded timing anchor
 
@@ -216,8 +207,7 @@ intervals under an explicitly stated stable-clock assumption, once the available
 route/tool and that limited purpose are agreed. Unsupported clock or distance
 allowances remain unqualified; such a pilot cannot pass the formal gate or qualify
 long idle. Retain measured-route uncertainty evidence and obtain the post-pilot
-gate review before formal scoring. A procedure review is not physical qualification. The study
-build was version 1.0/build 2 when this reference procedure was prepared. The
-current installed build is 1.0/build 3, with distinct Study packaging and the
-same capture-origin motion behavior; use its current build metadata for future
-trials. Legacy tracking remains unchanged, and this procedure needs no reinstall.
+gate review before formal scoring. A procedure review is not physical qualification.
+Use the actual tested build metadata and capture-origin motion behavior for any
+application of this historical procedure. Record participant/device details
+privately; public evidence should retain methods, conclusions and limits only.
