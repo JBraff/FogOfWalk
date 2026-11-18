@@ -55,6 +55,13 @@ final class LocationStudyDiagnostics: LocationDiagnosticRecording {
     static let maxBytes = 16 * 1_024 * 1_024
     static let retentionDays = 7
 
+    enum DefaultsKey {
+        static let fileName = "locationStudy.fileName"
+        static let startedAt = "locationStudy.startedAt"
+        static let endedAt = "locationStudy.endedAt"
+        static let active = "locationStudy.active"
+    }
+
     struct Event: Codable {
         let kind: String
         let recordedAt: Date
@@ -123,13 +130,13 @@ final class LocationStudyDiagnostics: LocationDiagnosticRecording {
         guard self.isStudyApp else { return }
         try? prepareDirectory()
         removeExpiredFiles()
-        if let name = defaults.string(forKey: "locationStudy.fileName") {
+        if let name = defaults.string(forKey: DefaultsKey.fileName) {
             let url = self.directoryURL.appendingPathComponent(name)
             if FileManager.default.fileExists(atPath: url.path) {
                 currentFileURL = url
-                captureStartedAt = defaults.object(forKey: "locationStudy.startedAt") as? Date
-                captureEndedAt = defaults.object(forKey: "locationStudy.endedAt") as? Date
-                if defaults.bool(forKey: "locationStudy.active") {
+                captureStartedAt = defaults.object(forKey: DefaultsKey.startedAt) as? Date
+                captureEndedAt = defaults.object(forKey: DefaultsKey.endedAt) as? Date
+                if defaults.bool(forKey: DefaultsKey.active) {
                     do {
                         let fileHandle = try FileHandle(forWritingTo: url)
                         byteCount = Int(try fileHandle.seekToEnd())
@@ -140,9 +147,20 @@ final class LocationStudyDiagnostics: LocationDiagnosticRecording {
                         recordTrackingState()
                     } catch {
                         lastError = "Could not resume diagnostic capture: \(error.localizedDescription)"
-                        defaults.set(false, forKey: "locationStudy.active")
+                        defaults.set(false, forKey: DefaultsKey.active)
                     }
                 }
+            } else {
+                // Retention cleanup can remove the saved capture before resume. Forget it
+                // so later launches do not find it again. Only an interrupted capture
+                // needs a notice; a finished one expiring is the normal retention policy.
+                if defaults.bool(forKey: DefaultsKey.active) {
+                    lastError = "The previous diagnostic capture expired or is missing. Start a new capture to record diagnostics."
+                }
+                defaults.set(false, forKey: DefaultsKey.active)
+                defaults.removeObject(forKey: DefaultsKey.fileName)
+                defaults.removeObject(forKey: DefaultsKey.startedAt)
+                defaults.removeObject(forKey: DefaultsKey.endedAt)
             }
         }
     }
@@ -150,6 +168,9 @@ final class LocationStudyDiagnostics: LocationDiagnosticRecording {
     func startCapture(at date: Date = Date()) throws {
         guard isStudyApp else { throw CaptureError.notStudyApp }
         guard !isCapturing else { throw CaptureError.alreadyCapturing }
+        // Settings shows lastError before its own message, so clear an earlier
+        // notice before anything here can fail.
+        lastError = nil
         try prepareDirectory()
         let url = directoryURL.appendingPathComponent("location-\(UUID().uuidString).jsonl")
         guard FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [
@@ -163,15 +184,14 @@ final class LocationStudyDiagnostics: LocationDiagnosticRecording {
         currentFileURL = url
         captureStartedAt = date
         captureEndedAt = nil
-        lastError = nil
         byteCount = 0
         shadowLastAcceptedAt = nil
         shadowSessionStartedAt = nil
         isCapturing = true
-        defaults.set(url.lastPathComponent, forKey: "locationStudy.fileName")
-        defaults.set(date, forKey: "locationStudy.startedAt")
-        defaults.removeObject(forKey: "locationStudy.endedAt")
-        defaults.set(true, forKey: "locationStudy.active")
+        defaults.set(url.lastPathComponent, forKey: DefaultsKey.fileName)
+        defaults.set(date, forKey: DefaultsKey.startedAt)
+        defaults.removeObject(forKey: DefaultsKey.endedAt)
+        defaults.set(true, forKey: DefaultsKey.active)
         append(Event(kind: "capture_start", recordedAt: date, detail: selectedSource))
         recordTrackingState()
     }
@@ -187,8 +207,8 @@ final class LocationStudyDiagnostics: LocationDiagnosticRecording {
         handle = nil
         isCapturing = false
         captureEndedAt = date
-        defaults.set(false, forKey: "locationStudy.active")
-        defaults.set(date, forKey: "locationStudy.endedAt")
+        defaults.set(false, forKey: DefaultsKey.active)
+        defaults.set(date, forKey: DefaultsKey.endedAt)
     }
 
     func recordLifecycle(_ name: String, detail: String? = nil) {
