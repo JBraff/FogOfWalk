@@ -31,9 +31,9 @@ blockers, and next actions; it does not replace these product documents.
 - [Landmark map responsiveness: investigation and options](proposals/2026-10-28-landmark-map-responsiveness.md)
   preserves the rationale for the native MapKit annotations merged in
   [PR #11](https://github.com/JBraff/FogOfWalk/pull/11). Normal-app Release build 18
-  is installed on the owner's phone, and the owner confirmed the gesture checks passed.
+  passed the physical gesture checks.
   See the [implementation, delivery and acceptance verification](evidence/native-landmark-annotations.md)
-  for the 318-test result, installation record and owner acceptance. The [original simulator probe record](evidence/landmark-rendering-investigation.md)
+  for the 318-test result and technical acceptance findings. The [original simulator probe record](evidence/landmark-rendering-investigation.md)
   preserves reproducible touch-routing and redraw-order evidence.
 - [Navigation and Explore — simple plan](proposals/2026-10-22-navigation-explore-plan.md)
   is the owner-directed plan for map orientation, a fog peek, nearby undiscovered
@@ -51,14 +51,17 @@ blockers, and next actions; it does not replace these product documents.
   implementation planning artifacts without presenting them as current work.
 - `decisions/` will contain accepted, durable architectural decisions when a
   decision needs its own rationale and alternatives.
-- `evidence/` contains material implementation or physical-device evidence
-  when it supports a product decision, verification claim, or release outcome.
+- `evidence/` contains public technical findings, methods, software verification
+  and explicit limits supporting a product decision or release outcome. Keep
+  personal trial narratives, participant measurements, raw traces, device
+  inventories and connection/setup history private. This applies even when
+  coordinates and identifiers have been removed; use synthetic examples instead.
 
 Historical location-energy study records include the
 [baseline protocol](evidence/location-energy-baseline-protocol.md) and
-[diagnostics and physical-pilot verification](evidence/location-energy-diagnostics-verification.md).
+[diagnostics and instrumentation findings](evidence/location-energy-diagnostics-verification.md).
 The [departure reference qualification procedure](evidence/location-energy-reference-qualification.md)
-defines the timing and measured-distance evidence needed after the build-2 pilot.
+defines independent timing and measured-distance evidence requirements.
 The [analysis readiness record](evidence/location-energy-analysis-readiness.md)
 documents offline trace-export checks and remaining preflight work.
 The [attribution preparation draft](evidence/location-energy-attribution-preparation.md)
@@ -70,6 +73,6 @@ The [stationary tracking-control protocol](evidence/location-energy-tracking-con
 prepares Study build 4's all-consumer OFF control and the subsequent matched
 comparison. Its first phone check qualifies the newly disabled consumers and
 sleep instrumentation before any long pair.
-These records preserve their original evidence and limits; they do not establish
+These records retain technical conclusions and evidence limits; they do not establish
 automatic pause/resume or battery savings. Their old next-test instructions do not
 override the current focused feasibility plan.

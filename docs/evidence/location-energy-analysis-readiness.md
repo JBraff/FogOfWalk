@@ -1,59 +1,33 @@
 # Location energy analysis readiness
 
-> Scope update, 2026-10-15: this document preserves earlier measurement preparation and observations. Current delivery follows [Automatic stationary pause and walking resume](../proposals/2026-10-15-automatic-stationary-pause-and-resume.md): a minimal Study-only prototype and one focused locked-screen idle-to-walk check. Old next-test directions, formal energy qualification and repetition requirements below are historical, not prototype prerequisites. Manual OFF/sleep evidence does not establish automatic pause/resume.
+> Historical measurement work: current delivery follows [Automatic stationary pause and walking resume](../proposals/2026-10-15-automatic-stationary-pause-and-resume.md). The earlier energy-comparison and reference-qualification procedures are not prerequisites for that focused prototype. Manual tracking OFF does not establish automatic pause/resume.
 
+## Verified analysis capabilities
 
-**Date:** 2026-10-12; updated 2026-10-13.
-**Scope:** Offline preparation, export verification, and subsequent trace-analysis
-readiness checks. The build-3 foreground profiler-targeting check Passed; formal
-locked-screen energy qualification and background attribution remain pending.
-The earlier preparation and subsequent results are distinguished below.
+Xcode 27 `xctrace` successfully imported private power archives into saved
+`.trace` working copies and exported their table of contents and selected data.
+Original source archives were preserved. Metadata duration and timezone-bearing
+Start/End values were checked for internal consistency; capture-to-trace mapping
+still has to be established independently for each recording.
 
-## Checks completed without another phone test
+| Table | Technical interpretation |
+| --- | --- |
+| `SystemPowerLevel` | Start, duration and `percent-per-hour` fields support interval analysis. |
+| `ProcessSubsystemPowerImpact` | Process and subsystem-impact fields require verified app identity and metric availability. |
+| `SystemThermalState` | Thermal intervals are available for control checks. |
+| `DisplayBrightnessLevel` | Display intervals help identify interruptions; darkness alone does not establish sleep. |
+| `DeviceChargingState` | An empty export does not establish an uncharged state. |
+| `SystemSleepState` | An empty export does not establish sleep or continuous wakefulness. |
 
-A read-only Luna source audit, checked by the primary agent, confirms that the
-legacy manager retains nearest-ten-metre accuracy, a 15 m filter, disabled
-automatic pausing, background updates, and significant-change recovery. Callback
-forwarding still uses only the original last sample. The capture-origin motion
-implementation and its untracked regression tests were preserved.
+Schema names, row availability and units must be inspected for the actual
+recording. Table presence in the contents is not evidence that it contains rows.
 
-`MapContainerView.makeUIView` still enables `showsUserLocation` and follow mode.
-This identifies a possible additional location consumer; source inspection
-cannot establish its background resource use or power cost. Physical inspection
-remains required. Apply any justified map change equally to both study arms and
-repeat affected baseline measurements under the proposal.
-
-The installed Xcode 27 `xctrace` CLI successfully imported the existing private
-exploratory stationary `.atrc` into a private `.trace` working copy and exported
-its table of contents and selected tables. The source trace was unchanged.
-Its 1688.056-second duration remains an exploratory, roughly 28-minute recording,
-not a protocol-qualified baseline or a recording of the current build-2 study app.
-
-The trace has timezone-bearing Start/End metadata. Their difference agrees with
-the declared duration within one millisecond. This establishes internal metadata
-consistency only; mapping a future study capture into the trace still needs
-verification against that run's actual metadata.
-
-| Exported table | Rows in this exploratory trace | Preparation finding |
-| --- | ---: | --- |
-| `SystemPowerLevel` | 1688 | Start, duration, and `percent-per-hour` fields are exportable. |
-| `ProcessSubsystemPowerImpact` | 3668 | Process and subsystem-impact fields are exportable. |
-| `SystemThermalState` | 1 | A thermal interval is exportable. |
-| `DisplayBrightnessLevel` | 17 | Display intervals are exportable. |
-| `DeviceChargingState` | 0 | No exported rows; do not infer complete uncharged-state evidence. |
-| `SystemSleepState` | 0 | No exported rows; do not infer either sleep or continuous wakefulness. |
-
-Table presence in the contents is not evidence that a table contains records.
-Inspect full Instruments tracks and available metadata when a state export is
-empty; unresolved primary-interval controls remain unqualified. No new power
-rate, attribution, or MapKit background-consumer conclusion was computed here.
-
-## Reproducible private export preparation
+## Reproducible private export
 
 Use private local paths in place of these placeholders; keep raw inputs and
 exports outside Git. Import once into a saved `.trace`, then query that same
-working copy. Do not correlate positional table indices from separate implicit
-imports of an `.atrc`; their table ordering can differ.
+working copy. Positional table indices from separate implicit archive imports
+can differ.
 
 ```sh
 xcrun xctrace import --input PRIVATE_INPUT.atrc --output PRIVATE_WORKING.trace
@@ -63,95 +37,36 @@ xcrun xctrace export --input PRIVATE_WORKING.trace \
   --output PRIVATE_POWER.xml
 ```
 
-Select the actual run number and inspect that export's schema rather than assume
-all OS/tool versions or recordings have identical tables. Resolve XML references,
-field units, interval semantics, and missing values before calculating a rate.
-No reusable rate calculator has been implemented or validated by this check.
+Select the actual run number. Resolve XML references, units, interval semantics
+and sentinel/missing values before calculating a rate. No reusable rate calculator
+was implemented or validated by this preparation.
 
-For a future stationary run, use the
-[fixed baseline origin and interval](location-energy-baseline-protocol.md):
-diagnostic Start +600 through +7200 seconds. Establish the trace time-base mapping,
-clip valid intervals to that window, verify full coverage and controls, and use
-duration-weighted rates. Do not substitute an unweighted row average, count
-callbacks as energy, or treat a whole-device rate as Fog's isolated cost. Retain
-all tracks and records for attribution and adverse-result review.
+For the historical stationary protocol, use diagnostic Start +600 through +7200
+seconds. Map the trace to that origin, clip valid intervals, check coverage and
+controls, and calculate duration-weighted rates. Report gaps without imputation;
+retain adverse and inconclusive data. An unweighted row average, callback count
+or whole-device rate does not establish Fog's isolated energy cost.
 
-## Stopped diagnostic Share/AirDrop check completed
+## Transport, matching and instrumentation findings
 
-The owner exercised Fog Walk Study > Settings > Export Location Diagnostic Log >
-AirDrop to the owner's Mac. The received file is byte-identical to the private
-copy retrieved from the phone: 821 bytes, 11 records, one Start/Stop pair, and
-369.507-second duration. This verifies complete transfer of the stopped
-stationary log through the physical Share/AirDrop flow. The raw file and name
-remain private. No new capture or walking was needed.
+The diagnostic Share/AirDrop flow passed an independent byte comparison. Motion
+Share export was exercised separately. Saved motion reports and power archives
+can belong to older captures; match recorded boundaries rather than relying on
+filenames, transfer dates or the most recent export action.
 
-Motion export is a separate preflight check and must match its report's own
-capture interval. Do not assume an older motion report belongs to the latest
-stationary log. No new Motion query is needed for the diagnostic-log Share check.
-Motion Share export remains a separate, unverified flow; it is not required for
-this diagnostic-log transport check. Log transport does not qualify stopwatch
-alignment, motion-reference uncertainty, or any energy measurement.
+Distinct Study packaging resolved foreground profiler target/data availability:
+the verified `Fog-Walk-Study` process had foreground lifecycle and available app
+work. Unknown lifecycle and sentinel metrics remain unavailable. Foreground
+success does not qualify background consumer attribution or sleep instrumentation.
+Background target/data availability was also observed, while consumer-specific
+location energy remained unresolved.
 
-The owner subsequently completed a 8407.367-second stationary capture and
-AirDropped its matched schema-2 Motion Reference, exercising Motion Share/AirDrop
-for that report. Its receipt checks and remaining energy-evidence requirements
-are recorded in the
-[diagnostics verification record](location-energy-diagnostics-verification.md).
-The two-hour baseline is not qualified merely by diagnostic duration or zero
-pedometer totals; the corresponding power trace and trial controls remain pending.
-
-The two subsequently AirDropped power archives were confirmed from recorded
-metadata to be the older 2026-10-10 exploratory traces, with durations 1688.056
-and 894.047 seconds and zero overlap with the new capture. They cannot supply its
-power data. Check whether a current Performance Trace is still active or another
-saved trace exists before deciding a new energy recording is needed.
-
-When an unused-phone window becomes available, confirm the existing battery,
-permission/isolation, settling, display/network, thermal, backfill, and Xcode-
-disconnection controls before recording. Preserve the legacy tracker until an
-attributable baseline justifies a candidate. Walking reference and formal
-departure scoring remain separate and unqualified.
-
-## Subsequent matched recording
-
-The 2026-10-13 stationary submission now includes a new power archive overlapping
-its 13057.462-second diagnostic capture and covering the fixed minute-10–120
-window. Private import, schema/reference resolution, table export and clipped
-duration-weighted inspection succeeded. The provisional whole-device mean is
-1.542%/hour over 6599.999725 valid exported seconds; sub-microsecond export gaps
-total 0.275 ms and are not imputed. Primary display brightness is zero and thermal
-state nominal. The new submission's Motion file belongs to the previous capture
-and is excluded. Full receipt findings and remaining control, app-identity,
-sleep/charging, export-gap and attribution limits are in the
-[verification record](location-energy-diagnostics-verification.md). This is not
-yet a qualified baseline or an adoption decision.
-
-## Build-3 foreground targeting readiness
-
-The completed short diagnostic and power exports establish a matching
-47.290-second capture within a 52.960-second power recording, monitored exclusively
-as the distinct `Fog-Walk-Study` executable. Foreground lifecycle and positive
-CPU/display/GPU impact and CPU instructions verify target/data availability.
-The initial lifecycle period is Unknown and sentinel metric fields remain
-unavailable. This passes foreground instrumentation only. Full aggregates and
-limits are in the [verification record](location-energy-diagnostics-verification.md).
-
-No repeat of the short check is needed. The next preparation is explicit Xcode
-disconnection, sleep/wake evidence and the background MapKit consumer audit before
-another long window. Foreground success does not repair the old long recording's
-normal-app attribution or empty sleep data. Legacy tracking is preserved.
-
-## Next locked-screen preparation
-
-The [reviewed readiness procedure](location-energy-locked-screen-readiness.md)
-provides a specific 15-minute stationary locked-screen check on installed build 3,
-with reviewed phone-side radio isolation so the development Mac stays on and
-online. Disable phone Wi-Fi/Bluetooth in Settings, hotspot off and USB unplugged;
-verify live CoreDevice unreachability before settling/capture. It preserves app
-pairing/container but changes the phone's radio configuration, which must be
-recorded separately from prior Wi-Fi-on runs. Actual setup isolation is pending.
-The source audit confirms MapKit requests user location, but actual background
-consumer activity and energy remain unverified. Use the new check for sleep/wake
-instrumentation readiness; if it lacks location-client evidence, specify the
-remaining attribution method rather than repeating the same check. No new
-physical result or long-window readiness is claimed by this preparation.
+The [technical verification](location-energy-diagnostics-verification.md)
+retains these conclusions and the manual OFF sleep finding. No formal energy
+baseline or automatic pause/resume result is established. The
+[locked-screen method](location-energy-locked-screen-readiness.md) separates
+connection isolation, sleep evidence and consumer attribution; the
+[attribution method](location-energy-attribution-preparation.md) retains the
+conditions for interpreting a comparison. Current location behavior is documented
+in [system architecture](../SYSTEM.md); source audits in the historical study do
+not override later implementation changes.

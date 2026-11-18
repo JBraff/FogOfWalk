@@ -241,24 +241,23 @@ Its tree matches independently reviewed `c10c1d1`, which passed the full serial
 Release build. A deliberate temporary parent-observation mutation failed the
 redraw regression as expected; the isolated review snapshot was restored.
 
-A signed **Release 1.0 (18)** of the normal app (`com.jeremybraff.fogofwalk`) was
-built from the merge commit and installed over normal build 17 on the owner's
-iPhone 15 Pro Max. Code-signature verification, installation and foreground launch
-succeeded. Installed-app metadata confirms normal build 18 and the separate Study
-app still at build 5. Neither app was uninstalled. The Release binary excludes the
-Debug landmark fixture's launch flag. Build 18 was supplied through
-`CURRENT_PROJECT_VERSION`; the checked-in project build number remains unchanged.
+A signed **Release 1.0 (18)** of the normal app was built from the merge commit.
+Signature verification, in-place installation and foreground launch passed.
+The Release binary excludes the Debug landmark fixture's launch flag. Build 18
+was supplied through `CURRENT_PROJECT_VERSION`; the checked-in project build
+number remains unchanged. Installation details and device inventories are private.
 
-Installation and launch alone did not establish physical gesture smoothness. The
-owner subsequently supplied the acceptance result below. Pins remain off by default;
+Installation and launch alone did not establish physical gesture smoothness.
+The acceptance result is recorded below. Pins remain off by default;
 the star/count button in the map HUD shows them.
 
-## Owner phone acceptance (2026-10-29)
+## Gesture acceptance
 
-After installing normal-app Release build 18, the owner confirmed that all requested
-phone checks passed: pan, zoom, rotation, follow mode and landmark taps worked
-smoothly without jumps. This satisfies the remaining owner acceptance criterion.
-The earlier pending-comparison statements above preserve the software review history.
+Normal-app Release build 18 passed the requested physical gesture checks: pan,
+zoom, rotation, follow mode and landmark taps worked without reported jumps.
+This satisfies gesture acceptance; it is qualitative evidence rather than an
+instrumented performance or battery measurement. Earlier pending-comparison
+statements above preserve the software review history.
 
 The retained comparison procedure is to pan and release (including drags starting
 on pins), pinch, rotate and follow, checking fixed glyph size, correct anchors, no
@@ -268,4 +267,4 @@ controls. Recording stays enabled, and the Study app must not be uninstalled.
 Padding still has finite coverage and spare capacity: a sufficiently long gesture
 or a visible set already filling the 300 cap can exhaust the buffer. Any future
 reported hitch can justify a focused refill or profiling. Acceptance is based on the
-owner's phone experience, not an instrumented device speedup or battery measurement.
+qualitative gesture checks, not an instrumented device speedup or battery measurement.
