@@ -66,6 +66,18 @@ private final class MockPlacemark: CLPlacemark, @unchecked Sendable {
     override var country: String? { countryValue }
 }
 
+/// Synthetic town boundary at 500 m east of the equator's origin.
+private final class BoundaryGeocoder: GeocoderProtocol, @unchecked Sendable {
+    private(set) var callCount = 0
+
+    func reverseGeocodeLocation(_ location: CLLocation) async throws -> [CLPlacemark] {
+        callCount += 1
+        let town = location.coordinate.longitude * GridMath.metersPerDegree < 500
+            ? "Westtown" : "Easttown"
+        return [MockPlacemark(locality: town, country: "Country")]
+    }
+}
+
 // MARK: - Tests
 
 final class LocalityGeocoderTests: XCTestCase {
@@ -166,7 +178,7 @@ final class LocalityGeocoderTests: XCTestCase {
     }
 
     /// Regression: every newly walked 50 m cell made its own network request, which kept the
-    /// radio awake for a whole walk. Cells in one ~1 km cluster must share the first answer,
+    /// radio awake for a whole walk. Cells in one ~500 m cluster must share the first answer,
     /// whether they arrive while it is in flight or after it returned.
     func testWalkedCellsInOneAreaShareOneRequest() async {
         let mock = MockGeocoder(locality: "WalkCity", state: "NY", country: "United States")
@@ -225,6 +237,79 @@ final class LocalityGeocoderTests: XCTestCase {
         await waitForLocalities(ids, in: context!)
 
         await MainActor.run { XCTAssertEqual(mock.callCount, 2) }
+    }
+
+    func testWalkedCellsSplitAt500Meters() async {
+        let (context, geocoder, mock, ids) = await MainActor.run {
+            let ctx = makeInMemoryContainer().viewContext
+            let mock = BoundaryGeocoder()
+            let geocoder = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
+            var ids: [NSManagedObjectID] = []
+            // Centers at 25, 475, 525 and 975 m: two 500 m areas.
+            for x in [Int32(0), 9, 10, 19] {
+                let cell = insertCell(in: ctx, x: x)
+                ids.append(cell.objectID)
+                geocoder.enqueue(cell)
+            }
+            return (ctx, geocoder, mock, ids)
+        }
+        await waitForLocalities(ids, in: context)
+
+        let lateID = await MainActor.run {
+            XCTAssertEqual(mock.callCount, 2)
+            for (id, town) in zip(ids, ["Westtown", "Westtown", "Easttown", "Easttown"]) {
+                let cell = try? context.existingObject(with: id) as? VisitedCell
+                XCTAssertEqual(cell?.locality, town)
+            }
+            let late = insertCell(in: context, x: 11)
+            geocoder.enqueue(late)
+            return late.objectID
+        }
+        await waitForLocalities([lateID], in: context)
+
+        await MainActor.run {
+            XCTAssertEqual(mock.callCount, 2, "Later cells reuse the answer for their smaller area")
+            let late = try? context.existingObject(with: lateID) as? VisitedCell
+            XCTAssertEqual(late?.locality, "Easttown")
+        }
+    }
+
+    /// A walked cell whose lookup failed stays untagged and is retried by a later launch's
+    /// backfill. The backfill must use the same 500 m areas, so the retry cannot give it a
+    /// town from across a boundary, and its answers serve later walked cells too.
+    func testBackfillSplitsAt500MetersAndSharesAnswersWithWalkedCells() async {
+        let (context, geocoder, mock, history) = await MainActor.run {
+            let ctx = makeInMemoryContainer().viewContext
+            let mock = BoundaryGeocoder()
+            // Centers at 475 and 525 m, either side of the boundary.
+            let history = [Int32(9), 10].map { insertCell(in: ctx, x: $0).objectID }
+            let geocoder = LocalityGeocoder(geocoder: mock, requestDelay: .zero)
+            geocoder.geocodeUntaggedCells(context: ctx)
+            return (ctx, geocoder, mock, history)
+        }
+        await waitForLocalities(history, in: context)
+
+        let walked = await MainActor.run {
+            XCTAssertEqual(mock.callCount, 2, "Each 500 m area needs its own answer")
+            for (id, town) in zip(history, ["Westtown", "Easttown"]) {
+                let cell = try? context.existingObject(with: id) as? VisitedCell
+                XCTAssertEqual(cell?.locality, town)
+            }
+            return [Int32(1), 11].map { x in
+                let cell = insertCell(in: context, x: x)
+                geocoder.enqueue(cell)
+                return cell.objectID
+            }
+        }
+        await waitForLocalities(walked, in: context)
+
+        await MainActor.run {
+            XCTAssertEqual(mock.callCount, 2, "Walked cells reuse the backfill's answers")
+            for (id, town) in zip(walked, ["Westtown", "Easttown"]) {
+                let cell = try? context.existingObject(with: id) as? VisitedCell
+                XCTAssertEqual(cell?.locality, town)
+            }
+        }
     }
 
     /// A failed lookup must not be remembered: the next cell in the area asks again.
@@ -310,7 +395,7 @@ final class LocalityGeocoderTests: XCTestCase {
         // so this test primarily validates there is no crash or hang.
     }
 
-    /// Regression: with ~1 km backfill clusters a large backfill fills the queue, and a cell
+    /// Regression: a large backfill fills the queue, and a cell
     /// walked meanwhile was silently dropped. It must displace backfill and be geocoded next.
     func testNewCellIsGeocodedAheadOfAFullBackfill() async {
         let secondCall = XCTestExpectation(description: "second geocode request")
@@ -324,7 +409,7 @@ final class LocalityGeocoderTests: XCTestCase {
             let container = makeInMemoryContainer()
             let ctx = container.viewContext
             context = ctx
-            // 30 cells apart is ~0.0135°, so every cell is its own backfill cluster.
+            // 30 cells apart is ~1.5 km, so every cell is its own backfill cluster.
             for i in Int32(0)..<Int32(LocalityGeocoder.maxQueueSize + 50) {
                 insertCell(in: ctx, x: i * 30, y: 0)
             }
@@ -678,7 +763,7 @@ final class LocalityGeocoderTests: XCTestCase {
         await MainActor.run {
             let container = makeInMemoryContainer()
             context = container.viewContext
-            // x = 222 is ~0.1° east of x = 0: inside one old 0.5° bucket, two 0.01° clusters.
+            // x = 222 is ~0.1° east of x = 0: inside one old 0.5° bucket, two clusters.
             west = insertCell(in: context!, x: 0, y: 0, locality: nil).objectID
             east = insertCell(in: context!, x: 222, y: 0, locality: nil).objectID
             let geocoder = LocalityGeocoder(geocoder: mock, requestDelay: .zero)

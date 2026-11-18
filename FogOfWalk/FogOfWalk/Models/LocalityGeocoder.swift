@@ -33,8 +33,8 @@ final class LocalityGeocoder {
         let lon: Int
 
         init(_ coord: CLLocationCoordinate2D) {
-            lat = Int(floor(coord.latitude / LocalityGeocoder.backfillClusterDegrees))
-            lon = Int(floor(coord.longitude / LocalityGeocoder.backfillClusterDegrees))
+            lat = Int(floor(coord.latitude / LocalityGeocoder.clusterDegrees))
+            lon = Int(floor(coord.longitude / LocalityGeocoder.clusterDegrees))
         }
     }
 
@@ -61,12 +61,14 @@ final class LocalityGeocoder {
     /// newest backfill cluster; only a queue full of walked cells drops new ones.
     static let maxQueueSize = 200
 
-    /// Cluster size in degrees (~1.1 km of latitude), for the backfill and for walked cells.
-    /// Every untagged cell in a cluster receives the representative cell's placemark, so this
-    /// must stay well below town scale:
-    /// at 0.5° (~55 km) a whole region was labelled with one town's name. Clusters beyond
-    /// `maxQueueSize` are picked up on later launches, since their cells stay untagged.
-    static let backfillClusterDegrees = 0.01
+    /// Cluster size for walked cells and the backfill: about 500 m north-south, narrower
+    /// east-west away from the equator, matching the exploration grid's degree-based geometry.
+    /// One size means a walked cell whose lookup failed gets the same precision when the
+    /// backfill retries it. Every untagged cell in a cluster receives the representative
+    /// cell's placemark, so this must stay well below town scale: at 0.5° (~55 km) a whole
+    /// region was labelled with one town's name. Clusters beyond `maxQueueSize` are picked
+    /// up on later launches, since their cells stay untagged.
+    static let clusterDegrees = 500 / GridMath.metersPerDegree
 
     // MARK: - Dependencies
 
@@ -123,7 +125,7 @@ final class LocalityGeocoder {
         )
         guard let cells = try? context.fetch(request), !cells.isEmpty else { return }
 
-        // Group nearby cells to limit CLGeocoder requests without crossing town boundaries.
+        // Group nearby cells to limit CLGeocoder requests; a bucket can cross a town boundary.
         var buckets: [BucketKey: [VisitedCell]] = [:]
         for cell in cells {
             let coord = GridMath.center(for: CellID(x: cell.cellX, y: cell.cellY))

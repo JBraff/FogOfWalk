@@ -388,13 +388,15 @@ in commit 938ef32, so ignore older docs that describe it.
   cells go ahead of launch backfill and, when the queue is full, displace the newest backfill
   cluster (its cells stay untagged for a later launch). A walked cell joins a waiting walked
   cluster for the same area instead of adding one.
-- **Geocoding:** the launch backfill groups untagged cells into
-  `LocalityGeocoder.backfillClusterDegrees` (0.01°, ~1.1 km) clusters and writes one placemark's
-  names into every nil field in the cluster. Walked cells use the same clusters: the first
-  successful answer for a cluster is kept for the launch and reused without a network request,
-  so a walk makes about one request per kilometre rather than one per 50 m cell. Failed
-  lookups are not kept. Missing countries remain retryable on later
-  launches; legacy empty/"Unknown" countries are also retried and replaced only with a
+- **Geocoding:** walked cells and the launch backfill group cells into
+  `LocalityGeocoder.clusterDegrees` (500 / `GridMath.metersPerDegree`) clusters, about
+  500 m north-south and narrower east-west away from the equator, and write one placemark's
+  names into every nil field in the cluster. The first successful answer per cluster is
+  kept for the launch and reused by walked and backfill clusters without a network request.
+  This reduces requests compared with one per 50 m cell while limiting label sharing across
+  town boundaries; boundaries can still cross a bucket. Failed lookups are not kept, and
+  the backfill retries those cells on a later launch at the same 500 m precision. Missing
+  countries remain retryable on later launches; legacy empty/"Unknown" countries are also retried and replaced only with a
   known country. Known countries are preserved. Missing state/locality still use the
   "Unknown" sentinel. Cells mislabelled by the old 0.5° clustering are not
   corrected. `CLGeocoder` and `MKPlacemark` are deprecated as of iOS 26, which is not yet a
