@@ -3,6 +3,7 @@ import MapKit
 
 struct MapContainerView: UIViewRepresentable {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(ExplorationStore.self)       private var store
     @Environment(GridSettings.self)           private var gridSettings
     @Environment(LocationService.self)        private var locationService
@@ -22,6 +23,8 @@ struct MapContainerView: UIViewRepresentable {
     /// Explicit inputs ensure ingest and discovery refresh annotations even without a new cell.
     var landmarkGeneration: UInt64 = 0
     var showsLandmarks: Bool = false
+    /// Mirrors `gridSettings.fogStyle` so a style change re-runs `updateUIView`.
+    var fogStyle: FogStyle = .original
 
     func makeCoordinator() -> Coordinator {
         Coordinator(store: store, gridSettings: gridSettings,
@@ -59,6 +62,8 @@ struct MapContainerView: UIViewRepresentable {
         let fogOverlay = FogOverlay()
         mapView.addOverlay(fogOverlay, level: .aboveLabels)
         context.coordinator.fogOverlay = fogOverlay
+        context.coordinator.mapView = mapView
+        context.coordinator.isDark = colorScheme == .dark
 
         // Native annotations stay above the fog and move with MapKit at a fixed size.
         context.coordinator.onLandmarkTapped = onLandmarkTapped
@@ -171,6 +176,7 @@ struct MapContainerView: UIViewRepresentable {
         // If the cache was populated after the renderer was created (e.g.
         // initial Core Data load completing after makeUIView), push the
         // updated cells to the fog renderer.
+        coordinator.isDark = colorScheme == .dark
         coordinator.refreshFogIfChanged(in: scenePhase)
         // A new cell re-runs this method; rebuild pins only when landmark state changed.
         // Region changes refresh pins through `regionDidChangeAnimated`.
@@ -194,6 +200,10 @@ struct MapContainerView: UIViewRepresentable {
         // Fog is now an MKOverlay; MapKit holds the strong references.
         weak var fogOverlay:          FogOverlay?
         weak var fogRenderer:         FogOverlayRenderer?
+        /// Read for the zoom scale, which sizes the area redrawn around a new cell.
+        weak var mapView:             MKMapView?
+        /// Whether the map is in dark mode; set from `updateUIView`.
+        var isDark = false
         var onLandmarkTapped: ((String) -> Void)?
         private(set) var landmarkAnnotations: [String: LandmarkAnnotation] = [:]
 
@@ -204,6 +214,22 @@ struct MapContainerView: UIViewRepresentable {
         /// Tracks the recent-cell generation so `updateUIView` can detect highlight changes
         /// even when the cell count is unchanged (e.g., toggling on/off with 0 cells today).
         var lastRecentCellGeneration: UInt64 = 0
+
+        /// The appearance and cells of the last fog push, used to redraw only what changed.
+        /// Holding these makes the store's next insert copy its set once, no more than the
+        /// snapshot rebuild that follows already costs.
+        private(set) var lastAppearance: FogAppearance?
+        private var lastVisitedCells: Set<CellID> = []
+        private var lastRecentCells:  Set<CellID> = []
+
+        /// More changed cells than this redraw every tile instead of one area per cell.
+        static let maxPartialRedrawCells = 64
+
+        var currentAppearance: FogAppearance {
+            FogAppearance(style: gridSettings.fogStyle,
+                          highlightActive: gridSettings.todayHighlight != .off,
+                          isDark: isDark)
+        }
 
         /// The tracking mode to restore after a background pause of MapKit's user location;
         /// nil when not paused. See `MapContainerView.pauseLocationDisplay`.
@@ -235,16 +261,74 @@ struct MapContainerView: UIViewRepresentable {
 
         // MARK: - Fog tile management
 
-        /// Creates a fresh CellSnapshot from the current cache and marks visible
-        /// fog tiles as needing redisplay. Safe to call from the main thread at any time;
-        /// no-ops gracefully if the renderer hasn't been created yet.
+        /// Creates a fresh CellSnapshot from the current cache and marks fog tiles as needing
+        /// redisplay: only the area around changed cells when a few cells changed and the
+        /// appearance did not, otherwise every tile. Safe to call from the main thread at any
+        /// time; no-ops gracefully if the renderer hasn't been created yet.
         func invalidateFogTiles() {
-            let snap = CellSnapshot(cells: store.visitedCellsCache,
-                                    recentCells: store.recentCellsCache)
-            fogRenderer?.snapshot = snap
-            fogRenderer?.setNeedsDisplay()
-            lastSnapshotCellCount    = store.visitedCellsCache.count
+            let visited    = store.visitedCellsCache
+            let recent     = store.recentCellsCache
+            let appearance = currentAppearance
+            var zoomScale: MKZoomScale?
+            if let mapView { zoomScale = Self.zoomScale(of: mapView) }
+            let dirty = appearance == lastAppearance
+                ? Self.fogDirtyRect(changedCells: Self.changedCells(
+                                        visited: (lastVisitedCells, visited),
+                                        recent: (lastRecentCells, recent)),
+                                    zoomScale: zoomScale)
+                : nil
+            fogRenderer?.snapshot   = CellSnapshot(cells: visited, recentCells: recent)
+            fogRenderer?.appearance = appearance
+            if let dirty { fogRenderer?.setNeedsDisplay(dirty) } else { fogRenderer?.setNeedsDisplay() }
+            recordFogPush(visited: visited, recent: recent, appearance: appearance)
+        }
+
+        private func recordFogPush(visited: Set<CellID>, recent: Set<CellID>, appearance: FogAppearance) {
+            lastVisitedCells         = visited
+            lastRecentCells          = recent
+            lastAppearance           = appearance
+            lastSnapshotCellCount    = visited.count
             lastRecentCellGeneration = store.recentCellsGeneration
+        }
+
+        /// Cells whose drawing may differ between two pushes: new visited cells and cells
+        /// that entered or left the highlight. Nil when too many changed to redraw piecemeal,
+        /// or when cells were removed (an import or reset), which redraws everything.
+        static func changedCells(visited: (old: Set<CellID>, new: Set<CellID>),
+                                 recent: (old: Set<CellID>, new: Set<CellID>)) -> [CellID]? {
+            guard visited.new.count >= visited.old.count,
+                  visited.new.count - visited.old.count <= maxPartialRedrawCells else { return nil }
+            let added = visited.new.subtracting(visited.old)
+            guard added.count == visited.new.count - visited.old.count else { return nil }
+            let highlight = recent.new.symmetricDifference(recent.old)
+            guard added.count + highlight.count <= maxPartialRedrawCells else { return nil }
+            return Array(added.union(highlight))
+        }
+
+        /// The map area to redraw for `changedCells`: their squares, padded by the farthest
+        /// any style draws past a cell at the current zoom. Nil means redraw everything.
+        static func fogDirtyRect(changedCells: [CellID]?, zoomScale: MKZoomScale?) -> MKMapRect? {
+            guard let changedCells, let zoomScale, zoomScale > 0 else { return nil }
+            var rect = MKMapRect.null
+            for cell in changedCells {
+                let b = GridMath.bounds(for: cell)
+                let a = MKMapPoint(b.min), c = MKMapPoint(b.max)
+                let square = MKMapRect(x: min(a.x, c.x), y: min(a.y, c.y),
+                                       width: abs(c.x - a.x), height: abs(c.y - a.y))
+                // A trail line runs to the neighbouring cell, so pad by at least one cell.
+                let side = max(square.width, square.height)
+                let reach = SoftFogRenderer.reachPoints(cellPoints: CGFloat(side * Double(zoomScale)))
+                let pad = max(side, Double(reach) / Double(zoomScale))
+                rect = rect.union(square.insetBy(dx: -pad, dy: -pad))
+            }
+            return rect
+        }
+
+        /// Screen points per map point, the scale MapKit passes to `draw(_:zoomScale:in:)`.
+        static func zoomScale(of mapView: MKMapView) -> MKZoomScale? {
+            let width = mapView.visibleMapRect.size.width
+            guard width > 0, mapView.bounds.width > 0 else { return nil }
+            return MKZoomScale(mapView.bounds.width / width)
         }
 
         /// Pushes a snapshot only when cells or the highlight changed since the last one.
@@ -255,7 +339,8 @@ struct MapContainerView: UIViewRepresentable {
         func refreshFogIfChanged(in phase: ScenePhase) -> Bool {
             guard phase != .background else { return false }
             guard store.visitedCellsCache.count != lastSnapshotCellCount
-                || store.recentCellsGeneration != lastRecentCellGeneration else { return false }
+                || store.recentCellsGeneration != lastRecentCellGeneration
+                || currentAppearance != lastAppearance else { return false }
             invalidateFogTiles()
             return true
         }
@@ -351,12 +436,14 @@ struct MapContainerView: UIViewRepresentable {
             guard let fogOverlay = overlay as? FogOverlay else {
                 return MKOverlayRenderer(overlay: overlay)
             }
-            let snap = CellSnapshot(cells: store.visitedCellsCache,
-                                    recentCells: store.recentCellsCache)
-            let renderer = FogOverlayRenderer(overlay: fogOverlay, snapshot: snap)
-            fogRenderer              = renderer
-            lastSnapshotCellCount    = store.visitedCellsCache.count
-            lastRecentCellGeneration = store.recentCellsGeneration
+            let visited    = store.visitedCellsCache
+            let recent     = store.recentCellsCache
+            let appearance = currentAppearance
+            let renderer = FogOverlayRenderer(overlay: fogOverlay,
+                                              snapshot: CellSnapshot(cells: visited, recentCells: recent),
+                                              appearance: appearance)
+            fogRenderer = renderer
+            recordFogPush(visited: visited, recent: recent, appearance: appearance)
             return renderer
         }
 
@@ -389,6 +476,7 @@ struct LandmarkMapView: View {
     var body: some View {
         MapContainerView(onLandmarkTapped: onLandmarkTapped, navigateTo: navigateTo,
             highlightGeneration: highlightGeneration, visitedCellCount: visitedCellCount,
-            landmarkGeneration: landmarks.renderGeneration, showsLandmarks: settings.showLandmarks)
+            landmarkGeneration: landmarks.renderGeneration, showsLandmarks: settings.showLandmarks,
+            fogStyle: settings.fogStyle)
     }
 }

@@ -88,8 +88,8 @@ context starts at `docs/README.md` and `docs/SYSTEM.md`.
   iOS can relaunch the app in the background without creating a scene, and samples delivered
   then would be dropped.
 - **Fog refresh inputs.** `Coordinator.invalidateFogTiles()` is the only way to push new state
-  to the renderer. Keep `visitedCellCount` and `highlightGeneration` as `MapContainerView`
-  inputs if you restructure the view.
+  to the renderer. Keep `visitedCellCount`, `highlightGeneration` and `fogStyle` as
+  `MapContainerView` inputs if you restructure the view.
 - **Discovery cost** must not grow with the visited set; tests assert this through
   `lastDiscoveryProbeCount`. Keep `GridMath.cellBox(around:radiusMeters:)` a strict superset
   of the radius disc.
@@ -119,8 +119,8 @@ context starts at `docs/README.md` and `docs/SYSTEM.md`.
   (`swift_task_deinitOnExecutorImpl` / TaskLocal heap corruption) when such an object is
   deallocated outside a Task. See the headers of `LandmarkStoreTests.swift` and
   `ExplorationStoreTests.swift`.
-- **Renderer and pin-view tests are different:** `FogOverlayRendererTests` and
-  `LandmarkAnnotationViewTests` mark the class `@MainActor` and use synchronous methods. Follow the
+- **Renderer and pin-view tests are different:** `FogOverlayRendererTests`,
+  `SoftFogRendererTests` and `LandmarkAnnotationViewTests` mark the class `@MainActor` and use synchronous methods. Follow the
   pattern of the file you're extending.
 - **`makeInMemoryContainer()` is copy-pasted, not shared.** Copies live in
   `ExplorationStoreTests`, `LandmarkStoreTests`, `DiscoveryStatsModelTests`,
@@ -181,7 +181,7 @@ Study-specific evidence remains in `docs/evidence/automatic-pause-resume-prototy
    store, and carry user data through `BackupPayload`: add optional fields and bump
    `currentSchemaVersion`.
 2. **New setting?** Add a `GridSettings` property with a `UserDefaults` `didSet`, following
-   `highlightToday`/`showLandmarks`.
+   `todayHighlight`/`showLandmarks`/`fogStyle`.
 3. **New view?** Read environment objects with `@Environment(ExplorationStore.self)` etc., and keep
    views `@MainActor`-safe.
 4. **New cell math?** Put it in `GridMath` as static functions with no stored state.

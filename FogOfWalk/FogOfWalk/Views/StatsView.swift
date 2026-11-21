@@ -15,7 +15,7 @@ struct StatsView: View {
             } label: {
                 Text(todayText)
                     .font(.headline)
-                    .foregroundStyle(gridSettings.todayHighlight == .off ? Color.primary : Color.yellow)
+                    .foregroundStyle(gridSettings.todayHighlight == .off ? Color.primary : highlightColor)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(todayAccessibilityLabel)
@@ -59,6 +59,11 @@ struct StatsView: View {
         .padding(.vertical, 12)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
         .padding(.horizontal, 16)
+    }
+
+    /// Matches the map: the trail colour for Trail, gold otherwise.
+    private var highlightColor: Color {
+        gridSettings.fogStyle == .trail ? Color(SoftFogRenderer.trailColor) : Color.yellow
     }
 
     private var todayText: String {

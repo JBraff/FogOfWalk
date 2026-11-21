@@ -147,22 +147,34 @@ struct FogRenderer {
     }
 }
 
+// MARK: - FogAppearance
+
+/// Everything besides the cells that changes how fog is drawn. A change redraws every tile.
+struct FogAppearance: Equatable {
+    var style: FogStyle = .original
+    /// True while the today highlight is on, even before anything is walked today.
+    var highlightActive = false
+    var isDark = false
+}
+
 // MARK: - FogOverlayRenderer
 
-/// Bridges FogRenderer into MapKit's overlay rendering pipeline.
+/// Bridges FogRenderer and SoftFogRenderer into MapKit's overlay rendering pipeline.
 /// MapKit calls `draw(_:zoomScale:in:)` on background threads; all state shared
-/// with the main thread is protected by `NSLock` via the `snapshot` property.
-final class FogOverlayRenderer: MKOverlayRenderer {
+/// with the main thread is protected by `NSLock` via `snapshot` and `appearance`.
+/// Not `final`: `FogRefreshTests` subclasses it to record redraw requests.
+class FogOverlayRenderer: MKOverlayRenderer {
 
     /// Minimum on-screen radius (in points) for a visited-cell hole, regardless of zoom.
     /// Without this, a cell's raw projected radius shrinks proportionally with zoomScale
     /// and eventually becomes imperceptible when the map is zoomed far out.
-    private static let kMinCellScreenPoints: CGFloat = 3.0
+    static let kMinCellScreenPoints: CGFloat = 3.0
 
-    // MARK: Thread-safe snapshot
+    // MARK: Thread-safe state
 
     private let lock = NSLock()
     private var _snapshot: CellSnapshot
+    private var _appearance: FogAppearance
 
     /// Replace atomically from the main thread whenever the visited-cell set changes.
     var snapshot: CellSnapshot {
@@ -170,22 +182,34 @@ final class FogOverlayRenderer: MKOverlayRenderer {
         set { lock.withLock { _snapshot = newValue } }
     }
 
-    private let fogRenderer = FogRenderer()
+    var appearance: FogAppearance {
+        get { lock.withLock { _appearance } }
+        set { lock.withLock { _appearance = newValue } }
+    }
+
+    private let fogRenderer  = FogRenderer()
+    private let softRenderer = SoftFogRenderer()
 
     // MARK: Init
 
-    init(overlay: MKOverlay, snapshot: CellSnapshot) {
-        self._snapshot = snapshot
+    init(overlay: MKOverlay, snapshot: CellSnapshot, appearance: FogAppearance = FogAppearance()) {
+        self._snapshot   = snapshot
+        self._appearance = appearance
         super.init(overlay: overlay)
     }
 
     // MARK: Drawing
 
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
-        let snap     = snapshot
+        let (snap, look) = lock.withLock { (_snapshot, _appearance) }
         let drawRect = rect(for: mapRect)   // CGRect in renderer space — set up by MapKit
 
-        let region  = MKCoordinateRegion(mapRect)
+        // Soft styles reach past the cell (blur, minimum size, trail width), so they also
+        // read cells that far outside the tile; otherwise their edges would be cut at tile seams.
+        let reach = look.style == .original || zoomScale <= 0
+            ? 0 : Self.softReach(around: mapRect, zoomScale: zoomScale)
+        let queryRect = reach > 0 ? mapRect.insetBy(dx: -reach, dy: -reach).intersection(.world) : mapRect
+        let region  = MKCoordinateRegion(queryRect)
         let margin  = kCellSizeMeters / GridMath.metersPerDegree
         let halfLat = region.span.latitudeDelta  / 2.0
         let halfLon = region.span.longitudeDelta / 2.0
@@ -201,16 +225,45 @@ final class FogOverlayRenderer: MKOverlayRenderer {
         let minRadius: CGFloat = zoomScale > 0
             ? Self.kMinCellScreenPoints / CGFloat(zoomScale)
             : 0
+        let converter: (CLLocationCoordinate2D) -> CGPoint = { [weak self] coord in
+            self?.point(for: MKMapPoint(coord)) ?? .zero
+        }
 
-        fogRenderer.render(
-            cells: cells,
-            recentCells: recent,
-            drawRect: drawRect,
-            coordinateConverter: { [weak self] coord in
-                self?.point(for: MKMapPoint(coord)) ?? .zero
-            },
-            minRadius: minRadius,
-            in: context
-        )
+        switch look.style {
+        case .original:
+            fogRenderer.render(
+                cells: cells,
+                recentCells: recent,
+                drawRect: drawRect,
+                coordinateConverter: converter,
+                minRadius: minRadius,
+                in: context
+            )
+        case .trail, .spotlight:
+            softRenderer.render(
+                cells: cells,
+                todayCells: recent,
+                appearance: look,
+                drawRect: drawRect,
+                coordinateConverter: converter,
+                pointsPerUnit: max(CGFloat(zoomScale), .leastNonzeroMagnitude),
+                in: context
+            )
+        }
+    }
+
+    /// How far, in map points, a soft-style cell drawn in `mapRect` can reach from its centre.
+    static func softReach(around mapRect: MKMapRect, zoomScale: MKZoomScale) -> Double {
+        let cellPoints = cellMapSize(at: MKMapPoint(x: mapRect.midX, y: mapRect.midY).coordinate)
+            * Double(zoomScale)
+        return Double(SoftFogRenderer.reachPoints(cellPoints: CGFloat(cellPoints))) / Double(zoomScale)
+    }
+
+    /// The larger side of the cell at `coordinate` in map points; north-south grows with
+    /// latitude on the Mercator map.
+    static func cellMapSize(at coordinate: CLLocationCoordinate2D) -> Double {
+        let b = GridMath.bounds(for: GridMath.cellID(for: coordinate))
+        let a = MKMapPoint(b.min), c = MKMapPoint(b.max)
+        return max(abs(c.x - a.x), abs(c.y - a.y))
     }
 }

@@ -28,7 +28,7 @@ FogOfWalk/
       Landmark+CoreData.swift        # identifier (Wikidata QID), name, category, lat/lon, radius, dates
       WikidataLandmark.swift         # Value type read from landmarks.sqlite
       CellSnapshot.swift             # Immutable row-bucketed cell sets, read by the renderer off-main
-      GridSettings.swift             # todayHighlight (off/new/walked), showLandmarks (UserDefaults-backed)
+      GridSettings.swift             # todayHighlight (off/new/walked), showLandmarks, fogStyle (UserDefaults-backed)
       LocalityGeocoder.swift         # Reverse-geocodes cells → locality/state/country (CLGeocoder)
       DiscoveryStatsModel.swift      # Stats sheet model: counts, streaks, locality/state/country lists
       USState.swift                  # 50-state normalization for the States list
@@ -45,13 +45,15 @@ FogOfWalk/
       MapContainerView.swift         # UIViewRepresentable: MKMapView + FogOverlay + native landmark annotations +
                                      # top-right recenter and compass buttons; Coordinator
       HeadingMapView.swift           # Foreground compass updates only the blue dot's direction pointer
-      FogOverlay.swift               # FogOverlay (MKOverlay), FogRenderer (pure CG), FogOverlayRenderer
+      FogOverlay.swift               # FogOverlay (MKOverlay), FogRenderer (pure CG, Original), FogAppearance,
+                                     # FogOverlayRenderer
+      SoftFogRenderer.swift          # Trail and Spotlight styles (pure CG): blurred cell mask, texture, trail
       LandmarkAnnotationView.swift   # Lightweight annotations + reusable fixed-size discovered pins / inert "?" hints
       LandmarkInteractionFixture.swift # Debug-only in-memory map for XCUITest gestures
       LandmarkDetailView.swift       # Sheet for a tapped discovered pin
       StatsView.swift                # Bottom HUD: "N new/walked today" (cycles highlight), landmark count, Paused, buttons
       DiscoveryStatsView.swift       # Stats sheet (Swift Charts)
-      SettingsView.swift             # Backup export/import; Study-only "Location Study" section
+      SettingsView.swift             # Fog style picker; backup export/import; Study-only "Location Study" section
       LocationPermissionBanner.swift # Banner for denied location or While Using → Always upgrade
   FogOfWalkTests/                    # XCTest unit tests: roughly one <Type>Tests.swift per production type, plus
                                      # FogOfWalkTests.swift (GridMath) and StudyTrackingControlTests.swift (Study OFF)
@@ -139,7 +141,7 @@ Six `@MainActor @Observable` objects are created in `AppServices.init` during
 | Type | Role |
 |------|------|
 | `ExplorationStore` | Source of truth for visited cells, today/total counts, highlight cache; wraps Core Data |
-| `GridSettings` | `todayHighlight` (gold tint on cells new today, walked today, or off) and `showLandmarks` (pin display) |
+| `GridSettings` | `todayHighlight` (cells new today, walked today, or off), `showLandmarks` (pin display) and `fogStyle` (Original, Trail or Spotlight; Original is the default) |
 | `LocationService` | Permission, tracking, Study source/OFF control; exposes `onLocationUpdate` |
 | `LocalityGeocoder` | Background reverse-geocoding queue for new and untagged cells |
 | `LandmarkStore` | Landmark rows and discovery state; owns the Wikidata migration |
@@ -185,8 +187,11 @@ filters on `cellSizeMeters == kCellSizeMeters`.
 ### Fog rendering
 
 `FogOverlay` is a world-spanning `MKOverlay` added `.aboveLabels`. `FogOverlayRenderer.draw`
-runs on MapKit's background tile threads and reads its `CellSnapshot` under an `NSLock`. The
-pure drawing lives in the `FogRenderer` struct so it can be unit-tested without MapKit:
+runs on MapKit's background tile threads and reads its `CellSnapshot` and `FogAppearance`
+(style, highlight on, dark mode) under an `NSLock`. It draws the style chosen in Settings
+(`GridSettings.fogStyle`). Pure drawing lives in structs so it can be unit-tested without MapKit.
+
+**Original** (the default) is drawn by `FogRenderer`:
 1. Fill the tile with fog (`systemGray`, alpha 0.92).
 2. Punch a soft radial-gradient hole per visited cell using `.destinationOut`. The hole is
    solid to 70% of its radius, then fades to clear, and is drawn without
@@ -198,16 +203,45 @@ Hole radius is 0.9 × the projected cell size, floored at `kMinCellScreenPoints`
 `zoomScale`, so **visited cells stay visible at every zoom level, including world zoom**. The
 renderer applies no cell-count cap. The `radius > 0.5` guards are inert because of that floor.
 
+**Trail** and **Spotlight** are drawn by `SoftFogRenderer`:
+1. Fill the tile with a slate fog (lighter in light mode, darker in dark mode) and a faint
+   cloud texture tiled on a grid anchored to the map, so it lines up across tiles.
+2. Paint each visited cell as a disc (0.78 × the projected cell size, floored at 3 pt) into a
+   greyscale mask at half a pixel per screen point, blur it with vImage box passes (kernel
+   grows with the cell size, capped; none when cells are tiny), and clear the fog through it
+   with `clip(to:mask:)` and `.destinationOut`. The cost follows the tile size and the cells in
+   it rather than one gradient per cell, so dense zoomed-out tiles are cheaper than Original.
+3. Spotlight, while the highlight is on, clears earlier walks only partly
+   (`spotlightClearing`) and then clears today's cells fully. With the highlight off it shows
+   every visited cell clear.
+4. Trail strokes a cased line joining neighbouring today cells (diagonals only when no
+   orthogonal cell links them) plus a dot per cell, 2.5 to 7 pt wide on screen.
+
+A soft-style cell reaches `SoftFogRenderer.reachPoints(cellPoints:)` from its centre: the disc,
+the blur (four box passes spread `2 × (kernel − 1)` mask pixels, up to 56 pt) and the trail
+casing. `draw` reads cells that far outside the tile, and the mask is padded by the blur's
+reach, so tiles drawn separately match at their seams
+(`testTiledRenderingMatchesOneRectangleAcrossASeam`). Discs are painted straight into the
+mask's pixels (an antialiased edge, keeping the larger value where discs overlap): filling
+thousands of overlapping ellipses as one Core Graphics path takes seconds. `clip(to:mask:)` treats the bitmap's last row as the top of the
+tile, so rows are flipped, which `testOffCentreCellClearsInPlace` checks.
+
 `Coordinator.invalidateFogTiles()` is the only way to push new state to the renderer.
-`updateUIView` calls it through `refreshFogIfChanged(in:)` when the cached cell count or
-`recentCellsGeneration` changes. A snapshot re-indexes every visited cell, so in the
+`updateUIView` calls it through `refreshFogIfChanged(in:)` when the cached cell count,
+`recentCellsGeneration` or the `FogAppearance` changes. When only a few cells were added or
+entered or left the highlight (`maxPartialRedrawCells`), it redraws just their squares padded by
+one cell or that reach at the current zoom, whichever is larger; walking therefore no
+longer redraws every visible tile per new cell. A style, highlight on/off or dark-mode change,
+removed cells (import or reset) or a large change redraws everything. The padding uses the
+zoom at the time of the push; if MapKit has kept tiles from a farther-out zoom, a soft edge
+reaching past that area can stay cut until those tiles next redraw. A snapshot re-indexes every visited cell, so in the
 `.background` scene phase the refresh is skipped; the phase change on return re-runs
 `updateUIView`, which rebuilds once. `updateUIView` also turns `showsUserLocation` off in the
 background and restores it with the previous tracking mode (`pauseLocationDisplay`), so MapKit
 keeps no location request of its own while the app is away. Recording is unaffected.
 Recording happens outside the map, so `ContentView` passes `visitedCellCount` and
-`highlightGeneration` as inputs to guarantee SwiftUI re-runs `updateUIView`. Keep those
-inputs if you restructure the view. The recenter button requests only `.follow`, including repeated taps, so turning the phone
+`highlightGeneration` (and `LandmarkMapView` passes `fogStyle`) as inputs to guarantee SwiftUI
+re-runs `updateUIView`. Keep those inputs if you restructure the view. The recenter button requests only `.follow`, including repeated taps, so turning the phone
 never rotates the map. `HeadingMapView` uses a separate heading-only `CLLocationManager`
 to rotate a pointer around MapKit's native blue dot. It starts only with location permission,
 heading hardware, a visible window, an active scene and `usesMapLocation` enabled; backgrounding,
@@ -415,7 +449,9 @@ in commit 938ef32, so ignore older docs that describe it.
 
 ## Test infrastructure
 
-- **Rendering helpers:** `renderFog(...)` lives in `FogOverlayRendererTests`;
+- **Rendering helpers:** `renderFog(...)` lives in `FogOverlayRendererTests` and `render(...)`
+  in `SoftFogRendererTests`; `FogRefreshTests` has `RecordingFogRenderer`, which records
+  full and partial redraw requests;
   `RenderingTestHelpers` shares the RGBA `pixelBuffer(for:)` and top-left-coordinate
   `pixelColor(at:in:)` accessors between fog and pin tests. `LandmarkMapGeometryTests` checks real MapKit pin placement; `LandmarkInteractionTests`
   uses the Debug-only `-landmark-interaction-fixture` launch argument for real gestures on
