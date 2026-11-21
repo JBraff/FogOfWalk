@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Environment(LandmarkStore.self)    private var landmarkStore
     @Environment(LocationService.self) private var locationService
     @Environment(LandmarkSearchService.self) private var searchService
+    @Environment(GridSettings.self)     private var gridSettings
     @Environment(\.dismiss)             private var dismiss
 
     @State private var exportURL: URL?
@@ -23,6 +24,19 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Picker("Fog Style", selection: Bindable(gridSettings).fogStyle) {
+                        ForEach(FogStyle.allCases) { style in
+                            Text(style.title).tag(style)
+                        }
+                    }
+                    .accessibilityIdentifier("fogStyle")
+                } header: {
+                    Text("Map")
+                } footer: {
+                    Text("Trail draws a line through the squares you walked today. Spotlight leaves only today\u{2019}s squares fully clear. Tap the today count on the map to switch between new and walked squares.")
+                }
+
                 Section {
                     Button("Export Backup…") { exportBackup() }
 

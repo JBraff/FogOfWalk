@@ -44,4 +44,20 @@ final class GridSettingsTests: XCTestCase {
             XCTAssertEqual(TodayHighlight.walkedToday.basis, .lastVisited)
         }
     }
+
+    func testFogStyleDefaultsToOriginalAndPersists() async {
+        await MainActor.run {
+            let defaults = makeDefaults()
+            XCTAssertEqual(GridSettings(defaults: defaults).fogStyle, .original)
+            let settings = GridSettings(defaults: defaults)
+            settings.fogStyle = .trail
+            XCTAssertEqual(GridSettings(defaults: defaults).fogStyle, .trail)
+            settings.fogStyle = .spotlight
+            XCTAssertEqual(GridSettings(defaults: defaults).fogStyle, .spotlight)
+
+            defaults.set("unknown", forKey: "com.fogofwalk.fogStyle")
+            XCTAssertEqual(GridSettings(defaults: defaults).fogStyle, .original)
+            XCTAssertEqual(FogStyle.allCases.map(\.title), ["Original", "Trail", "Spotlight"])
+        }
+    }
 }
