@@ -11,7 +11,8 @@ final class BackupServiceTests: XCTestCase {
             visitedCells: [
                 BackupVisitedCell(cellX: 1, cellY: 2, cellSizeMeters: 50.0,
                                    firstVisited: Date(timeIntervalSince1970: 1_600_000_000),
-                                   locality: "Springfield", state: "Illinois", country: "United States")
+                                   locality: "Springfield", state: "Illinois", country: "United States",
+                                   lastVisited: Date(timeIntervalSince1970: 1_620_000_000), daysVisited: 3)
             ],
             landmarks: [
                 BackupLandmark(identifier: "Q42", firstDiscovered: Date(timeIntervalSince1970: 1_650_000_000))
@@ -464,6 +465,98 @@ final class BackupServiceTests: XCTestCase {
             let merged = try history(store, landmarks)
             XCTAssertEqual(merged.visitedCells[0].firstVisited, earlier)
             XCTAssertEqual(merged.landmarks[0].firstDiscovered, earlier)
+        }
+    }
+
+    // MARK: - Repeat visits
+
+    func testSchema2FileImportsWithUpgradeDefaults() async throws {
+        let json = """
+        {
+            "schemaVersion": 2,
+            "exportedAt": "2023-11-14T22:13:20Z",
+            "visitedCells": [
+                { "cellX": 1, "cellY": 2, "cellSizeMeters": 50.0,
+                  "firstVisited": "2020-09-13T12:26:40Z", "locality": "Springfield" }
+            ],
+            "landmarks": []
+        }
+        """
+        let payload = try BackupService.decode(Data(json.utf8))
+        let first = Date(timeIntervalSince1970: 1_600_000_000)
+        try await MainActor.run {
+            for replacing in [false, true] {
+                let container = makeInMemoryContainer()
+                let store = ExplorationStore(container: container)
+                store.configure()
+                let landmarks = LandmarkStore(container: container, defaults: nil)
+                if replacing {
+                    try BackupService.replace(payload, into: store, landmarkStore: landmarks,
+                                              landmarkSource: EmptyLandmarkSource())
+                } else {
+                    _ = try BackupService.merge(payload, into: store, landmarkStore: landmarks)
+                }
+                let cell = try XCTUnwrap(store.viewContext.fetch(VisitedCell.fetchRequest()).first)
+                XCTAssertEqual(cell.firstVisited, first)
+                XCTAssertEqual(cell.lastVisited, first)
+                XCTAssertEqual(cell.daysVisited, 1)
+            }
+        }
+    }
+
+    func testRepeatVisitsSurviveExportAndReplace() async throws {
+        try await MainActor.run {
+            let source = ExplorationStore(container: makeInMemoryContainer())
+            let day1 = Date(timeIntervalSince1970: 1_000_000)
+            let day2 = day1.addingTimeInterval(86_400 * 3)
+            source.nowProvider = { day1 }
+            source.configure()
+            source.addCell(CellID(x: 3, y: 3))
+            source.nowProvider = { day2 }
+            source.refreshForDayChangeIfNeeded()
+            source.addCell(CellID(x: 3, y: 3))
+            let sourceLandmarks = LandmarkStore(container: makeInMemoryContainer(), defaults: nil)
+
+            let payload = try BackupService.decode(
+                BackupService.exportData(explorationStore: source, landmarkStore: sourceLandmarks))
+            XCTAssertEqual(payload.schemaVersion, 3)
+            XCTAssertEqual(payload.visitedCells.first?.lastVisited, day2)
+            XCTAssertEqual(payload.visitedCells.first?.daysVisited, 2)
+
+            let (dest, destLandmarks) = try replacementFixture()
+            try BackupService.replace(payload, into: dest, landmarkStore: destLandmarks,
+                                      landmarkSource: EmptyLandmarkSource())
+            let cell = try XCTUnwrap(dest.viewContext.fetch(VisitedCell.fetchRequest()).first)
+            XCTAssertEqual(cell.firstVisited, day1)
+            XCTAssertEqual(cell.lastVisited, day2)
+            XCTAssertEqual(cell.daysVisited, 2)
+        }
+    }
+
+    func testMergeKeepsLaterLastVisitedAndLargerDayCount() async throws {
+        try await MainActor.run {
+            let (store, landmarks) = try replacementFixture()
+            @MainActor func merge(last: Date?, days: Int32?) throws -> VisitedCell {
+                let record = BackupVisitedCell(cellX: 1, cellY: 2, cellSizeMeters: kCellSizeMeters,
+                                               firstVisited: Date(timeIntervalSince1970: 10), locality: nil,
+                                               lastVisited: last, daysVisited: days)
+                _ = try BackupService.merge(
+                    BackupPayload(schemaVersion: 3, exportedAt: Date(), visitedCells: [record], landmarks: []),
+                    into: store, landmarkStore: landmarks)
+                return try XCTUnwrap(store.viewContext.fetch(VisitedCell.fetchRequest()).first { $0.cellX == 1 })
+            }
+            var cell = try merge(last: Date(timeIntervalSince1970: 500), days: 4)
+            XCTAssertEqual(cell.lastVisited, Date(timeIntervalSince1970: 500))
+            XCTAssertEqual(cell.daysVisited, 4)
+
+            cell = try merge(last: Date(timeIntervalSince1970: 300), days: 2)
+            XCTAssertEqual(cell.lastVisited, Date(timeIntervalSince1970: 500), "an older last visit is ignored")
+            XCTAssertEqual(cell.daysVisited, 4, "counts are not added")
+
+            cell = try merge(last: nil, days: nil)
+            XCTAssertEqual(cell.lastVisited, Date(timeIntervalSince1970: 500))
+            XCTAssertEqual(cell.daysVisited, 4)
+            XCTAssertEqual(cell.firstVisited, Date(timeIntervalSince1970: 10))
         }
     }
 

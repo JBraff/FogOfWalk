@@ -30,6 +30,7 @@ struct ExplorationRecorder {
         store.configure()
         let dayRollover = store.refreshForDayChangeIfNeeded()
         let cell = GridMath.cellID(for: location.coordinate)
+        let highlightGeneration = store.recentCellsGeneration
         let isNew = store.addCell(cell)
         // Only real delivered samples become cells; no interpolation or haptics.
         var discoveries = 0
@@ -51,6 +52,6 @@ struct ExplorationRecorder {
         }
         diagnostics.recordDownstream(cell: cell, isNew: isNew,
                                      discoveries: discoveries, dayRollover: dayRollover)
-        return isNew || dayRollover
+        return isNew || dayRollover || store.recentCellsGeneration != highlightGeneration
     }
 }

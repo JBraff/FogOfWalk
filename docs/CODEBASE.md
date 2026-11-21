@@ -17,17 +17,18 @@ FogOfWalk/
     Info.plist                       # Location + motion purpose strings, UIBackgroundModes [location],
                                      # single scene, CFBundleDisplayName = $(FOG_APP_DISPLAY_NAME)
     landmarks.sqlite                 # Bundled Wikidata landmark DB (~4 MB, R-tree indexed)
-    FogOfWalk.xcdatamodeld/          # Three model versions; .xccurrentversion = "FogOfWalk 3.xcdatamodel"
-                                     # (v2 added Landmark + fetch index; v3 added VisitedCell.state/country)
+    FogOfWalk.xcdatamodeld/          # Four model versions; .xccurrentversion = "FogOfWalk 4.xcdatamodel"
+                                     # (v2 added Landmark + fetch index; v3 added VisitedCell.state/country;
+                                     # v4 added VisitedCell.lastVisited/daysVisited)
     Models/
       GridCell.swift                 # kCellSizeMeters (50 m), CellID, GridMath
       ExplorationStore.swift         # Visited cells: Core Data + in-memory caches, today/total counts
-      VisitedCell+CoreData.swift     # cellX/Y, cellSizeMeters, firstVisited, locality, state, country
+      VisitedCell+CoreData.swift     # cellX/Y, cellSizeMeters, first/lastVisited, daysVisited, locality, state, country
       LandmarkStore.swift            # Landmark rows, bucketed discovery, one-time Wikidata-ID migration
       Landmark+CoreData.swift        # identifier (Wikidata QID), name, category, lat/lon, radius, dates
       WikidataLandmark.swift         # Value type read from landmarks.sqlite
       CellSnapshot.swift             # Immutable row-bucketed cell sets, read by the renderer off-main
-      GridSettings.swift             # highlightToday, showLandmarks (UserDefaults-backed)
+      GridSettings.swift             # todayHighlight (off/new/walked), showLandmarks (UserDefaults-backed)
       LocalityGeocoder.swift         # Reverse-geocodes cells → locality/state/country (CLGeocoder)
       DiscoveryStatsModel.swift      # Stats sheet model: counts, streaks, locality/state/country lists
       USState.swift                  # 50-state normalization for the States list
@@ -48,7 +49,7 @@ FogOfWalk/
       LandmarkAnnotationView.swift   # Lightweight annotations + reusable fixed-size discovered pins / inert "?" hints
       LandmarkInteractionFixture.swift # Debug-only in-memory map for XCUITest gestures
       LandmarkDetailView.swift       # Sheet for a tapped discovered pin
-      StatsView.swift                # Bottom HUD: "N new today" (toggles highlight), landmark count, Paused, buttons
+      StatsView.swift                # Bottom HUD: "N new/walked today" (cycles highlight), landmark count, Paused, buttons
       DiscoveryStatsView.swift       # Stats sheet (Swift Charts)
       SettingsView.swift             # Backup export/import; Study-only "Location Study" section
       LocationPermissionBanner.swift # Banner for denied location or While Using → Always upgrade
@@ -103,7 +104,8 @@ CLLocationManager (legacy)                       CLLocationUpdate.liveUpdates(.f
                            ExplorationRecorder.record(_:)
                              store.configure()                       (no-op after first call)
                              store.refreshForDayChangeIfNeeded()     (resets "today" at midnight)
-                             store.addCell(GridMath.cellID(for:))    (Core Data save + caches; onNewCell → geocoder)
+                             store.addCell(GridMath.cellID(for:))    (Core Data save + caches; onNewCell → geocoder;
+                                                                      a known cell saves only on its first sample each day)
                              only when the cell is new:
                                landmarks.ingestLandmarks(near:...)   (bundled DB, once per bucket per launch)
                                landmarks.checkDiscovery(newCell:)
@@ -137,7 +139,7 @@ Six `@MainActor @Observable` objects are created in `AppServices.init` during
 | Type | Role |
 |------|------|
 | `ExplorationStore` | Source of truth for visited cells, today/total counts, highlight cache; wraps Core Data |
-| `GridSettings` | `highlightToday` (gold tint on today's cells) and `showLandmarks` (pin display) |
+| `GridSettings` | `todayHighlight` (gold tint on cells new today, walked today, or off) and `showLandmarks` (pin display) |
 | `LocationService` | Permission, tracking, Study source/OFF control; exposes `onLocationUpdate` |
 | `LocalityGeocoder` | Background reverse-geocoding queue for new and untagged cells |
 | `LandmarkStore` | Landmark rows and discovery state; owns the Wikidata migration |
@@ -189,7 +191,8 @@ pure drawing lives in the `FogRenderer` struct so it can be unit-tested without 
 2. Punch a soft radial-gradient hole per visited cell using `.destinationOut`. The hole is
    solid to 70% of its radius, then fades to clear, and is drawn without
    `.drawsAfterEndLocation`, so its cost is bounded by the hole.
-3. Draw a gold tint over today's cells when `highlightToday` is on.
+3. Draw a gold tint over `recentCells`: cells first visited today, or every cell walked today,
+   following `todayHighlight`.
 
 Hole radius is 0.9 × the projected cell size, floored at `kMinCellScreenPoints` (3 pt) ÷
 `zoomScale`, so **visited cells stay visible at every zoom level, including world zoom**. The
@@ -271,9 +274,11 @@ Generation advances on landmark context changes and cache reloads.
 `BackupService` (`Models/BackupService.swift`) is a stateless `enum`. It encodes and decodes a
 versioned JSON `BackupPayload` holding `visitedCells` plus discovered `landmarks`
 (`identifier` + `firstDiscovered` only, since metadata is re-derived from the bundled DB on
-import). `BackupPayload.currentSchemaVersion` is `2`. Files with any `schemaVersion <= current`
-decode (new fields are optional and default to `nil`, as `state`/`country` did in v2). Only
-files from a newer version are rejected. A sample `visitedCells` entry:
+import). `BackupPayload.currentSchemaVersion` is `3`. Files with any `schemaVersion <= current`
+decode (new fields are optional and default to `nil`, as `state`/`country` did in v2 and
+`lastVisited`/`daysVisited` did in v3). A cell without them imports with `lastVisited` equal to
+`firstVisited` and one day. Only files from a newer version are rejected. A sample
+`visitedCells` entry:
 
 ```json
 {
@@ -281,6 +286,8 @@ files from a newer version are rejected. A sample `visitedCells` entry:
   "cellY": 2,
   "cellSizeMeters": 50.0,
   "firstVisited": "2023-11-14T22:13:20Z",
+  "lastVisited": "2024-02-03T09:00:00Z",
+  "daysVisited": 4,
   "locality": "Springfield",
   "state": "Illinois",
   "country": "United States"
@@ -290,7 +297,8 @@ files from a newer version are rejected. A sample `visitedCells` entry:
 Settings decodes the chosen file before showing inline **Merge** and **Replace** choices.
 Import errors also appear inline, so file-picker dismissal never presents another modal.
 Merge retains its existing behavior: `ExplorationStore.addCells(_:)` inserts missing cells and keeps the
-earlier `firstVisited` date without replacing existing labels. A successful merge rebuilds
+earlier `firstVisited` date, the later `lastVisited` and the larger `daysVisited` (adding counts
+would double-count shared days) without replacing existing labels. A successful merge rebuilds
 the active highlight using its stored cutoff, including date-only merges.
 `LandmarkStore.restoreDiscovered(_:)` marks known identifiers discovered, keeps the earlier
 date, and skips unknown identifiers. These two merge saves are not jointly atomic.

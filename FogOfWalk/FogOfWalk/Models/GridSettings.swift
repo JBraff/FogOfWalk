@@ -1,14 +1,35 @@
 import Foundation
 import Observation
 
+/// What the gold today overlay shows. Tapping the today count cycles through the cases.
+enum TodayHighlight: String {
+    case off
+    /// Cells first visited today.
+    case newToday
+    /// Every cell walked today, including cells first visited on an earlier day.
+    case walkedToday
+
+    var next: TodayHighlight {
+        switch self {
+        case .off:         .newToday
+        case .newToday:    .walkedToday
+        case .walkedToday: .off
+        }
+    }
+
+    var basis: HighlightBasis {
+        self == .walkedToday ? .lastVisited : .firstVisited
+    }
+}
+
 @MainActor
 @Observable
 final class GridSettings {
     @ObservationIgnored private let defaults: UserDefaults?
 
-    var highlightToday: Bool {
+    var todayHighlight: TodayHighlight {
         didSet {
-            defaults?.set(highlightToday, forKey: Keys.highlightToday)
+            defaults?.set(todayHighlight.rawValue, forKey: Keys.todayHighlight)
         }
     }
 
@@ -19,19 +40,26 @@ final class GridSettings {
     }
 
     private enum Keys {
-        static let highlightToday = "com.fogofwalk.highlightToday"
+        static let todayHighlight = "com.fogofwalk.todayHighlight"
+        /// The earlier on/off setting, read once when `todayHighlight` is unset.
+        static let legacyHighlightToday = "com.fogofwalk.highlightToday"
         static let showLandmarks  = "com.fogofwalk.showLandmarks"
     }
 
     /// The cutoff date for highlighting — start of today when active, nil when off.
     var highlightCutoffDate: Date? {
-        highlightToday ? Calendar.current.startOfDay(for: Date()) : nil
+        todayHighlight == .off ? nil : Calendar.current.startOfDay(for: Date())
     }
 
     /// Passing nil keeps settings in memory, for isolated fixtures.
     init(defaults: UserDefaults? = .standard) {
         self.defaults = defaults
-        highlightToday = defaults?.bool(forKey: Keys.highlightToday) ?? false
+        if let raw = defaults?.string(forKey: Keys.todayHighlight),
+           let saved = TodayHighlight(rawValue: raw) {
+            todayHighlight = saved
+        } else {
+            todayHighlight = defaults?.bool(forKey: Keys.legacyHighlightToday) == true ? .newToday : .off
+        }
         showLandmarks  = defaults?.bool(forKey: Keys.showLandmarks) ?? false
     }
 }

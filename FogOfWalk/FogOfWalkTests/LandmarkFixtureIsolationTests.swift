@@ -21,12 +21,13 @@ final class LandmarkFixtureIsolationTests: XCTestCase {
 
     func testMemorySettingsAndLandmarkMigrationLeaveStandardDefaultsUntouched() async {
         await MainActor.run {
-            let keys = ["com.fogofwalk.showLandmarks", "com.fogofwalk.highlightToday", LandmarkStore.wikidataMigrationKey]
-            let before = keys.map { UserDefaults.standard.object(forKey: $0) as? NSNumber }
+            let keys = ["com.fogofwalk.showLandmarks", "com.fogofwalk.highlightToday",
+                        "com.fogofwalk.todayHighlight", LandmarkStore.wikidataMigrationKey]
+            let before = keys.map { UserDefaults.standard.object(forKey: $0) as? NSObject }
             let settings = GridSettings(defaults: nil)
             XCTAssertFalse(settings.showLandmarks)
             settings.showLandmarks = true
-            settings.highlightToday = true
+            settings.todayHighlight = .walkedToday
             let container = NSPersistentContainer(name: "FogOfWalk")
             let description = NSPersistentStoreDescription()
             description.type = NSInMemoryStoreType
@@ -34,7 +35,7 @@ final class LandmarkFixtureIsolationTests: XCTestCase {
             container.loadPersistentStores { _, error in XCTAssertNil(error) }
             let store = LandmarkStore(container: container, defaults: nil)
             XCTAssertTrue(store.allLandmarks.isEmpty)
-            XCTAssertEqual(keys.map { UserDefaults.standard.object(forKey: $0) as? NSNumber }, before)
+            XCTAssertEqual(keys.map { UserDefaults.standard.object(forKey: $0) as? NSObject }, before)
             XCTAssertFalse(GridSettings(defaults: nil).showLandmarks)
         }
     }

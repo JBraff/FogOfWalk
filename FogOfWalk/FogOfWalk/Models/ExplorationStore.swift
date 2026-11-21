@@ -3,6 +3,12 @@ import CoreLocation
 import MapKit
 import Observation
 
+/// The visit date that puts a cell in the highlight.
+enum HighlightBasis {
+    case firstVisited
+    case lastVisited
+}
+
 @MainActor
 @Observable
 final class ExplorationStore {
@@ -16,6 +22,10 @@ final class ExplorationStore {
     private(set) var visitedCellsCache: Set<CellID> = []
     /// In-memory cache of recently visited cells for the active highlight period.
     private(set) var recentCellsCache: Set<CellID> = []
+    /// Cells already walked on the current local day. A repeat visit to one of these
+    /// writes nothing, so Core Data sees at most one update per cell per day.
+    private(set) var walkedTodayCache: Set<CellID> = []
+    var walkedTodayCount: Int { walkedTodayCache.count }
     /// Monotonically increasing counter — increments on every `loadRecentCells` call
     /// so `MapContainerView.updateUIView` can detect highlight changes even when the
     /// cell count is unchanged (e.g., toggling on/off with 0 cells today).
@@ -28,6 +38,7 @@ final class ExplorationStore {
     /// currently empty (e.g., early in the day before any cells are visited).
     private var isHighlightActive = false
     private var highlightCutoff: Date?
+    private var highlightBasis: HighlightBasis = .firstVisited
 
     /// Injectable clock, required to test day-rollover behavior deterministically.
     var nowProvider: () -> Date = { Date() }
@@ -193,16 +204,48 @@ final class ExplorationStore {
         request.predicate = NSPredicate(format: "cellSizeMeters == %f", kCellSizeMeters)
         do {
             let cells = try container.viewContext.fetch(request)
+            backfillLastVisited(cells)
             visitedCellsCache = Set(cells.map { CellID(x: $0.cellX, y: $0.cellY) })
             totalVisitedCount = visitedCellsCache.count
             hasConfigured     = true
 
             let startOfToday = Calendar.current.startOfDay(for: nowProvider())
             todayVisitedCount = fetchTodayCount(since: startOfToday)
+            walkedTodayCache  = Set(cells.lazy
+                .filter { ($0.lastVisited ?? .distantPast) >= startOfToday }
+                .map { CellID(x: $0.cellX, y: $0.cellY) })
             cacheDay          = startOfToday
         } catch {
             print("ExplorationStore: cache reload failed: \(error)")
         }
+    }
+
+    /// Cells recorded before model version 4 have no `lastVisited`; their only known
+    /// visit is the first. Runs once in practice: later launches find nothing to fill.
+    private func backfillLastVisited(_ cells: [VisitedCell]) {
+        var changed = false
+        for cell in cells where cell.lastVisited == nil && cell.firstVisited != nil {
+            cell.lastVisited = cell.firstVisited
+            changed = true
+        }
+        guard changed else { return }
+        do {
+            try container.viewContext.save()
+        } catch {
+            // Queries treat the cells as not walked recently; the next launch retries.
+            print("ExplorationStore: lastVisited backfill failed: \(error)")
+            container.viewContext.rollback()
+        }
+    }
+
+    private func fetchWalkedCells(since startOfDay: Date) -> Set<CellID> {
+        let request = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
+        request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            NSPredicate(format: "cellSizeMeters == %f", kCellSizeMeters),
+            NSPredicate(format: "lastVisited >= %@", startOfDay as NSDate)
+        ])
+        let cells = (try? container.viewContext.fetch(request)) ?? []
+        return Set(cells.map { CellID(x: $0.cellX, y: $0.cellY) })
     }
 
     private func fetchTodayCount(since startOfToday: Date) -> Int {
@@ -225,9 +268,10 @@ final class ExplorationStore {
         guard today != cacheDay else { return false }
 
         todayVisitedCount = fetchTodayCount(since: today)
+        walkedTodayCache  = fetchWalkedCells(since: today)
         cacheDay          = today
         if isHighlightActive {
-            loadRecentCells(since: today)
+            loadRecentCells(since: today, basis: highlightBasis)
         }
         return true
     }
@@ -237,12 +281,12 @@ final class ExplorationStore {
     /// Also invalidates fog snapshots for count-neutral replacements with highlighting off.
     func reloadAfterReplacement() {
         reloadCache()
-        loadRecentCells(since: highlightCutoff)
+        loadRecentCells(since: highlightCutoff, basis: highlightBasis)
     }
 
-    /// Populates `recentCellsCache` from Core Data using `cutoffDate`.
+    /// Populates `recentCellsCache` with cells whose `basis` date is on or after `cutoffDate`.
     /// Pass nil (for `.off`) to clear the cache.
-    func loadRecentCells(since cutoffDate: Date?) {
+    func loadRecentCells(since cutoffDate: Date?, basis: HighlightBasis = .firstVisited) {
         guard let cutoff = cutoffDate else {
             recentCellsCache = []
             isHighlightActive = false
@@ -254,13 +298,15 @@ final class ExplorationStore {
         let request = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
         request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             NSPredicate(format: "cellSizeMeters == %f", kCellSizeMeters),
-            NSPredicate(format: "firstVisited >= %@", cutoff as NSDate)
+            NSPredicate(format: "%K >= %@",
+                        basis == .firstVisited ? "firstVisited" : "lastVisited", cutoff as NSDate)
         ])
         do {
             let cells = try container.viewContext.fetch(request)
             recentCellsCache = Set(cells.map { CellID(x: $0.cellX, y: $0.cellY) })
             isHighlightActive = true
             highlightCutoff = cutoff
+            highlightBasis = basis
             recentCellsGeneration &+= 1
         } catch {
             print("ExplorationStore: recent cells load failed: \(error)")
@@ -273,21 +319,31 @@ final class ExplorationStore {
 
     // MARK: - Write
 
-    /// Idempotent insert. Returns true when a new cell was recorded.
+    /// Records a walked sample's cell. Returns true only when the cell is new. The first
+    /// sample in a known cell on a new day updates its `lastVisited` and `daysVisited`;
+    /// any other repeat sample does no Core Data work. Callers refresh the day first.
     @discardableResult
     func addCell(_ cell: CellID) -> Bool {
-        guard loadError == nil, !visitedCellsCache.contains(cell) else { return false }
+        guard loadError == nil, !walkedTodayCache.contains(cell) else { return false }
+        guard !visitedCellsCache.contains(cell) else {
+            recordRepeatVisit(cell)
+            return false
+        }
 
         let ctx    = container.viewContext
         let entity = VisitedCell(context: ctx)
+        let now    = nowProvider()
         entity.cellX          = cell.x
         entity.cellY          = cell.y
         entity.cellSizeMeters = kCellSizeMeters
-        entity.firstVisited   = nowProvider()
+        entity.firstVisited   = now
+        entity.lastVisited    = now
+        entity.daysVisited    = 1
 
         do {
             try ctx.save()
             visitedCellsCache.insert(cell)
+            walkedTodayCache.insert(cell)
             totalVisitedCount = visitedCellsCache.count
             todayVisitedCount += 1
             // A newly walked cell is always "recent" while the highlight is active.
@@ -305,11 +361,47 @@ final class ExplorationStore {
         }
     }
 
+    /// Marks a known cell as walked today. Returns whether it was saved; a failed save is
+    /// retried by the cell's next sample, as for a new cell.
+    @discardableResult
+    private func recordRepeatVisit(_ cell: CellID) -> Bool {
+        let ctx = container.viewContext
+        let request = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
+        request.predicate = NSPredicate(format: "cellSizeMeters == %f AND cellX == %d AND cellY == %d",
+                                        kCellSizeMeters, cell.x, cell.y)
+        request.fetchLimit = 1
+        let now = nowProvider()
+        do {
+            guard let entity = try ctx.fetch(request).first else { return false }
+            if let last = entity.lastVisited, last >= Calendar.current.startOfDay(for: now) {
+                walkedTodayCache.insert(cell)
+                return false
+            }
+            entity.lastVisited = now
+            entity.daysVisited += 1
+            try ctx.save()
+            walkedTodayCache.insert(cell)
+            // Advance the generation: the visited count is unchanged, so it alone tells
+            // the map to repaint.
+            if isHighlightActive, highlightBasis == .lastVisited,
+               recentCellsCache.insert(cell).inserted {
+                recentCellsGeneration &+= 1
+            }
+            return true
+        } catch {
+            print("ExplorationStore: repeat visit save failed: \(error)")
+            ctx.rollback()
+            return false
+        }
+    }
+
     /// Merge-imports backup cell records. Inserts cells absent locally (matched by grid
     /// coordinate at the current cell size); for cells that already exist, keeps the earlier
-    /// of the two `firstVisited` dates without touching `locality` — `state`/`country` are
-    /// handled the same way, set only when a cell is newly inserted and never overwritten on
-    /// merge for existing cells. Returns the number of newly inserted cells.
+    /// of the two `firstVisited` dates, the later `lastVisited` and the larger `daysVisited`
+    /// (adding the counts would double-count days both histories share), without touching
+    /// `locality` — `state`/`country` are handled the same way, set only when a cell is newly
+    /// inserted and never overwritten on merge for existing cells. Returns the number of
+    /// newly inserted cells.
     ///
     /// Throws if the Core Data save fails, so a real failure is distinguishable from the
     /// legitimate "nothing new to merge" case (which returns 0). Fetch failures and the
@@ -345,6 +437,13 @@ final class ExplorationStore {
                    imported < current {
                     existingCell.firstVisited = imported
                 }
+                if let imported = record.lastVisited ?? record.firstVisited,
+                   imported > (existingCell.lastVisited ?? .distantPast) {
+                    existingCell.lastVisited = imported
+                }
+                if let days = record.daysVisited, days > existingCell.daysVisited {
+                    existingCell.daysVisited = days
+                }
                 continue
             }
 
@@ -353,6 +452,8 @@ final class ExplorationStore {
             entity.cellY          = record.cellY
             entity.cellSizeMeters = kCellSizeMeters
             entity.firstVisited   = record.firstVisited ?? nowProvider()
+            entity.lastVisited    = record.lastVisited ?? entity.firstVisited
+            entity.daysVisited    = max(record.daysVisited ?? 1, 1)
             entity.locality       = record.locality
             entity.state          = record.state
             entity.country        = record.country
@@ -372,7 +473,7 @@ final class ExplorationStore {
 
         reloadCache()
         if let highlightCutoff {
-            loadRecentCells(since: highlightCutoff)
+            loadRecentCells(since: highlightCutoff, basis: highlightBasis)
         }
         return addedCount
     }
@@ -434,6 +535,7 @@ final class ExplorationStore {
         guard deleteSucceeded else { return }
         visitedCellsCache.removeAll()
         recentCellsCache.removeAll()
+        walkedTodayCache.removeAll()
         isHighlightActive = false
         highlightCutoff = nil
         recentCellsGeneration &+= 1

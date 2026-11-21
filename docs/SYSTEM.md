@@ -36,7 +36,10 @@ which draws the overlay on MapKit's background rendering threads.
 ## Data ownership
 
 - `ExplorationStore` is the source of truth for visited cells and exploration
-  counts. It owns Core Data access for the visited-cell history.
+  counts. It owns Core Data access for the visited-cell history. Each cell keeps its
+  first visit, its latest visit and the number of local days it was walked. A repeat
+  sample writes only the first time it enters a known cell each day, so standing still
+  or walking a familiar route does no further Core Data work that day.
 - `LandmarkStore` owns landmark rows copied from the bundled Wikidata database
   and their discovery state. Rows are copied when the map shows a region and
   around each newly walked cell. Successful walk-time ingests are cached per launch;
