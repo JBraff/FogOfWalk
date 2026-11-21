@@ -873,6 +873,198 @@ final class ExplorationStoreTests: XCTestCase {
         return container
     }
 
+    // MARK: - Repeat visits
+
+    @MainActor
+    private func storedCell(_ cell: CellID, in store: ExplorationStore) -> VisitedCell? {
+        let request = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
+        request.predicate = NSPredicate(format: "cellX == %d AND cellY == %d", cell.x, cell.y)
+        return try? store.viewContext.fetch(request).first
+    }
+
+    /// Counts Core Data saves on `context` while `body` runs.
+    private func saveCount(in context: NSManagedObjectContext, during body: () -> Void) -> Int {
+        var saves = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: .NSManagedObjectContextDidSave, object: context, queue: nil) { _ in saves += 1 }
+        body()
+        NotificationCenter.default.removeObserver(token)
+        return saves
+    }
+
+    func testNewCellStartsWithOneDayAndLastVisitedNow() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            let now = Date(timeIntervalSince1970: 1_000_000)
+            store.nowProvider = { now }
+            store.configure()
+            let cell = CellID(x: 4, y: 4)
+            XCTAssertTrue(store.addCell(cell))
+            let stored = storedCell(cell, in: store)
+            XCTAssertEqual(stored?.firstVisited, now)
+            XCTAssertEqual(stored?.lastVisited, now)
+            XCTAssertEqual(stored?.daysVisited, 1)
+            XCTAssertTrue(store.walkedTodayCache.contains(cell))
+        }
+    }
+
+    func testRepeatSamplesOnTheSameDayDoNotWrite() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            store.configure()
+            let cell = CellID(x: 1, y: 1)
+            store.addCell(cell)
+            let saves = saveCount(in: store.viewContext) {
+                for _ in 0..<5 { XCTAssertFalse(store.addCell(cell)) }
+            }
+            XCTAssertEqual(saves, 0)
+            XCTAssertEqual(storedCell(cell, in: store)?.daysVisited, 1)
+        }
+    }
+
+    func testFirstSampleOnANewDayUpdatesLastVisitedOnce() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            let day1 = Calendar.current.startOfDay(for: Date(timeIntervalSince1970: 1_000_000))
+            let day2 = Calendar.current.date(byAdding: .day, value: 1, to: day1)!
+                .addingTimeInterval(3_600)
+            store.nowProvider = { day1 }
+            store.configure()
+            let cell = CellID(x: 2, y: 3)
+            store.addCell(cell)
+
+            store.nowProvider = { day2 }
+            store.refreshForDayChangeIfNeeded()
+            XCTAssertFalse(store.walkedTodayCache.contains(cell))
+            var saves = saveCount(in: store.viewContext) {
+                XCTAssertFalse(store.addCell(cell), "a repeat visit is not a new cell")
+            }
+            XCTAssertEqual(saves, 1)
+            let stored = storedCell(cell, in: store)
+            XCTAssertEqual(stored?.firstVisited, day1)
+            XCTAssertEqual(stored?.lastVisited, day2)
+            XCTAssertEqual(stored?.daysVisited, 2)
+            XCTAssertEqual(store.todayVisitedCount, 0, "a repeat visit is not new today")
+            XCTAssertEqual(store.totalVisitedCount, 1)
+
+            store.nowProvider = { day2.addingTimeInterval(600) }
+            saves = saveCount(in: store.viewContext) { store.addCell(cell) }
+            XCTAssertEqual(saves, 0)
+            XCTAssertEqual(storedCell(cell, in: store)?.daysVisited, 2)
+        }
+    }
+
+    func testRelaunchOnTheSameDayDoesNotCountTheDayAgain() async {
+        let container = makeInMemoryContainer()
+        let day1 = Calendar.current.startOfDay(for: Date(timeIntervalSince1970: 1_000_000))
+        let day2 = Calendar.current.date(byAdding: .day, value: 1, to: day1)!
+        let cell = CellID(x: 6, y: 6)
+        await MainActor.run {
+            let store = ExplorationStore(container: container)
+            store.nowProvider = { day1 }
+            store.configure()
+            store.addCell(cell)
+            store.nowProvider = { day2 }
+            store.refreshForDayChangeIfNeeded()
+            store.addCell(cell)
+        }
+        await MainActor.run {
+            let relaunched = ExplorationStore(container: container)
+            relaunched.nowProvider = { day2.addingTimeInterval(60) }
+            relaunched.configure()
+            XCTAssertTrue(relaunched.walkedTodayCache.contains(cell))
+            let saves = saveCount(in: relaunched.viewContext) { relaunched.addCell(cell) }
+            XCTAssertEqual(saves, 0)
+            XCTAssertEqual(storedCell(cell, in: relaunched)?.daysVisited, 2)
+        }
+    }
+
+    func testConfigureFillsMissingLastVisitedFromFirstVisited() async {
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let first = Date(timeIntervalSince1970: 1_000)
+            let legacy = VisitedCell(context: container.viewContext)
+            legacy.cellX = 1; legacy.cellY = 2
+            legacy.cellSizeMeters = kCellSizeMeters
+            legacy.firstVisited = first
+            legacy.locality = "Somewhere"
+            try? container.viewContext.save()
+
+            let store = ExplorationStore(container: container)
+            store.configure()
+            XCTAssertEqual(legacy.lastVisited, first)
+            XCTAssertEqual(legacy.daysVisited, 1)
+            XCTAssertEqual(legacy.locality, "Somewhere")
+            XCTAssertFalse(legacy.hasChanges, "the backfill must be saved")
+        }
+    }
+
+    /// An on-disk store written with model version 3 opens under the current model with its
+    /// cells intact and the upgrade defaults applied.
+    func testVersion3StoreMigratesWithHistoryIntact() async throws {
+        let url = try makeTempDirectory().appendingPathComponent("Fog.sqlite")
+        let first = Date(timeIntervalSince1970: 2_000)
+        let bundle = Bundle(for: ExplorationStore.self)
+        let v3URL = try XCTUnwrap(bundle.url(forResource: "FogOfWalk 3", withExtension: "mom",
+                                             subdirectory: "FogOfWalk.momd"))
+        let v3Model = try XCTUnwrap(NSManagedObjectModel(contentsOf: v3URL))
+        let old = NSPersistentContainer(name: "FogOfWalk", managedObjectModel: v3Model)
+        let description = NSPersistentStoreDescription(url: url)
+        old.persistentStoreDescriptions = [description]
+        old.loadPersistentStores { _, error in XCTAssertNil(error) }
+        let row = NSEntityDescription.insertNewObject(forEntityName: "VisitedCell",
+                                                      into: old.viewContext)
+        row.setValue(Int32(7), forKey: "cellX")
+        row.setValue(Int32(8), forKey: "cellY")
+        row.setValue(kCellSizeMeters, forKey: "cellSizeMeters")
+        row.setValue(first, forKey: "firstVisited")
+        row.setValue("Town", forKey: "locality")
+        row.setValue("Country", forKey: "country")
+        try old.viewContext.save()
+        for store in old.persistentStoreCoordinator.persistentStores {
+            try old.persistentStoreCoordinator.remove(store)
+        }
+
+        await MainActor.run {
+            let store = ExplorationStore(storeURL: url)
+            XCTAssertNil(store.loadError)
+            XCTAssertNil(store.recoveryNotice)
+            store.configure()
+            XCTAssertEqual(store.totalVisitedCount, 1)
+            let cell = storedCell(CellID(x: 7, y: 8), in: store)
+            XCTAssertEqual(cell?.firstVisited, first)
+            XCTAssertEqual(cell?.lastVisited, first)
+            XCTAssertEqual(cell?.daysVisited, 1)
+            XCTAssertEqual(cell?.locality, "Town")
+            XCTAssertEqual(cell?.country, "Country")
+        }
+    }
+
+    func testRepeatVisitSaveFailureIsRetriedByTheNextSample() async {
+        await MainActor.run {
+            let container = makeInMemoryContainer()
+            let day1 = Calendar.current.startOfDay(for: Date(timeIntervalSince1970: 1_000_000))
+            let day2 = Calendar.current.date(byAdding: .day, value: 1, to: day1)!
+            let store = ExplorationStore(container: container)
+            store.nowProvider = { day1 }
+            store.configure()
+            let cell = CellID(x: 9, y: 9)
+            store.addCell(cell)
+            store.nowProvider = { day2 }
+            store.refreshForDayChangeIfNeeded()
+
+            // Make the store read-only for one sample so its save fails.
+            let persistentStore = container.persistentStoreCoordinator.persistentStores[0]
+            persistentStore.isReadOnly = true
+            store.addCell(cell)
+            XCTAssertFalse(store.walkedTodayCache.contains(cell))
+            persistentStore.isReadOnly = false
+            store.addCell(cell)
+            XCTAssertTrue(store.walkedTodayCache.contains(cell))
+            XCTAssertEqual(storedCell(cell, in: store)?.daysVisited, 2)
+        }
+    }
+
     func testAddCellsThrowsOnSaveFailure() async throws {
         try await MainActor.run {
             let store = ExplorationStore(container: makeReadOnlyInMemoryContainer())
