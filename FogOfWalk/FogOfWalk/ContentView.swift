@@ -97,11 +97,11 @@ struct ContentView: View {
         }
         .onAppear {
             store.configure()
-            store.loadRecentCells(since: gridSettings.highlightCutoffDate)
+            store.loadRecentCells(since: gridSettings.highlightCutoffDate,
+                                  basis: gridSettings.todayHighlight.basis)
         }
-        .onChange(of: gridSettings.highlightToday) { _, newValue in
-            let cutoff = newValue ? Calendar.current.startOfDay(for: Date()) : nil
-            store.loadRecentCells(since: cutoff)
+        .onChange(of: gridSettings.todayHighlight) { _, mode in
+            store.loadRecentCells(since: gridSettings.highlightCutoffDate, basis: mode.basis)
         }
         // Best-effort day-rollover triggers for a user actively watching the app as
         // midnight passes. Each loop never returns, so each needs its own .task —

@@ -1065,6 +1065,62 @@ final class ExplorationStoreTests: XCTestCase {
         }
     }
 
+    func testWalkedTodayHighlightIncludesRepeatVisits() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            let day1 = Calendar.current.startOfDay(for: Date(timeIntervalSince1970: 1_000_000))
+            let day2 = Calendar.current.date(byAdding: .day, value: 1, to: day1)!
+            let day3 = Calendar.current.date(byAdding: .day, value: 1, to: day2)!
+            store.nowProvider = { day1 }
+            store.configure()
+            let old = CellID(x: 1, y: 1), other = CellID(x: 2, y: 2), new = CellID(x: 3, y: 3)
+            store.addCell(old)
+            store.addCell(other)
+
+            store.nowProvider = { day2 }
+            store.refreshForDayChangeIfNeeded()
+            store.addCell(old)
+            store.loadRecentCells(since: day2, basis: .firstVisited)
+            XCTAssertTrue(store.recentCellsCache.isEmpty, "new-today ignores repeat visits")
+            store.loadRecentCells(since: day2, basis: .lastVisited)
+            XCTAssertEqual(store.recentCellsCache, [old])
+
+            let generation = store.recentCellsGeneration
+            store.addCell(other)
+            XCTAssertEqual(store.recentCellsCache, [old, other])
+            XCTAssertEqual(store.recentCellsGeneration, generation &+ 1,
+                           "a repeat visit repaints without changing the visited count")
+            store.addCell(new)
+            XCTAssertEqual(store.recentCellsCache, [old, other, new])
+            XCTAssertEqual(store.walkedTodayCount, 3)
+            XCTAssertEqual(store.todayVisitedCount, 1)
+
+            store.nowProvider = { day3 }
+            store.refreshForDayChangeIfNeeded()
+            XCTAssertTrue(store.recentCellsCache.isEmpty)
+            store.addCell(old)
+            XCTAssertEqual(store.recentCellsCache, [old], "the day rollover keeps the walked basis")
+        }
+    }
+
+    func testNewTodayHighlightIgnoresRepeatVisits() async {
+        await MainActor.run {
+            let store = ExplorationStore(container: makeInMemoryContainer())
+            let day1 = Calendar.current.startOfDay(for: Date(timeIntervalSince1970: 1_000_000))
+            let day2 = Calendar.current.date(byAdding: .day, value: 1, to: day1)!
+            store.nowProvider = { day1 }
+            store.configure()
+            store.addCell(CellID(x: 1, y: 1))
+            store.nowProvider = { day2 }
+            store.refreshForDayChangeIfNeeded()
+            store.loadRecentCells(since: day2)
+            let generation = store.recentCellsGeneration
+            store.addCell(CellID(x: 1, y: 1))
+            XCTAssertTrue(store.recentCellsCache.isEmpty)
+            XCTAssertEqual(store.recentCellsGeneration, generation)
+        }
+    }
+
     func testAddCellsThrowsOnSaveFailure() async throws {
         try await MainActor.run {
             let store = ExplorationStore(container: makeReadOnlyInMemoryContainer())

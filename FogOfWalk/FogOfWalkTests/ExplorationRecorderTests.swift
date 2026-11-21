@@ -186,6 +186,26 @@ final class ExplorationRecorderTests: XCTestCase {
         }
     }
 
+    func testRepeatVisitReportsRepaintOnlyWhenTheWalkedHighlightChanges() async {
+        await MainActor.run {
+            for basis in [HighlightBasis.firstVisited, .lastVisited] {
+                let container = makeInMemoryContainer()
+                let store = ExplorationStore(container: container)
+                let day1 = Calendar.current.startOfDay(for: Date(timeIntervalSince1970: 1_000_000))
+                let day2 = Calendar.current.date(byAdding: .day, value: 1, to: day1)!
+                store.nowProvider = { day1 }
+                let recorder = ExplorationRecorder(store: store, landmarks: LandmarkStore(container: container))
+                recorder.record(location(x: 16, y: 16))
+                store.nowProvider = { day2 }
+                store.refreshForDayChangeIfNeeded()
+                store.loadRecentCells(since: day2, basis: basis)
+                XCTAssertEqual(recorder.record(location(x: 16, y: 16)), basis == .lastVisited,
+                               "basis \(basis)")
+                XCTAssertFalse(recorder.record(location(x: 16, y: 16)))
+            }
+        }
+    }
+
     func testRevisitingACellDoesNotQueryLandmarks() async {
         await MainActor.run {
             let container = makeInMemoryContainer()

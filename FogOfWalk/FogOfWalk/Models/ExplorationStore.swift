@@ -3,6 +3,12 @@ import CoreLocation
 import MapKit
 import Observation
 
+/// The visit date that puts a cell in the highlight.
+enum HighlightBasis {
+    case firstVisited
+    case lastVisited
+}
+
 @MainActor
 @Observable
 final class ExplorationStore {
@@ -19,6 +25,7 @@ final class ExplorationStore {
     /// Cells already walked on the current local day. A repeat visit to one of these
     /// writes nothing, so Core Data sees at most one update per cell per day.
     private(set) var walkedTodayCache: Set<CellID> = []
+    var walkedTodayCount: Int { walkedTodayCache.count }
     /// Monotonically increasing counter — increments on every `loadRecentCells` call
     /// so `MapContainerView.updateUIView` can detect highlight changes even when the
     /// cell count is unchanged (e.g., toggling on/off with 0 cells today).
@@ -31,6 +38,7 @@ final class ExplorationStore {
     /// currently empty (e.g., early in the day before any cells are visited).
     private var isHighlightActive = false
     private var highlightCutoff: Date?
+    private var highlightBasis: HighlightBasis = .firstVisited
 
     /// Injectable clock, required to test day-rollover behavior deterministically.
     var nowProvider: () -> Date = { Date() }
@@ -263,7 +271,7 @@ final class ExplorationStore {
         walkedTodayCache  = fetchWalkedCells(since: today)
         cacheDay          = today
         if isHighlightActive {
-            loadRecentCells(since: today)
+            loadRecentCells(since: today, basis: highlightBasis)
         }
         return true
     }
@@ -273,12 +281,12 @@ final class ExplorationStore {
     /// Also invalidates fog snapshots for count-neutral replacements with highlighting off.
     func reloadAfterReplacement() {
         reloadCache()
-        loadRecentCells(since: highlightCutoff)
+        loadRecentCells(since: highlightCutoff, basis: highlightBasis)
     }
 
-    /// Populates `recentCellsCache` from Core Data using `cutoffDate`.
+    /// Populates `recentCellsCache` with cells whose `basis` date is on or after `cutoffDate`.
     /// Pass nil (for `.off`) to clear the cache.
-    func loadRecentCells(since cutoffDate: Date?) {
+    func loadRecentCells(since cutoffDate: Date?, basis: HighlightBasis = .firstVisited) {
         guard let cutoff = cutoffDate else {
             recentCellsCache = []
             isHighlightActive = false
@@ -290,13 +298,15 @@ final class ExplorationStore {
         let request = NSFetchRequest<VisitedCell>(entityName: "VisitedCell")
         request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             NSPredicate(format: "cellSizeMeters == %f", kCellSizeMeters),
-            NSPredicate(format: "firstVisited >= %@", cutoff as NSDate)
+            NSPredicate(format: "%K >= %@",
+                        basis == .firstVisited ? "firstVisited" : "lastVisited", cutoff as NSDate)
         ])
         do {
             let cells = try container.viewContext.fetch(request)
             recentCellsCache = Set(cells.map { CellID(x: $0.cellX, y: $0.cellY) })
             isHighlightActive = true
             highlightCutoff = cutoff
+            highlightBasis = basis
             recentCellsGeneration &+= 1
         } catch {
             print("ExplorationStore: recent cells load failed: \(error)")
@@ -371,6 +381,12 @@ final class ExplorationStore {
             entity.daysVisited += 1
             try ctx.save()
             walkedTodayCache.insert(cell)
+            // Advance the generation: the visited count is unchanged, so it alone tells
+            // the map to repaint.
+            if isHighlightActive, highlightBasis == .lastVisited,
+               recentCellsCache.insert(cell).inserted {
+                recentCellsGeneration &+= 1
+            }
             return true
         } catch {
             print("ExplorationStore: repeat visit save failed: \(error)")
@@ -457,7 +473,7 @@ final class ExplorationStore {
 
         reloadCache()
         if let highlightCutoff {
-            loadRecentCells(since: highlightCutoff)
+            loadRecentCells(since: highlightCutoff, basis: highlightBasis)
         }
         return addedCount
     }

@@ -11,16 +11,14 @@ struct StatsView: View {
     var body: some View {
         HStack(spacing: 16) {
             Button {
-                gridSettings.highlightToday.toggle()
+                gridSettings.todayHighlight = gridSettings.todayHighlight.next
             } label: {
-                Text("\(store.todayVisitedCount) new today")
+                Text(todayText)
                     .font(.headline)
-                    .foregroundStyle(gridSettings.highlightToday ? Color.yellow : Color.primary)
+                    .foregroundStyle(gridSettings.todayHighlight == .off ? Color.primary : Color.yellow)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(gridSettings.highlightToday
-                ? "Highlighting today's areas. Tap to turn off."
-                : "\(store.todayVisitedCount) new today. Tap to highlight today's areas.")
+            .accessibilityLabel(todayAccessibilityLabel)
 
             if landmarkStore.totalDiscovered > 0 {
                 Button {
@@ -61,5 +59,22 @@ struct StatsView: View {
         .padding(.vertical, 12)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
         .padding(.horizontal, 16)
+    }
+
+    private var todayText: String {
+        gridSettings.todayHighlight == .walkedToday
+            ? "\(store.walkedTodayCount) walked today"
+            : "\(store.todayVisitedCount) new today"
+    }
+
+    private var todayAccessibilityLabel: String {
+        switch gridSettings.todayHighlight {
+        case .off:
+            "\(store.todayVisitedCount) new today. Tap to highlight new areas."
+        case .newToday:
+            "Highlighting \(store.todayVisitedCount) new today. Tap to highlight every area walked today."
+        case .walkedToday:
+            "Highlighting \(store.walkedTodayCount) walked today. Tap to turn off."
+        }
     }
 }
