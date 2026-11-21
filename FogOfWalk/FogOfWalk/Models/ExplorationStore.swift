@@ -381,9 +381,11 @@ final class ExplorationStore {
 
     /// Merge-imports backup cell records. Inserts cells absent locally (matched by grid
     /// coordinate at the current cell size); for cells that already exist, keeps the earlier
-    /// of the two `firstVisited` dates without touching `locality` — `state`/`country` are
-    /// handled the same way, set only when a cell is newly inserted and never overwritten on
-    /// merge for existing cells. Returns the number of newly inserted cells.
+    /// of the two `firstVisited` dates, the later `lastVisited` and the larger `daysVisited`
+    /// (adding the counts would double-count days both histories share), without touching
+    /// `locality` — `state`/`country` are handled the same way, set only when a cell is newly
+    /// inserted and never overwritten on merge for existing cells. Returns the number of
+    /// newly inserted cells.
     ///
     /// Throws if the Core Data save fails, so a real failure is distinguishable from the
     /// legitimate "nothing new to merge" case (which returns 0). Fetch failures and the
@@ -419,6 +421,13 @@ final class ExplorationStore {
                    imported < current {
                     existingCell.firstVisited = imported
                 }
+                if let imported = record.lastVisited ?? record.firstVisited,
+                   imported > (existingCell.lastVisited ?? .distantPast) {
+                    existingCell.lastVisited = imported
+                }
+                if let days = record.daysVisited, days > existingCell.daysVisited {
+                    existingCell.daysVisited = days
+                }
                 continue
             }
 
@@ -427,6 +436,8 @@ final class ExplorationStore {
             entity.cellY          = record.cellY
             entity.cellSizeMeters = kCellSizeMeters
             entity.firstVisited   = record.firstVisited ?? nowProvider()
+            entity.lastVisited    = record.lastVisited ?? entity.firstVisited
+            entity.daysVisited    = max(record.daysVisited ?? 1, 1)
             entity.locality       = record.locality
             entity.state          = record.state
             entity.country        = record.country

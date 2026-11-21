@@ -12,6 +12,9 @@ struct BackupVisitedCell: Codable, Equatable {
     let locality: String?
     var state: String? = nil
     var country: String? = nil
+    /// Absent before schema 3; the cell's only known visit is then its first.
+    var lastVisited: Date? = nil
+    var daysVisited: Int32? = nil
 }
 
 /// One discovered landmark, as stored in a backup file. Only the identifier and discovery
@@ -25,7 +28,7 @@ struct BackupLandmark: Codable, Equatable {
 /// The full contents of a backup file. `schemaVersion` guards against importing a file
 /// produced by a future, incompatible version of the app.
 struct BackupPayload: Codable, Equatable {
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     let schemaVersion: Int
     let exportedAt: Date
@@ -101,7 +104,8 @@ enum BackupService {
         let cellRecords = cells.map {
             BackupVisitedCell(cellX: $0.cellX, cellY: $0.cellY, cellSizeMeters: $0.cellSizeMeters,
                                firstVisited: $0.firstVisited, locality: $0.locality,
-                               state: $0.state, country: $0.country)
+                               state: $0.state, country: $0.country,
+                               lastVisited: $0.lastVisited, daysVisited: $0.daysVisited)
         }
 
         let landmarkRecords = landmarkStore.allLandmarks
@@ -169,6 +173,8 @@ enum BackupService {
                 cell.cellY = record.cellY
                 cell.cellSizeMeters = record.cellSizeMeters
                 cell.firstVisited = record.firstVisited ?? explorationStore.nowProvider()
+                cell.lastVisited = record.lastVisited ?? cell.firstVisited
+                cell.daysVisited = max(record.daysVisited ?? 1, 1)
                 cell.locality = record.locality
                 cell.state = record.state
                 cell.country = record.country
