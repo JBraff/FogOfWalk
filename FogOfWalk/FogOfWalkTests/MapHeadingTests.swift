@@ -80,9 +80,13 @@ final class MapHeadingTests: XCTestCase {
             controller.locationManager(manager, didUpdateHeading: CachedTestHeading(value: 90))
             controller.update(enabled: false, active: true, visible: true)
             controller.update(enabled: true, active: true, visible: true)
-            controller.onChange = {
-                guard let heading = controller.heading else { return }
+            controller.onChange = { [weak controller] in
+                guard let controller, let heading = controller.heading else { return }
                 XCTAssertEqual(heading, 180, "Queued callbacks must not cross a stop/restart")
+                // Fulfil once. onChange can run again with the same heading (the manager's
+                // authorization callback also calls it), and XCTest's over-fulfil violation,
+                // raised inside a Swift task, aborted the test run.
+                controller.onChange = nil
                 received.fulfill()
             }
             // A still phone may deliver a cached timestamp before the new start time.
