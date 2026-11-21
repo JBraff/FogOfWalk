@@ -96,6 +96,26 @@ for _qid, _label, _cat in LANDMARK_TYPES:
 
 QID_TO_CATEGORY = {qid: cat for qid, _, cat in UNIQUE_TYPES}
 
+# When an item matches several types, its category is the first in LANDMARK_TYPES
+# order, except that the generic "landmark" always loses to a specific category.
+# This keeps the result independent of SPARQL row order.
+CATEGORY_PRIORITY = {
+    cat: rank
+    for rank, cat in enumerate(dict.fromkeys(
+        [cat for _, _, cat in UNIQUE_TYPES if cat != "landmark"] + ["landmark"]
+    ))
+}
+
+
+def merge_landmark(landmarks: dict[str, dict], item: dict) -> None:
+    """Add item to landmarks, keeping the highest-priority category per QID."""
+    existing = landmarks.get(item["id"])
+    if existing is None or (
+        CATEGORY_PRIORITY[item["category"]] < CATEGORY_PRIORITY[existing["category"]]
+    ):
+        landmarks[item["id"]] = item
+
+
 SPARQL_ENDPOINT = "https://query.wikidata.org/sparql"
 USER_AGENT = "FogOfWalk-LandmarkFetcher/1.0 (fog-of-walk iOS app; educational)"
 BATCH_SIZE = 10  # QIDs per query — keeps each query well under the 60s timeout
@@ -212,10 +232,7 @@ def main():
         try:
             items = fetch_batch(batch, args.min_sitelinks)
             for item in items:
-                # If seen before, prefer the most specific (non-generic) category
-                existing = landmarks.get(item["id"])
-                if existing is None or (existing["category"] == "landmark" and item["category"] != "landmark"):
-                    landmarks[item["id"]] = item
+                merge_landmark(landmarks, item)
             print(f"    → {len(items)} results ({len(landmarks)} total unique)", flush=True)
         except Exception as e:
             print(f"    ERROR: {e}", file=sys.stderr)

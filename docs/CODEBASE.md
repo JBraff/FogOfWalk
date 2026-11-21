@@ -58,6 +58,7 @@ FogOfWalk/
 docs/                                # Durable product docs; start at docs/README.md
 scripts/
   fetch_landmarks.py                 # Wikidata SPARQL → JSON
+  test_fetch_landmarks.py            # python3 -m unittest discover -s scripts
   make_landmarks_db.py               # JSON → SQLite table + R-tree index
   landmarks_10.json, landmarks_preview.json   # Checked-in inputs
   landmarks.sqlite                   # Byte-identical copy of the shipped DB
