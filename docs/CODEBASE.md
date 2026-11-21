@@ -217,18 +217,20 @@ renderer applies no cell-count cap. The `radius > 0.5` guards are inert because 
 4. Trail strokes a cased line joining neighbouring today cells (diagonals only when no
    orthogonal cell links them) plus a dot per cell, 2.5 to 7 pt wide on screen.
 
-Soft styles reach up to `SoftFogRenderer.maxReachPoints` (24 pt) past a cell, so `draw` reads
-cells that far outside the tile; otherwise blurred edges and trail lines would be cut at tile
-seams. Discs are painted straight into the mask's pixels (an antialiased edge, keeping the
-larger value where discs overlap): filling thousands of overlapping ellipses as one Core
-Graphics path takes seconds. `clip(to:mask:)` treats the bitmap's last row as the top of the
+A soft-style cell reaches `SoftFogRenderer.reachPoints(cellPoints:)` from its centre: the disc,
+the blur (four box passes spread `2 × (kernel − 1)` mask pixels, up to 56 pt) and the trail
+casing. `draw` reads cells that far outside the tile, and the mask is padded by the blur's
+reach, so tiles drawn separately match at their seams
+(`testTiledRenderingMatchesOneRectangleAcrossASeam`). Discs are painted straight into the
+mask's pixels (an antialiased edge, keeping the larger value where discs overlap): filling
+thousands of overlapping ellipses as one Core Graphics path takes seconds. `clip(to:mask:)` treats the bitmap's last row as the top of the
 tile, so rows are flipped, which `testOffCentreCellClearsInPlace` checks.
 
 `Coordinator.invalidateFogTiles()` is the only way to push new state to the renderer.
 `updateUIView` calls it through `refreshFogIfChanged(in:)` when the cached cell count,
 `recentCellsGeneration` or the `FogAppearance` changes. When only a few cells were added or
 entered or left the highlight (`maxPartialRedrawCells`), it redraws just their squares padded by
-one cell or the 24 pt reach at the current zoom, whichever is larger; walking therefore no
+one cell or that reach at the current zoom, whichever is larger; walking therefore no
 longer redraws every visible tile per new cell. A style, highlight on/off or dark-mode change,
 removed cells (import or reset) or a large change redraws everything. The padding uses the
 zoom at the time of the push; if MapKit has kept tiles from a farther-out zoom, a soft edge

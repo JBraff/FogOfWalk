@@ -205,9 +205,9 @@ class FogOverlayRenderer: MKOverlayRenderer {
         let drawRect = rect(for: mapRect)   // CGRect in renderer space — set up by MapKit
 
         // Soft styles reach past the cell (blur, minimum size, trail width), so they also
-        // read cells just outside the tile; otherwise their edges would be cut at tile seams.
+        // read cells that far outside the tile; otherwise their edges would be cut at tile seams.
         let reach = look.style == .original || zoomScale <= 0
-            ? 0 : Double(SoftFogRenderer.maxReachPoints) / Double(zoomScale)
+            ? 0 : Self.softReach(around: mapRect, zoomScale: zoomScale)
         let queryRect = reach > 0 ? mapRect.insetBy(dx: -reach, dy: -reach).intersection(.world) : mapRect
         let region  = MKCoordinateRegion(queryRect)
         let margin  = kCellSizeMeters / GridMath.metersPerDegree
@@ -250,5 +250,20 @@ class FogOverlayRenderer: MKOverlayRenderer {
                 in: context
             )
         }
+    }
+
+    /// How far, in map points, a soft-style cell drawn in `mapRect` can reach from its centre.
+    static func softReach(around mapRect: MKMapRect, zoomScale: MKZoomScale) -> Double {
+        let cellPoints = cellMapSize(at: MKMapPoint(x: mapRect.midX, y: mapRect.midY).coordinate)
+            * Double(zoomScale)
+        return Double(SoftFogRenderer.reachPoints(cellPoints: CGFloat(cellPoints))) / Double(zoomScale)
+    }
+
+    /// The larger side of the cell at `coordinate` in map points; north-south grows with
+    /// latitude on the Mercator map.
+    static func cellMapSize(at coordinate: CLLocationCoordinate2D) -> Double {
+        let b = GridMath.bounds(for: GridMath.cellID(for: coordinate))
+        let a = MKMapPoint(b.min), c = MKMapPoint(b.max)
+        return max(abs(c.x - a.x), abs(c.y - a.y))
     }
 }

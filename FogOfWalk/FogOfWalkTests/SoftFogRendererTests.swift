@@ -132,6 +132,59 @@ final class SoftFogRendererTests: XCTestCase {
         XCTAssertLessThan(Int(pixelColor(at: point(center), in: image).a), 30)
     }
 
+    // MARK: - Tile seams
+
+    /// MapKit draws fog tile by tile. A blurred edge must come out the same whether a cell is
+    /// drawn into one wide rectangle or into two adjacent tiles. Zoomed in, the blur reaches
+    /// well past a fixed 24 pt, so the mask must be padded by the blur's real reach.
+    func testTiledRenderingMatchesOneRectangleAcrossASeam() {
+        let cellPoints: CGFloat = 100
+        let tileWidth: CGFloat = 256
+        let size = CGSize(width: tileWidth * 2, height: 256)
+        let step = kCellSizeMeters / GridMath.metersPerDegree
+        let origin = CellID(x: Int32(testCenter.longitude / step), y: Int32(testCenter.latitude / step))
+        let convert: (CLLocationCoordinate2D) -> CGPoint = { coord in
+            CGPoint(x: (coord.longitude / step - Double(origin.x)) * cellPoints,
+                    y: (Double(origin.y) + 2 - coord.latitude / step) * cellPoints)
+        }
+        // Centre about 100 pt left of the seam at x = 256, as in the review case.
+        let cell = CellID(x: origin.x + 1, y: origin.y)
+        XCTAssertEqual(convert(GridMath.center(for: cell)).x, tileWidth - 106, accuracy: 1)
+
+        func image(tiles: [CGRect]) -> CGImage {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            return UIGraphicsImageRenderer(size: size, format: format).image { context in
+                for tile in tiles {
+                    SoftFogRenderer().render(cells: [cell], todayCells: [],
+                                             appearance: FogAppearance(style: .trail),
+                                             drawRect: tile, coordinateConverter: convert,
+                                             pointsPerUnit: 1, in: context.cgContext)
+                }
+            }.cgImage!
+        }
+        let whole = image(tiles: [CGRect(origin: .zero, size: size)])
+        let tiled = image(tiles: [CGRect(x: 0, y: 0, width: tileWidth, height: size.height),
+                                  CGRect(x: tileWidth, y: 0, width: tileWidth, height: size.height)])
+        let wholeBuffer = pixelBuffer(for: whole), tiledBuffer = pixelBuffer(for: tiled)
+        let y = convert(GridMath.center(for: cell)).y
+        for x in stride(from: tileWidth - 8, through: tileWidth + 8, by: 1) {
+            let a = pixelColor(at: CGPoint(x: x, y: y), in: wholeBuffer, width: whole.width, height: whole.height).a
+            let b = pixelColor(at: CGPoint(x: x, y: y), in: tiledBuffer, width: tiled.width, height: tiled.height).a
+            XCTAssertLessThanOrEqual(abs(Int(a) - Int(b)), 3, "Fog differs across the seam at x = \(x)")
+        }
+    }
+
+    func testReachCoversTheBlurAtEveryZoom() {
+        for cellPoints: CGFloat in [0.5, 5, 20, 60, 100, 400] {
+            let reach = SoftFogRenderer.reachPoints(cellPoints: cellPoints)
+            XCTAssertGreaterThanOrEqual(reach, SoftFogRenderer.blurReachPoints(cellPoints: cellPoints)
+                                        + max(cellPoints * SoftFogRenderer.holeRadiusFactor, 3))
+        }
+        XCTAssertGreaterThanOrEqual(SoftFogRenderer.blurReachPoints(cellPoints: 100), 56,
+                                    "Four passes of the 15-pixel kernel spread 28 mask pixels")
+    }
+
     // MARK: - Performance
 
     /// Zoomed out, the original style draws a gradient per cell while the soft styles fill one

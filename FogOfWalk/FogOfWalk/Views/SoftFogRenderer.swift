@@ -14,10 +14,21 @@ import UIKit
 /// cells in it, not one gradient per cell, so zoomed-out tiles with thousands of cells stay cheap.
 struct SoftFogRenderer {
 
-    /// Farthest a cell's drawing reaches past its own square, in screen points: the 3 pt
-    /// minimum, the blur and half the trail casing, with room to spare. `FogOverlayRenderer`
-    /// reads cells this far outside a tile, and the map redraws this far around a new cell.
-    static let maxReachPoints: CGFloat = 24
+    /// How far the blur spreads a disc's edge, in screen points, for a cell of `cellPoints`:
+    /// four box passes, each reaching half a kernel.
+    static func blurReachPoints(cellPoints: CGFloat) -> CGFloat {
+        let kernel = MaskCanvas.blurKernel(cellPixels: cellPoints * maskPixelsPerPoint)
+        return kernel == 0 ? 0 : CGFloat(2 * (kernel - 1)) / maskPixelsPerPoint
+    }
+
+    /// Farthest a cell's drawing reaches from its centre, in screen points: the disc, its
+    /// blur and the trail casing, plus a pixel of slack. `FogOverlayRenderer` reads cells this
+    /// far outside a tile, and the map redraws this far around a changed cell, so a tile
+    /// edge never cuts a soft edge.
+    static func reachPoints(cellPoints: CGFloat) -> CGFloat {
+        max(max(cellPoints * holeRadiusFactor, FogOverlayRenderer.kMinCellScreenPoints)
+            + blurReachPoints(cellPoints: cellPoints), 5) + 2 / maskPixelsPerPoint
+    }
 
     /// Mask resolution. Edges are blurred anyway, so a coarse mask looks the same and is cheap.
     static let maskPixelsPerPoint: CGFloat = 0.5
@@ -218,7 +229,9 @@ struct SoftFogRenderer {
 
 // MARK: - MaskCanvas
 
-/// A greyscale mask covering a tile plus `maxReachPoints`, where white clears the fog.
+/// A greyscale mask covering a tile plus the blur's reach, where white clears the fog. The
+/// padding keeps the blur near a tile edge reading real cells rather than repeated edge
+/// pixels, so adjacent tiles match at their seam.
 private struct MaskCanvas {
     let rect: CGRect
     let width: Int
@@ -229,14 +242,20 @@ private struct MaskCanvas {
     let blurKernel: Int
 
     init(drawRect: CGRect, pointsPerUnit: CGFloat, radius: CGFloat, cellSize: CGFloat) {
-        let pad = SoftFogRenderer.maxReachPoints / pointsPerUnit
+        let slack = 2 / SoftFogRenderer.maskPixelsPerPoint
+        let pad = (SoftFogRenderer.blurReachPoints(cellPoints: cellSize * pointsPerUnit) + slack)
+            / pointsPerUnit
         rect = drawRect.insetBy(dx: -pad, dy: -pad)
         pixelsPerUnit = min(SoftFogRenderer.maskPixelsPerPoint * pointsPerUnit,
                             SoftFogRenderer.maxMaskPixels / max(rect.width, rect.height))
         width  = max(1, Int((rect.width  * pixelsPerUnit).rounded(.up)))
         height = max(1, Int((rect.height * pixelsPerUnit).rounded(.up)))
         self.radius = max(radius * pixelsPerUnit, 1)
-        blurKernel = Self.blurKernel(cellPixels: cellSize * pixelsPerUnit)
+        // A capped mask has fewer pixels per point; keep the blur within the padding anyway.
+        // Four passes of kernel k spread 2(k - 1) pixels; use the largest odd k that fits.
+        let largest = Int(pad * pixelsPerUnit) / 2 + 1
+        let fitting = largest >= 3 ? (largest % 2 == 1 ? largest : largest - 1) : 0
+        blurKernel = min(Self.blurKernel(cellPixels: cellSize * pixelsPerUnit), fitting)
     }
 
     func mask(_ centers: [CGPoint]) -> CGImage? {

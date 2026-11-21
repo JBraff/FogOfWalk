@@ -316,8 +316,9 @@ struct MapContainerView: UIViewRepresentable {
                 let square = MKMapRect(x: min(a.x, c.x), y: min(a.y, c.y),
                                        width: abs(c.x - a.x), height: abs(c.y - a.y))
                 // A trail line runs to the neighbouring cell, so pad by at least one cell.
-                let pad = max(square.width, square.height,
-                              Double(SoftFogRenderer.maxReachPoints) / Double(zoomScale))
+                let side = max(square.width, square.height)
+                let reach = SoftFogRenderer.reachPoints(cellPoints: CGFloat(side * Double(zoomScale)))
+                let pad = max(side, Double(reach) / Double(zoomScale))
                 rect = rect.union(square.insetBy(dx: -pad, dy: -pad))
             }
             return rect

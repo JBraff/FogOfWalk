@@ -112,7 +112,7 @@ final class FogRefreshTests: XCTestCase {
             let cell = GridMath.cellID(for: Self.center)
             let zoomScale: MKZoomScale = 0.001
             let rect = MapContainerView.Coordinator.fogDirtyRect(changedCells: [cell], zoomScale: zoomScale)
-            let reach = Double(SoftFogRenderer.maxReachPoints) / Double(zoomScale)
+            let reach = Double(SoftFogRenderer.reachPoints(cellPoints: 0)) / Double(zoomScale)
             XCTAssertGreaterThanOrEqual(rect?.size.width ?? 0, 2 * reach)
         }
     }
