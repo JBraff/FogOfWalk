@@ -54,7 +54,9 @@ final class LandmarkAnnotationViewTests: XCTestCase {
         XCTAssertNil(view.image, "An unattached map's unspecified traits must not trigger a placeholder draw")
         XCTAssertFalse(view.isEnabled)
         XCTAssertFalse(view.isAccessibilityElement)
-        XCTAssertNil(view.accessibilityLabel)
+        // iOS 27 MapKit returns a default label (the annotation title or "Map pin") and
+        // traits even when cleared; an inert view is not an accessibility element.
+        XCTAssertFalse(view.accessibilityTraits.contains(.button))
         XCTAssertNil(view.accessibilityIdentifier)
         view.configure(traits: UITraitCollection(userInterfaceStyle: .dark))
         let first = view.image
@@ -94,7 +96,7 @@ final class LandmarkAnnotationViewTests: XCTestCase {
         let view = makeView(annotation: annotation(discovered: false))
         XCTAssertFalse(view.isEnabled)
         XCTAssertFalse(view.isAccessibilityElement)
-        XCTAssertNil(view.accessibilityLabel)
+        XCTAssertFalse(view.accessibilityTraits.contains(.button))
         XCTAssertEqual(view.centerOffset, .zero)
         let icon = try XCTUnwrap(UIImage(systemName: "questionmark.circle.fill",
             withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)))
@@ -116,7 +118,8 @@ final class LandmarkAnnotationViewTests: XCTestCase {
         view.annotation = annotation(discovered: false, name: "Hidden name")
         view.configure(traits: UITraitCollection(userInterfaceStyle: .light))
         XCTAssertFalse(view.isEnabled)
-        XCTAssertNil(view.accessibilityLabel)
+        XCTAssertFalse(view.accessibilityTraits.contains(.button))
+        XCTAssertNotEqual(view.accessibilityLabel, "Hidden name", "An undiscovered name must not be exposed")
         XCTAssertEqual(view.centerOffset, .zero)
         XCTAssertEqual(view.displayPriority, .required)
         view.annotation = annotation(discovered: true, category: "unknown", name: "Another place")
