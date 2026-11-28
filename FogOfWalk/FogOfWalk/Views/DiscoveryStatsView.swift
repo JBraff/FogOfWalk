@@ -270,7 +270,7 @@ private struct StatCard: View {
 
 // MARK: - LocalityRow
 
-private struct LocalityRow: View {
+struct LocalityRow: View {
     let stat: LocalityStats
     let maxCount: Int
     var action: (() -> Void)? = nil
@@ -293,23 +293,28 @@ private struct LocalityRow: View {
             Spacer()
 
             GeometryReader { geo in
-                let fraction = maxCount > 0 ? CGFloat(stat.count) / CGFloat(maxCount) : 0
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 3)
+                    Capsule()
                         .fill(Color.secondary.opacity(0.15))
-                        .frame(width: geo.size.width, height: 8)
-                    RoundedRectangle(cornerRadius: 3)
+                    Capsule()
                         .fill(Color.accentColor)
-                        .frame(width: geo.size.width * fraction, height: 8)
+                        .frame(width: Self.fillWidth(count: stat.count, maxCount: maxCount,
+                                                     trackWidth: geo.size.width, minimum: geo.size.height))
                 }
             }
             .frame(width: 80, height: 8)
 
-            Text("\(stat.count)")
+            // Size the column to the list's largest count so every row's bar lines up.
+            Text(maxCount.formatted())
+                .hidden()
+                .overlay(alignment: .trailing) {
+                    Text(stat.count.formatted())
+                        .foregroundStyle(.secondary)
+                }
                 .font(.subheadline)
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 32, alignment: .trailing)
+                .lineLimit(1)
+                .fixedSize()
 
             if action != nil {
                 Image(systemName: "chevron.right")
@@ -319,6 +324,14 @@ private struct LocalityRow: View {
         }
         .padding(.vertical, 8)
         .contentShape(Rectangle())
+    }
+
+    /// Width of the filled bar. A nonzero count is at least `minimum` wide, so it reads as a
+    /// dot rather than a hairline.
+    static func fillWidth(count: Int, maxCount: Int, trackWidth: CGFloat, minimum: CGFloat) -> CGFloat {
+        guard count > 0, maxCount > 0 else { return 0 }
+        let fraction = min(CGFloat(count) / CGFloat(maxCount), 1)
+        return max(trackWidth * fraction, min(minimum, trackWidth))
     }
 }
 
